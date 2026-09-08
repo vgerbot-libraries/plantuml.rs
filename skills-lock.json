@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "rust-best-practices": {
+      "source": "apollographql/skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust-best-practices/SKILL.md",
+      "computedHash": "0ac6606adb27e64a31bdc8c1ed34e446ae0c14bff1c7648867c46e106adc048f"
+    },
+    "rust-ffi": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust/rust-ffi/SKILL.md",
+      "computedHash": "55fadeaff081bf9ccdc7a266cd85850fadf17508c2733a3519f52c40a1071735"
+    },
+    "rust-java-migration": {
+      "source": "full-stack-skills/rust-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust-java-migration/SKILL.md",
+      "computedHash": "2dc99f08156bed0bfa03e888a363a8190c69611935d01050e83fc1549c271dab"
+    },
+    "rust-testing": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/rust-testing/SKILL.md",
+      "computedHash": "bd66d6441ff6d3a6acb89c902cd6a01bf58410aec3ecbc43d45409b3a3788ac8"
+    }
+  }
+}
