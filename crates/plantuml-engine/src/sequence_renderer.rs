@@ -188,6 +188,7 @@ pub fn render_sequence_svg(
     msg_deactivates: &[Vec<String>],
     msg_parallel: &[bool],
     max_message_size: Option<f64>,
+    msg_exo: &[Option<ExoType>],
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -271,7 +272,7 @@ pub fn render_sequence_svg(
         let mut mi = 0usize;
         for event in diagram.events() {
             if let SequenceEvent::Message(msg) = event {
-                let is_self = msg.p1().code() == msg.p2().code();
+                let is_self = msg_exo.get(mi).copied().flatten().is_none() && msg.p1().code() == msg.p2().code();
                 if is_self {
                     let p_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                     let level_ignore = pre_participant_levels.get(p_idx).copied().unwrap_or(0);
@@ -342,6 +343,8 @@ pub fn render_sequence_svg(
     // Reverse: point1.ensureBiggerThan(point2.addFixed(width))
     //   where point1 = posC[hi] + (-5 if level1>0 else 0), point2 = posC[lo] + level2*5
     let mut nonadjacent_constraints: Vec<(usize, usize, f64, f64, f64)> = Vec::new();
+    // Exo arrow constraints: (participant_idx, arrow_width) — posC[p] >= xOrigin + width
+    let mut exo_constraints: Vec<(usize, f64)> = Vec::new();
 
     let mut spacing_msg_idx = 0usize;
     for event in diagram.events() {
@@ -350,6 +353,17 @@ pub fn render_sequence_svg(
             let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
             let label = msg.label();
             let text_w = pre_wrapped_widths[spacing_msg_idx];
+            let exo = msg_exo.get(spacing_msg_idx).copied().flatten();
+            if let Some(exo_type) = exo {
+                // Exo arrows: skip regular constraint handling
+                // TO_RIGHT: no constraint (arrow extends right from participant)
+                // FROM_LEFT: posC[p] >= xOrigin + width (participant far enough from left border)
+                if exo_type == ExoType::FromLeft {
+                    exo_constraints.push((p2_idx, text_w + 24.0));
+                }
+                spacing_msg_idx += 1;
+                continue;
+            }
             if p1_idx == p2_idx {
                 // Self-message: posC2 = posC + getMaxPosition() (global max activation level)
                 let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
@@ -438,6 +452,11 @@ pub fn render_sequence_svg(
         let constraint = plantuml_real::add_fixed(&point2, arrow_w);
         plantuml_real::ensure_bigger_than(&point1, &constraint);
     }
+    // Apply exo arrow constraints: posC[p] >= xOrigin + width (for FROM_LEFT exo arrows)
+    for &(p_idx, arrow_w) in &exo_constraints {
+        let constraint = plantuml_real::add_fixed(&xorigin, arrow_w);
+        plantuml_real::ensure_bigger_than(&pos_c[p_idx], &constraint);
+    }
     plantuml_real::compile_now(xorigin.get_line());
 
     let mut pos_b_vals: Vec<f64> = pos_b.iter().map(|r| r.get_current_value()).collect();
@@ -518,7 +537,8 @@ pub fn render_sequence_svg(
             msg_wrapped_lines.push(wrapped_lines);
             let text_h = (line_count as f64) * 13.0 + 13.0;
             msg_text_heights.push(text_h);
-            let is_self = msg.p1().code() == msg.p2().code();
+            let exo = msg_exo.get(msg_idx).copied().flatten();
+            let is_self = exo.is_none() && msg.p1().code() == msg.p2().code();
             is_self_flags.push(is_self);
             let curr_group = msg_group.get(msg_idx).copied().flatten();
             let is_first_in_group = curr_group.is_some() && curr_group != prev_group
@@ -743,9 +763,12 @@ pub fn render_sequence_svg(
                 if msg_iter_idx >= group.msg_start && msg_iter_idx < group.msg_end {
                     let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                     let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
-                    let is_self = msg.p1().code() == msg.p2().code();
+                    let exo = msg_exo.get(msg_iter_idx).copied().flatten();
+                    let is_self = exo.is_none() && msg.p1().code() == msg.p2().code();
                     let is_reverse = if is_self {
                         msg.arrow_config().is_reverse_define()
+                    } else if exo.is_some() {
+                        false
                     } else {
                         pos_c_vals[p1_idx] > pos_c_vals[p2_idx]
                     };
@@ -755,21 +778,32 @@ pub fn render_sequence_svg(
                     // Drawn X range
                     let p1_c = pos_c_vals[p1_idx];
                     let p2_c = pos_c_vals[p2_idx];
-                    let self_drawn_w = if is_self {
+                    let (self_drawn_w, mut d_min, mut d_max) = if let Some(exo_type) = exo {
+                        // Exo arrow: drawn range is [posC - width, posC] or [posC, posC + width]
                         let label_w = pre_wrapped_widths[msg_iter_idx];
-                        let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
-                        SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act
-                    } else {
-                        0.0
-                    };
-                    let (mut d_min, mut d_max) = if is_self {
-                        if is_reverse {
-                            (p1_c - self_drawn_w, p1_c)
-                        } else {
-                            (p1_c, p1_c + self_drawn_w)
+                        let exo_w = label_w + 24.0;
+                        match exo_type {
+                            ExoType::ToRight => (0.0, p1_c, p1_c + exo_w),
+                            ExoType::FromLeft => (0.0, p2_c - exo_w, p2_c),
                         }
                     } else {
-                        (p1_c.min(p2_c), p1_c.max(p2_c))
+                        let self_drawn_w = if is_self {
+                            let label_w = pre_wrapped_widths[msg_iter_idx];
+                            let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                            SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act
+                        } else {
+                            0.0
+                        };
+                        let (d_min, d_max) = if is_self {
+                            if is_reverse {
+                                (p1_c - self_drawn_w, p1_c)
+                            } else {
+                                (p1_c, p1_c + self_drawn_w)
+                            }
+                        } else {
+                            (p1_c.min(p2_c), p1_c.max(p2_c))
+                        };
+                        (self_drawn_w, d_min, d_max)
                     };
 
                     // Note X range — for self-messages, the note is drawn at the
@@ -1794,15 +1828,24 @@ pub fn render_sequence_svg(
             let y = arrow_ys[msg_idx];
 
             // Draw arrow first, then note(s) for this message
-            draw_message(
-                &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
-                p1_idx, p2_idx,
-                msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
-                msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
-                msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
-                msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
-                msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
-            );
+            let exo = msg_exo.get(msg_idx).copied().flatten();
+            if let Some(exo_type) = exo {
+                draw_exo_message(
+                    &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
+                    p1_idx, exo_type,
+                    msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                );
+            } else {
+                draw_message(
+                    &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
+                    p1_idx, p2_idx,
+                    msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
+                    msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
+                    msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                    msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
+                    msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
+                );
+            }
             for note in notes {
                 if note.msg_index != msg_idx {
                     continue;
@@ -2167,6 +2210,86 @@ fn draw_message(
     }
 }
 
+/// Draws an exo (external) arrow where `?` is used as a message endpoint.
+/// Ported from: net/sourceforge/plantuml/sequencediagram/teoz/CommunicationExoTile.java
+/// For TO_RIGHT (`A->?`): arrow from posC[A] to posC[A] + width
+/// For FROM_LEFT (`?->E`): arrow from posC[E] - width to posC[E]
+/// The arrow is drawn like a regular left-to-right arrow within an area of width `text_w + 24`.
+fn draw_exo_message(
+    svg: &mut SvgGraphics,
+    msg: &Message,
+    pos_c: &[f64],
+    bounder: &StringBounderFromWidthTable,
+    font: &UFont,
+    x_offset: f64,
+    y: f64,
+    p_idx: usize,
+    exo_type: ExoType,
+    wrapped_lines: &[String],
+) {
+    let label = msg.label();
+    let pos_c_val = pos_c[p_idx] + x_offset;
+
+    // Compute text width (use wrapped lines if available, otherwise raw label)
+    let lines: Vec<&str> = if !wrapped_lines.is_empty() {
+        wrapped_lines.iter().map(String::as_str).collect()
+    } else {
+        label.split("\\n").collect()
+    };
+    let text_w = lines.iter().map(|l| bounder.calculate_dimension(font, l).width()).fold(0.0_f64, f64::max);
+    let area_w = text_w + 24.0; // getTextWidth + getArrowDeltaX = (pureText + 7 + 7) + 10
+
+    // x1, x2 are the endpoints of the arrow area
+    // x1 is the left edge of the arrow area; x2 is the right edge
+    let x1 = match exo_type {
+        ExoType::ToRight => pos_c_val,
+        ExoType::FromLeft => pos_c_val - area_w,
+    };
+
+    // Arrow drawing: the component draws within [x1, x1+area_w]
+    // Line: from x1 to x1 + area_w - 1 - arrowDeltaX/2 = x1 + area_w - 6
+    // Arrowhead tip: at x1 + area_w - 1 - 1 = x1 + area_w - 2
+    // (from ComponentRoseArrow.drawInternalU: start=0, len=area_w-1, pos2=len-1,
+    //  len -= arrowDeltaX/2 for NORMAL FULL dressing2)
+    let line_end = x1 + area_w - ARROW_LINE_END_OFFSET;
+    let tip_x = x1 + area_w - 2.0;
+    let base_x = tip_x - ARROWHEAD_SIZE;
+    let half = ARROWHEAD_SIZE / 2.0 - 1.0;
+
+    let is_dashed = msg.arrow_config().is_dotted();
+
+    // Draw arrowhead first (matching Java drawInternalU order: polygon then line)
+    svg.set_fill_color(COLOR_ARROW);
+    svg.set_stroke_color(Some(COLOR_ARROW));
+    svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
+    svg.svg_polygon(
+        0.0,
+        &[base_x, y - half, tip_x, y, base_x, y + half, base_x + 4.0, y],
+    );
+
+    // Draw arrow line
+    svg.set_stroke_color(Some(COLOR_ARROW));
+    svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
+    svg.svg_line(x1, y, line_end, y, 0.0);
+
+    // Draw text
+    if !label.is_empty() {
+        let text_x = x1 + MESSAGE_TEXT_X_OFFSET; // getOldPaddingX1() = 7
+        let text_y = y - MESSAGE_TEXT_Y_OFFSET - ((lines.len().max(1) - 1) as f64) * 13.0;
+
+        svg.set_fill_color(COLOR_TEXT);
+        svg.set_stroke_color(None);
+        for (line_idx, line) in lines.iter().enumerate() {
+            let line_y = text_y + (line_idx as f64) * 13.0;
+            let text_w_line = bounder.calculate_dimension(font, line).width();
+            svg.text(
+                line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                text_w_line, &indexmap::IndexMap::new(), None,
+            );
+        }
+    }
+}
+
 fn format_note_path_abs(x: f64, y: f64, width: f64, height: f64, cornersize: f64) -> String {
     // The note has a folded corner at top-right:
     // (x,y) → (x,y+h) → (x+w,y+h) → (x+w,y+cs) → (x+w-cs,y) → (x,y)
@@ -2293,6 +2416,15 @@ pub struct GroupInfo {
     pub parallel: bool,
 }
 
+/// Type of exo (external) arrow, when `?` is used as a message endpoint.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ExoType {
+    /// `A->?` — arrow goes right from participant A.
+    ToRight,
+    /// `?->E` — arrow comes from the left to participant E.
+    FromLeft,
+}
+
 /// Parsed sequence diagram with SVG metadata.
 pub struct ParsedSequence {
     /// The sequence diagram.
@@ -2313,12 +2445,14 @@ pub struct ParsedSequence {
     pub groups: Vec<GroupInfo>,
     /// Participants activated per message (future activate attached to message).
     pub msg_activates: Vec<Vec<String>>,
-    /// Participants deactivated/destroyed per message (future deactivate/destroy attached to message).
+    /// Participants deactivated/destroyed per message (future deactivate/destroyed per message).
     pub msg_deactivates: Vec<Vec<String>>,
     /// Whether each message is parallel (drawn at same Y as previous, from `&` prefix).
     pub msg_parallel: Vec<bool>,
     /// Maximum message text width for wrapping (from `Maxmessagesize` skinparam).
     pub max_message_size: Option<f64>,
+    /// Exo arrow type per message: None for regular, Some(ToRight) for `A->?`, Some(FromLeft) for `?->E`.
+    pub msg_exo: Vec<Option<ExoType>>,
 }
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
@@ -2343,6 +2477,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut msg_activates: Vec<Vec<String>> = Vec::new();
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
     let mut msg_parallel: Vec<bool> = Vec::new();
+    let mut msg_exo: Vec<Option<ExoType>> = Vec::new();
     let mut next_msg_parallel = false;
     let mut in_note_block: Option<(NotePosition, Vec<String>)> = None;
     let mut max_message_size: Option<f64> = None;
@@ -2666,10 +2801,36 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         }
 
         if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate)) = parse_arrow_line(trimmed) {
-            last_p1 = Some(p1_code.clone());
-            last_p2 = Some(p2_code.clone());
-            let p1 = diagram.get_or_create_participant(&p1_code);
-            let p2 = diagram.get_or_create_participant(&p2_code);
+            // Detect exo arrows: ? as p1 (FROM_LEFT) or p2 (TO_RIGHT)
+            let exo = if p2_code == "?" {
+                Some(ExoType::ToRight)
+            } else if p1_code == "?" {
+                Some(ExoType::FromLeft)
+            } else {
+                None
+            };
+            // For exo arrows, use the real participant as both p1 and p2
+            let (real_p1, real_p2) = match exo {
+                Some(ExoType::ToRight) => {
+                    last_p1 = Some(p1_code.clone());
+                    last_p2 = Some(p2_code.clone());
+                    let p1 = diagram.get_or_create_participant(&p1_code);
+                    (p1.clone(), p1)
+                }
+                Some(ExoType::FromLeft) => {
+                    last_p1 = Some(p1_code.clone());
+                    last_p2 = Some(p2_code.clone());
+                    let p2 = diagram.get_or_create_participant(&p2_code);
+                    (p2.clone(), p2)
+                }
+                None => {
+                    last_p1 = Some(p1_code.clone());
+                    last_p2 = Some(p2_code.clone());
+                    let p1 = diagram.get_or_create_participant(&p1_code);
+                    let p2 = diagram.get_or_create_participant(&p2_code);
+                    (p1, p2)
+                }
+            };
             let msg_num = diagram.get_next_message_number();
             let arrow_config = match arrow {
                 "-->" => plantuml_skin::ArrowConfiguration::with_direction_self(false)
@@ -2683,7 +2844,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 "<-" => plantuml_skin::ArrowConfiguration::with_direction_normal().reverse_define(),
                 _ => plantuml_skin::ArrowConfiguration::with_direction_normal(),
             };
-            let msg = Message::new(p1, p2, label, arrow_config, msg_num);
+            let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
             // Apply inline activation/deactivation
             let mut acts = Vec::new();
@@ -2697,6 +2858,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             msg_activates.push(acts);
             msg_deactivates.push(deacts);
             msg_parallel.push(next_msg_parallel);
+            msg_exo.push(exo);
             next_msg_parallel = false;
             msg_count += 1;
         }
@@ -2718,6 +2880,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             msg_deactivates,
             msg_parallel,
             max_message_size,
+            msg_exo,
         })
     }
 }
