@@ -117,6 +117,9 @@ const GROUP_HEADER_OFFSET: f64 = 29.0;
 const PARTITION_HEADER_EXTRA: f64 = 6.0;
 /// Gap between consecutive group frames = 2*EXTERNAL_MARGINY + MARGINY_MAGIC/2.
 const GROUP_GAP: f64 = 18.0;
+/// Else tile height (from ComponentRoseGroupingElse.getPreferredHeight in teoz mode).
+/// = getTextHeight(13) + 4 = 17.
+const ELSE_TILE_HEIGHT: f64 = 17.0;
 /// Group frame stroke width.
 const GROUP_STROKE_WIDTH: f64 = 1.5;
 /// Group header tab corner cut size.
@@ -216,6 +219,7 @@ pub fn render_sequence_svg(
     }
     let msg_self_levels = pre_msg_self_levels;
     let mut min_spacing = vec![PARTICIPANT_SPACING; participants.len().max(1)];
+    let mut nonadjacent_constraints: Vec<(usize, usize, f64)> = Vec::new();
 
     let mut spacing_msg_idx = 0usize;
     for event in diagram.events() {
@@ -242,12 +246,15 @@ pub fn render_sequence_svg(
                 let lo = p1_idx.min(p2_idx);
                 let hi = p1_idx.max(p2_idx);
                 let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
-                let gap_count = (hi - lo) as f64;
-                let per_gap = required / gap_count;
-                for k in lo..hi {
-                    if k + 1 < min_spacing.len() && per_gap > min_spacing[k + 1] {
-                        min_spacing[k + 1] = per_gap;
+                if hi - lo == 1 {
+                    // Adjacent: direct spacing constraint
+                    if required > min_spacing[hi] {
+                        min_spacing[hi] = required;
                     }
+                } else {
+                    // Non-adjacent: posC[hi] >= posC[lo] + text_w + 24
+                    // Collected as a cross-participant constraint, applied after Real vars exist
+                    nonadjacent_constraints.push((lo, hi, text_w + 24.0));
                 }
             }
             spacing_msg_idx += 1;
@@ -268,6 +275,11 @@ pub fn render_sequence_svg(
     for i in 1..participants.len() {
         let constraint = plantuml_real::add_fixed(&pos_d[i - 1], min_spacing[i]);
         plantuml_real::ensure_bigger_than(&pos_b[i], &constraint);
+    }
+    // Non-adjacent message constraints: posC[hi] >= posC[lo] + text_w + 24
+    for &(lo, hi, total) in &nonadjacent_constraints {
+        let constraint = plantuml_real::add_fixed(&pos_c[lo], total);
+        plantuml_real::ensure_bigger_than(&pos_c[hi], &constraint);
     }
     plantuml_real::compile_now(xorigin.get_line());
 
@@ -308,7 +320,14 @@ pub fn render_sequence_svg(
     for (gi, group) in groups.iter().enumerate() {
         for mi in group.msg_start..group.msg_end {
             if mi < msg_group.len() {
-                msg_group[mi] = Some(gi);
+                // Prefer the innermost (highest nesting level) group
+                let prev_level = msg_group[mi]
+                    .and_then(|prev_gi| groups.get(prev_gi))
+                    .map(|g| g.nesting_level)
+                    .unwrap_or(0);
+                if group.nesting_level >= prev_level {
+                    msg_group[mi] = Some(gi);
+                }
             }
         }
     }
@@ -321,6 +340,7 @@ pub fn render_sequence_svg(
     let mut prev_had_note = false;
     let mut prev_group: Option<usize> = None;
     let mut prev_frame_bottom: Option<f64> = None;
+    let mut prev_frame_bottom_level: usize = 0;
     let mut msg_idx = 0usize;
     let mut current_position = lifeline_y;
     // Activation tracking: (participant_idx, start_y, end_y)
@@ -343,9 +363,12 @@ pub fn render_sequence_svg(
             msg_text_heights.push(text_h);
             let is_self = msg.p1().code() == msg.p2().code();
             is_self_flags.push(is_self);
-
             let curr_group = msg_group.get(msg_idx).copied().flatten();
-            let is_first_in_group = curr_group.is_some() && curr_group != prev_group;
+            let is_first_in_group = curr_group.is_some() && curr_group != prev_group
+                && curr_group.map(|gi| msg_idx == groups[gi].msg_start).unwrap_or(false);
+            let is_else = curr_group
+                .map(|gi| groups[gi].group_type == "else")
+                .unwrap_or(false);
             let is_partition = curr_group
                 .map(|gi| groups[gi].group_type == "partition")
                 .unwrap_or(false);
@@ -357,9 +380,28 @@ pub fn render_sequence_svg(
                 if is_first_in_group {
                     current_y += GROUP_HEADER_OFFSET + header_extra;
                 }
+            } else if is_first_in_group && is_else {
+                // Else section: normal increment + else tile height (no group gap/header)
+                // Ported from ElseTile YGauge: min = prev_tile_max, height = ELSE_TILE_HEIGHT
+                let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
+                current_y += inc + ELSE_TILE_HEIGHT;
             } else if is_first_in_group {
-                // First message in a subsequent group
-                if let Some(fb) = prev_frame_bottom {
+                // First message in a subsequent group (non-else)
+                let curr_level = curr_group
+                    .and_then(|gi| groups.get(gi))
+                    .map(|g| g.nesting_level)
+                    .unwrap_or(0);
+                let prev_level = prev_group
+                    .and_then(|gi| groups.get(gi))
+                    .map(|g| g.nesting_level)
+                    .unwrap_or(0);
+                if curr_level > prev_level {
+                    // Nested group within an else/parent: normal increment + header offset
+                    let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
+                    current_y += inc + GROUP_HEADER_OFFSET + header_extra;
+                } else if let Some(fb) = prev_frame_bottom {
                     current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
                 } else {
                     // First group after non-grouped messages
@@ -374,6 +416,30 @@ pub fn render_sequence_svg(
                 current_y += 1.0 + text_h + prev_self_extra;
             }
 
+
+            // After a group ends, ensure next message/else clears the frame bottom
+            if let Some(fb) = prev_frame_bottom {
+                let fb_level = prev_frame_bottom_level;
+                let curr_level = curr_group
+                    .and_then(|gi| groups.get(gi))
+                    .map(|g| g.nesting_level)
+                    .unwrap_or(0);
+                if is_first_in_group && is_else {
+                    // Else after a nested group end (lower nesting): needs clearance
+                    if curr_level < fb_level {
+                        let min_y = fb + GROUP_GAP + ARROW_Y_BASE + ELSE_TILE_HEIGHT + 1.0;
+                        if current_y < min_y {
+                            current_y = min_y;
+                        }
+                    }
+                } else if !is_first_in_group {
+                    let min_y = fb + GROUP_GAP + ARROW_Y_BASE + 1.0;
+                    if current_y < min_y {
+                        current_y = min_y;
+                    }
+                }
+                prev_frame_bottom = None;
+            }
             arrow_ys.push(current_y);
             prev_had_note = notes.iter().any(|n| n.msg_index == msg_idx);
             prev_is_self = is_self;
@@ -384,32 +450,39 @@ pub fn render_sequence_svg(
             if let Some(gi) = curr_group {
                 let group = &groups[gi];
                 if msg_idx + 1 >= group.msg_end {
-                    // Compute bodyHeight for this group
-                    let mut body_height = 0.0_f64;
-                    for mi in group.msg_start..group.msg_end {
-                        let mi_text_h = msg_text_heights[mi];
-                        let mi_is_self = is_self_flags[mi];
-                        let mi_note = notes.iter().find(|n| n.msg_index == mi);
-                        let msg_h = if mi_is_self {
-                            1.0 + mi_text_h + SELF_ARROW_HEIGHT
-                        } else {
-                            1.0 + mi_text_h
-                        };
-                        let height = if let Some(note) = mi_note {
-                            let note_lines = note.text.split("\\n").count();
-                            let note_h = (note_lines as f64) * 13.0
-                                + 2.0 * NOTE_MARGIN_Y
-                                + NOTE_CORNERSIZE;
-                            msg_h.max(note_h)
-                        } else {
-                            msg_h
-                        };
-                        body_height += height;
-                    }
+                    // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
+                    let last_mi = group.msg_end - 1;
+                    let last_text_h = msg_text_heights[last_mi];
+                    let last_is_self = is_self_flags[last_mi];
+                    let last_msg_h = if last_is_self {
+                        1.0 + last_text_h + SELF_ARROW_HEIGHT
+                    } else {
+                        1.0 + last_text_h
+                    };
+                    let last_note = notes.iter().find(|n| n.msg_index == last_mi);
+                    let body_height = if let Some(note) = last_note {
+                        let note_lines = note.text.split("\\n").count();
+                        let note_h = (note_lines as f64) * 13.0
+                            + 2.0 * NOTE_MARGIN_Y
+                            + NOTE_CORNERSIZE;
+                        last_msg_h.max(note_h)
+                    } else {
+                        last_msg_h
+                    };
+                    let body_height = arrow_ys[last_mi] - arrow_ys[group.msg_start] + body_height;
                     let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
-                    let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
-                    let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
+                    let (frame_y, frame_height) = if group.group_type == "else" {
+                        let first_text_h = msg_text_heights[group.msg_start];
+                        let fy = arrow_ys[group.msg_start] - ELSE_TILE_HEIGHT - 2.0 - first_text_h + GROUP_MARGIN_Y_MAGIC / 2.0;
+                        let fh = body_height + GROUP_MARGIN_Y_MAGIC / 2.0;
+                        (fy, fh)
+                    } else {
+                        let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+                        let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
+                        (fy, fh)
+                    };
                     prev_frame_bottom = Some(frame_y + frame_height);
+                    prev_frame_bottom_level = group.nesting_level;
                 }
             }
 
@@ -445,8 +518,26 @@ pub fn render_sequence_svg(
     // ── Compute group frame dimensions ──────────────────────────────────
     let mut group_frames: Vec<(f64, f64, f64, f64)> = Vec::new(); // (x, y, w, h)
     for (gi, group) in groups.iter().enumerate() {
-        // Compute bodyHeight for this group
-        let mut body_height = 0.0_f64;
+        // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
+        let last_mi = group.msg_end - 1;
+        let last_text_h = msg_text_heights[last_mi];
+        let last_is_self = is_self_flags[last_mi];
+        let last_msg_h = if last_is_self {
+            1.0 + last_text_h + SELF_ARROW_HEIGHT
+        } else {
+            1.0 + last_text_h
+        };
+        let last_note = notes.iter().find(|n| n.msg_index == last_mi);
+        let last_h = if let Some(note) = last_note {
+            let note_lines = note.text.split("\\n").count();
+            let note_h = (note_lines as f64) * 13.0
+                + 2.0 * NOTE_MARGIN_Y
+                + NOTE_CORNERSIZE;
+            last_msg_h.max(note_h)
+        } else {
+            last_msg_h
+        };
+        let body_height = arrow_ys[last_mi] - arrow_ys[group.msg_start] + last_h;
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         let mut msg_iter_idx = 0usize;
@@ -462,25 +553,8 @@ pub fn render_sequence_svg(
                         pos_c_vals[p1_idx] > pos_c_vals[p2_idx]
                     };
                     let text_h = msg_text_heights[msg_iter_idx];
-
-                    // BodyHeight contribution
-                    let msg_h = if is_self {
-                        1.0 + text_h + SELF_ARROW_HEIGHT
-                    } else {
-                        1.0 + text_h
-                    };
+                    let _ = text_h; // Used in X range computation below
                     let mi_note = notes.iter().find(|n| n.msg_index == msg_iter_idx);
-                    let height = if let Some(note) = mi_note {
-                        let note_lines = note.text.split("\\n").count();
-                        let note_h = (note_lines as f64) * 13.0
-                            + 2.0 * NOTE_MARGIN_Y
-                            + NOTE_CORNERSIZE;
-                        msg_h.max(note_h)
-                    } else {
-                        msg_h
-                    };
-                    body_height += height;
-
                     // Drawn X range
                     let p1_c = pos_c_vals[p1_idx];
                     let p2_c = pos_c_vals[p2_idx];
@@ -526,8 +600,19 @@ pub fn render_sequence_svg(
         }
 
         let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
-        let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
-        let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
+        let (frame_y, frame_height) = if group.group_type == "else" {
+            // Else divider Y = arrow_y - ELSE_TILE_HEIGHT - 2 - text_h + MARGINY_MAGIC/2
+            // (extra -1 accounts for text_h being 26 vs Java's preferredHeight 25)
+            let first_text_h = msg_text_heights[group.msg_start];
+            let fy = arrow_ys[group.msg_start] - ELSE_TILE_HEIGHT - 2.0 - first_text_h + GROUP_MARGIN_Y_MAGIC / 2.0;
+            // Else frame height = body_height (from first to last msg) + MARGINY_MAGIC/2
+            let fh = body_height + GROUP_MARGIN_Y_MAGIC / 2.0;
+            (fy, fh)
+        } else {
+            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+            let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
+            (fy, fh)
+        };
         let frame_x = min_x - GROUP_MARGIN_X;
         let frame_width = max_x - min_x + 2.0 * GROUP_MARGIN_X;
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
@@ -605,7 +690,7 @@ pub fn render_sequence_svg(
             let new_left = pfx.min(efx);
             let new_right = (pfx + pfw).max(efx + efw);
             let new_width = new_right - new_left;
-            let else_bottom = efy + efh;
+            let else_bottom = efy + efh + GROUP_MARGIN_Y_MAGIC / 2.0 - GROUP_MARGIN_Y;
             let new_height = pfh.max(else_bottom - pfy);
             group_frames[pgi] = (new_left, pfy, new_width, new_height);
 
@@ -1443,9 +1528,9 @@ fn draw_message(
             &[base_x, y - half, tip_x, y, base_x, y + half, base_x - 4.0, y],
         );
 
-        // Dashed line: from target+5 to source-1
+        // Line: from target+5 to source-1 (dashed only if arrow is dotted)
         svg.set_stroke_color(Some(COLOR_ARROW));
-        svg.set_stroke_width(STROKE_WIDTH_ARROW, Some([2.0, 2.0]));
+        svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         svg.svg_line(x2 + 5.0, y, x1 - 1.0, y, 0.0);
     } else {
         // Normal arrow: left-to-right, solid, right-pointing arrowhead
@@ -1921,7 +2006,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 let p1 = diagram.get_or_create_participant(p2_code); // return from target
                 let p2 = diagram.get_or_create_participant(p1_code); // return to source
                 let msg_num = diagram.get_next_message_number();
-                let arrow_config = plantuml_skin::ArrowConfiguration::with_direction_normal();
+                let arrow_config = plantuml_skin::ArrowConfiguration::with_direction_normal()
+                    .with_body(plantuml_skin::ArrowBody::Dotted);
                 let msg = Message::new(p1, p2, label, arrow_config, msg_num);
                 diagram.add_message(msg);
             }
