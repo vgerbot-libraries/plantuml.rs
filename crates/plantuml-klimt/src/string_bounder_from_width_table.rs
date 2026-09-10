@@ -52,11 +52,12 @@ impl StringBounder for StringBounderFromWidthTable {
         for cp in text.chars().map(|c| c as u32) {
             width += self.get_char_width(cp);
         }
+        let width = width * factor;
         // The Java version uses the family for context switching; the width
         // table is sans-serif regardless, so the family does not affect the
         // result here. Reference the context to document intent.
         let _ = font.family(text, UFontContext::Svg);
-        XDimension2D::new_or_zero(width * factor, height)
+        XDimension2D::new_or_zero(width, height)
     }
 
     fn get_file_format(&self) -> FileFormat {

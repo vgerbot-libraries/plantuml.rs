@@ -221,9 +221,25 @@ fn test_self_001() {
 }
 
 #[test]
+fn test_hello_002() {
+    run_sequence_svg_test("asciiverse/hello_002");
+}
+
+#[test]
+fn test_multiline_001() {
+    run_sequence_svg_test("asciiverse/multiline_001");
+}
+
+#[test]
+fn test_selfnote_003() {
+    run_sequence_svg_test("asciiverse/selfnote_003");
+}
+
+#[test]
 fn test_mvp_hello_both() {
     run_sequence_svg_test("mvp/hello-both");
 }
+
 
 /// Runs a sequence diagram SVG test: parses the .puml, renders SVG, compares against expected .svg.
 fn run_sequence_svg_test(name: &str) {
@@ -244,6 +260,7 @@ fn run_sequence_svg_test(name: &str) {
         parsed.title.as_deref(),
         parsed.title_line,
         parsed.hide_footbox,
+        &parsed.notes,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);

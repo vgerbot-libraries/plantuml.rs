@@ -38,6 +38,16 @@ impl UnicodeBlock {
         };
         f64::from(width) / 10.0
     }
+
+    /// Raw width of `ch` (low byte of the code point) in tenths of a pixel.
+    #[must_use]
+    pub fn get_width_raw(&self, ch: u8) -> u16 {
+        if self.data.len() == 1 {
+            u16::from(self.data[0])
+        } else {
+            u16::from(self.data[usize::from(ch)])
+        }
+    }
 }
 
 fn decode_rle(data: &[u8]) -> Vec<u8> {
