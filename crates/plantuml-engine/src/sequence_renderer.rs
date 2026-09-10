@@ -7,7 +7,7 @@
 
 use plantuml_core::file_format::FileFormat;
 use plantuml_core::string_bounder::StringBounder;
-use plantuml_core::u_font::UFont;
+use plantuml_core::u_font::{FontStyle, UFont};
 use plantuml_klimt::string_bounder_from_width_table::StringBounderFromWidthTable;
 use plantuml_sequence::sequence_diagram::SequenceEvent;
 use plantuml_sequence::{Message, SequenceDiagram};
@@ -102,6 +102,9 @@ const GROUP_HEADER_HEIGHT: f64 = 15.0;
 /// Group header offset added to first message Y inside a group.
 /// = header_height + MARGINY_MAGIC/2 + EXTERNAL_MARGINY = 15 + 10 + 4.
 const GROUP_HEADER_OFFSET: f64 = 29.0;
+/// Extra header height for partitions: TITLE_VPAD*2 - (GROUP_HEADER_HEIGHT - font_height) = 4*2 - (15-13) = 6.
+/// Partition titles are drawn directly on the frame (no tab), with 4px padding above and below.
+const PARTITION_HEADER_EXTRA: f64 = 6.0;
 /// Gap between consecutive group frames = 2*EXTERNAL_MARGINY + MARGINY_MAGIC/2.
 const GROUP_GAP: f64 = 18.0;
 /// Group frame stroke width.
@@ -284,22 +287,26 @@ pub fn render_sequence_svg(
 
             let curr_group = msg_group.get(msg_idx).copied().flatten();
             let is_first_in_group = curr_group.is_some() && curr_group != prev_group;
+            let is_partition = curr_group
+                .map(|gi| groups[gi].group_type == "partition")
+                .unwrap_or(false);
+            let header_extra = if is_partition { PARTITION_HEADER_EXTRA } else { 0.0 };
 
             if msg_idx == 0 {
                 // First message overall
                 current_y = lifeline_y + 1.0 + text_h;
                 if is_first_in_group {
-                    current_y += GROUP_HEADER_OFFSET;
+                    current_y += GROUP_HEADER_OFFSET + header_extra;
                 }
             } else if is_first_in_group {
                 // First message in a subsequent group
                 // Y = prev_frame_bottom + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT
                 if let Some(fb) = prev_frame_bottom {
-                    current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT;
+                    current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
                 } else {
                     // First group after non-grouped messages
                     let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h };
-                    current_y += inc + GROUP_HEADER_OFFSET;
+                    current_y += inc + GROUP_HEADER_OFFSET + header_extra;
                 }
             } else if prev_had_note {
                 current_y += ARROW_Y_BASE + text_h;
@@ -336,8 +343,9 @@ pub fn render_sequence_svg(
                         };
                         body_height += height;
                     }
-                    let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
-                    let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
+                    let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
+                    let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+                    let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
                     prev_frame_bottom = Some(frame_y + frame_height);
                 }
             }
@@ -391,7 +399,7 @@ pub fn render_sequence_svg(
                     let p2_c = pos_c_vals[p2_idx];
                     let (mut d_min, mut d_max) = if is_self {
                         let label_w = max_line_width(&bounder, &font_m, msg.label());
-                        let drawn_w = (SELF_XRIGHT + 3.0).max(7.0 + label_w);
+                        let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
                         if is_reverse {
                             (p1_c - drawn_w, p1_c)
                         } else {
@@ -429,12 +437,95 @@ pub fn render_sequence_svg(
             }
         }
 
-        let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
-        let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
+        let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
+        let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+        let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
         let frame_x = min_x - GROUP_MARGIN_X;
         let frame_width = max_x - min_x + 2.0 * GROUP_MARGIN_X;
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
         let _ = gi;
+    }
+
+    // Nesting extension pass: process groups from innermost (highest nesting) to outermost.
+    // Each parent's frame must include its children's drawn bounds plus MARGINX.
+    // child drawn_min = child_frame_min - EXTERNAL_MARGIN_X1
+    // child drawn_max = child_frame_max + EXTERNAL_MARGIN_X2
+    // parent_frame_min = min(parent_frame_min, child_drawn_min - MARGINX)
+    // parent_frame_max = max(parent_frame_max, child_drawn_max + MARGINX)
+    let mut nesting_order: Vec<usize> = (0..groups.len()).collect();
+    nesting_order.sort_by_key(|&i| std::cmp::Reverse(groups[i].nesting_level));
+    for &ci in &nesting_order {
+        let child_level = groups[ci].nesting_level;
+        if child_level == 0 {
+            continue; // Top-level groups have no parent
+        }
+        // Find parent: group at nesting_level - 1 whose msg range contains this group
+        let cs = groups[ci].msg_start;
+        let ce = groups[ci].msg_end;
+        let mut parent_gi: Option<usize> = None;
+        for pj in 0..groups.len() {
+            if pj == ci {
+                continue;
+            }
+            if groups[pj].nesting_level == child_level - 1
+                && groups[pj].msg_start <= cs
+                && groups[pj].msg_end >= ce
+            {
+                // Prefer the tightest containing group
+                if parent_gi.is_none()
+                    || (groups[pj].msg_end - groups[pj].msg_start)
+                        < (groups[parent_gi.unwrap()].msg_end - groups[parent_gi.unwrap()].msg_start)
+                {
+                    parent_gi = Some(pj);
+                }
+            }
+        }
+        if let Some(pgi) = parent_gi {
+            let (cfx, _, cfw, _) = group_frames[ci];
+            let cframe_min = cfx;
+            let cframe_max = cfx + cfw;
+            let cdrawn_min = cframe_min - GROUP_EXTERNAL_MARGIN_X1;
+            let cdrawn_max = cframe_max + GROUP_EXTERNAL_MARGIN_X2;
+            let (pfx, pfy, pfw, pfh) = group_frames[pgi];
+            let pframe_min = pfx;
+            let pframe_max = pfx + pfw;
+            let new_min = pframe_min.min(cdrawn_min - GROUP_MARGIN_X);
+            let new_max = pframe_max.max(cdrawn_max + GROUP_MARGIN_X);
+            group_frames[pgi] = (new_min, pfy, new_max - new_min, pfh);
+        }
+    }
+
+    // Second pass: fix else groups' frame X/width to match parent, and extend parent
+    // For each else group, find the parent non-else group at the same nesting level
+    for gi in 0..groups.len() {
+        if groups[gi].group_type != "else" {
+            continue;
+        }
+        // Find the parent: the nearest preceding non-else group at the same nesting level
+        let level = groups[gi].nesting_level;
+        let mut parent_gi: Option<usize> = None;
+        for pj in (0..gi).rev() {
+            if groups[pj].nesting_level == level && groups[pj].group_type != "else" {
+                parent_gi = Some(pj);
+                break;
+            }
+        }
+        if let Some(pgi) = parent_gi {
+            // Extend parent frame to cover this else section's content bounds
+            let (pfx, pfy, pfw, pfh) = group_frames[pgi];
+            let (efx, efy, efw, efh) = group_frames[gi];
+            let new_left = pfx.min(efx);
+            let new_right = (pfx + pfw).max(efx + efw);
+            let new_width = new_right - new_left;
+            let else_bottom = efy + efh;
+            let new_height = pfh.max(else_bottom - pfy);
+            group_frames[pgi] = (new_left, pfy, new_width, new_height);
+
+            // Set else frame X and width to match the (now extended) parent
+            let (pfx2, _, pfw2, _) = group_frames[pgi];
+            let (_, _, _, efh2) = group_frames[gi];
+            group_frames[gi] = (pfx2, efy, pfw2, efh2);
+        }
     }
 
     // Compute note heights for each message
@@ -617,6 +708,17 @@ pub fn render_sequence_svg(
     } else {
         rightmost_x.max(max_note_right).max(max_frame_right) + PAGE_MARGIN * 2.0
     };
+
+    // Override partition frame dimensions to span the full diagram width
+    let full_right = rightmost_x.max(max_note_right).max(max_frame_right);
+    for (gi, group) in groups.iter().enumerate() {
+        if group.group_type == "partition" {
+            let (_, fy, _, fh) = group_frames[gi];
+            let frame_x = PAGE_MARGIN * 2.0 - x_offset;
+            let frame_width = full_right - PAGE_MARGIN * 2.0;
+            group_frames[gi] = (frame_x, fy, frame_width, fh);
+        }
+    }
     let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + HEIGHT_EXTRA;
 
     // ── Create SvgGraphics ────────────────────────────────────────────────
@@ -661,12 +763,55 @@ pub fn render_sequence_svg(
         svg.close_group();
     }
 
-    // ── Draw group frame backgrounds ─────────────────────────────────────
-    for &(fx, fy, fw, fh) in &group_frames {
+    // ── Draw group frame backgrounds (sorted by msg_start for correct nesting order) ──
+    let mut bg_order: Vec<usize> = (0..groups.len()).collect();
+    bg_order.sort_by_key(|&i| groups[i].msg_start);
+    for &gi in &bg_order {
+        // Skip else sections — they don't have their own frame
+        if groups[gi].group_type == "else" {
+            continue;
+        }
+        let (fx, fy, fw, fh) = group_frames[gi];
         svg.set_fill_color("none");
-        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-        svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+        if groups[gi].group_type == "partition" {
+            // Partition: background rect (stroke:none) + label + border, all in background pass
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+
+            let tab_label = if groups[gi].comment.is_empty() {
+                "partition".to_string()
+            } else {
+                groups[gi].comment.clone()
+            };
+            let label_w = max_line_width(&bounder, &font_m, &tab_label);
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            let label_x = fx + x_offset + (fw - label_w) / 2.0;
+            svg.text(
+                &tab_label,
+                label_x,
+                fy + GROUP_TEXT_Y_OFFSET + 3.0,
+                None,
+                FONT_SIZE_MESSAGE,
+                Some("700"),
+                None,
+                None,
+                label_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+            svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+        } else {
+            svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+            svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+        }
     }
 
     // ── Draw lifelines (background) ───────────────────────────────────────
@@ -779,48 +924,148 @@ pub fn render_sequence_svg(
                 if msg_idx == groups[gi].msg_start {
                     let (fx, fy, fw, fh) = group_frames[gi];
                     let fx_off = fx + x_offset;
-                    let label = &groups[gi].title;
-                    let label_w = max_line_width(&bounder, &font_m, label);
-                    let tab_w = label_w + GROUP_TEXT_PADDING + 2.0 * GROUP_TEXT_PADDING;
+                    let group = &groups[gi];
 
-                    // Header tab path (folded corner)
-                    svg.set_fill_color(COLOR_GROUP_HEADER);
-                    svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-                    svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-                    let path = format!(
-                        "M{x},{y} L{x2},{y} L{x2},{y2} L{x3},{y3} L{x},{y3} L{x},{y}",
-                        x = format_number_path(fx_off),
-                        y = format_number_path(fy),
-                        x2 = format_number_path(fx_off + tab_w),
-                        y2 = format_number_path(fy + 5.0),
-                        x3 = format_number_path(fx_off + tab_w - GROUP_TAB_CORNER),
-                        y3 = format_number_path(fy + GROUP_HEADER_HEIGHT),
-                    );
-                    svg.svg_path(&path, 0.0);
+                    // For "else" sections: draw a dashed divider + label, no tab/frame
+                    if group.group_type == "else" {
+                        // Dashed divider line across the parent frame
+                        svg.set_fill_color("none");
+                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                        svg.set_stroke_width(1.0, Some([2.0, 2.0]));
+                        svg.svg_line(fx_off, fy, fx_off + fw, fy, 0.0);
 
-                    // Frame rect (foreground, same as background)
-                    svg.set_fill_color("none");
-                    svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-                    svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-                    svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
+                        // Else label text (11px bold, in brackets)
+                        if !group.comment.is_empty() {
+                            let else_label = format!("[{}]", group.comment);
+                            let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
+                            let else_label_w = max_line_width(&bounder, &font_small, &else_label);
+                            svg.set_fill_color(COLOR_TEXT);
+                            svg.set_stroke_color(None);
+                            svg.set_stroke_width(0.0, None);
+                            svg.text(
+                                &else_label,
+                                fx_off + 5.0,
+                                fy + 10.556,
+                                None,
+                                11,
+                                Some("700"),
+                                None,
+                                None,
+                                else_label_w,
+                                &indexmap::IndexMap::new(),
+                                None,
+                            );
+                        }
+                    } else if group.group_type == "partition" {
+                        // Partition: centered label + separate border rect
+                        let tab_label = if group.comment.is_empty() {
+                            "partition".to_string()
+                        } else {
+                            group.comment.clone()
+                        };
+                        let label_w = max_line_width(&bounder, &font_m, &tab_label);
 
-                    // Label text
-                    svg.set_fill_color(COLOR_TEXT);
-                    svg.set_stroke_color(None);
-                    svg.set_stroke_width(0.0, None);
-                    svg.text(
-                        label,
-                        fx_off + GROUP_TEXT_PADDING,
-                        fy + GROUP_TEXT_Y_OFFSET,
-                        None,
-                        FONT_SIZE_MESSAGE,
-                        Some("700"),
-                        None,
-                        None,
-                        label_w,
-                        &indexmap::IndexMap::new(),
-                        None,
-                    );
+                        // Label text (13px bold, centered in frame)
+                        svg.set_fill_color(COLOR_TEXT);
+                        svg.set_stroke_color(None);
+                        svg.set_stroke_width(0.0, None);
+                        let label_x = fx_off + (fw - label_w) / 2.0;
+                        svg.text(
+                            &tab_label,
+                            label_x,
+                            fy + GROUP_TEXT_Y_OFFSET + 3.0,
+                            None,
+                            FONT_SIZE_MESSAGE,
+                            Some("700"),
+                            None,
+                            None,
+                            label_w,
+                            &indexmap::IndexMap::new(),
+                            None,
+                        );
+
+                        // Border rect (drawn after label, with stroke)
+                        svg.set_fill_color("none");
+                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                        svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
+                    } else {
+                        // Determine tab label: for "group" use comment (or "group"),
+                        // for other types use the keyword itself
+                        let tab_label = if group.group_type == "group" {
+                            if group.comment.is_empty() {
+                                "group".to_string()
+                            } else {
+                                group.comment.clone()
+                            }
+                        } else {
+                            group.group_type.clone()
+                        };
+                        let label_w = max_line_width(&bounder, &font_m, &tab_label);
+                        let tab_w = label_w + GROUP_TEXT_PADDING + 2.0 * GROUP_TEXT_PADDING;
+
+                        // Header tab path (folded corner)
+                        svg.set_fill_color(COLOR_GROUP_HEADER);
+                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                        let path = format!(
+                            "M{x},{y} L{x2},{y} L{x2},{y2} L{x3},{y3} L{x},{y3} L{x},{y}",
+                            x = format_number_path(fx_off),
+                            y = format_number_path(fy),
+                            x2 = format_number_path(fx_off + tab_w),
+                            y2 = format_number_path(fy + 5.0),
+                            x3 = format_number_path(fx_off + tab_w - GROUP_TAB_CORNER),
+                            y3 = format_number_path(fy + GROUP_HEADER_HEIGHT),
+                        );
+                        svg.svg_path(&path, 0.0);
+
+                        // Frame rect (foreground, same as background)
+                        svg.set_fill_color("none");
+                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                        svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
+
+                        // Tab label text (13px bold)
+                        svg.set_fill_color(COLOR_TEXT);
+                        svg.set_stroke_color(None);
+                        svg.set_stroke_width(0.0, None);
+                        svg.text(
+                            &tab_label,
+                            fx_off + GROUP_TEXT_PADDING,
+                            fy + GROUP_TEXT_Y_OFFSET,
+                            None,
+                            FONT_SIZE_MESSAGE,
+                            Some("700"),
+                            None,
+                            None,
+                            label_w,
+                            &indexmap::IndexMap::new(),
+                            None,
+                        );
+
+                        // Condition text (11px bold, in brackets) for non-group types
+                        if group.group_type != "group" && !group.comment.is_empty() {
+                            let cond_label = format!("[{}]", group.comment);
+                            let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
+                            let cond_w = max_line_width(&bounder, &font_small, &cond_label);
+                            svg.set_fill_color(COLOR_TEXT);
+                            svg.set_stroke_color(None);
+                            svg.set_stroke_width(0.0, None);
+                            svg.text(
+                                &cond_label,
+                                fx_off + tab_w + GROUP_TEXT_PADDING,
+                                fy + 10.556,
+                                None,
+                                11,
+                                Some("700"),
+                                None,
+                                None,
+                                cond_w,
+                                &indexmap::IndexMap::new(),
+                                None,
+                            );
+                        }
+                    }
                 }
             }
 
@@ -1075,8 +1320,12 @@ fn draw_message(
     if !label.is_empty() {
         let text_x = if is_self {
             if is_reverse {
-                // <-- : text at left side of loop
-                x1 - SELF_XRIGHT - 1.0
+                // <-- : text at left edge of component
+                // comp_width = max(SELF_XRIGHT, MESSAGE_TEXT_X_OFFSET + label_width)
+                // When comp_width == SELF_XRIGHT (loop wider than text), text is 1px left of loop
+                let label_w = max_line_width(bounder, font, label);
+                let comp_width = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
+                x1 - comp_width.max(SELF_XRIGHT + 1.0)
             } else {
                 // --> : text at right side of participant
                 x1 + MESSAGE_TEXT_X_OFFSET
@@ -1223,15 +1472,20 @@ pub struct NoteInfo {
     pub msg_index: usize,
 }
 
-/// Parsed group block (group ... end).
+/// Parsed group block (group/alt/opt/loop/par/else ... end).
 #[derive(Clone)]
 pub struct GroupInfo {
-    /// Group title (label after `group` keyword, or "group" if none).
-    pub title: String,
+    /// Group keyword: "group", "alt", "opt", "loop", "par", "break", "critical",
+    /// "partition", "ref", or "else".
+    pub group_type: String,
+    /// Label/condition after the keyword (e.g., "successful case" for `alt successful case`).
+    pub comment: String,
     /// Index of the first message in this group.
     pub msg_start: usize,
     /// Index one past the last message in this group.
     pub msg_end: usize,
+    /// Nesting level (0 = top-level group, 1 = nested inside one group, etc.).
+    pub nesting_level: usize,
 }
 
 /// Parsed sequence diagram with SVG metadata.
@@ -1270,9 +1524,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut notes: Vec<NoteInfo> = Vec::new();
     let mut groups: Vec<GroupInfo> = Vec::new();
     let mut msg_count = 0usize;
-    // Group parsing state
-    let mut group_start_msg: Option<usize> = None;
-    let mut group_title = String::new();
+    // Group parsing state: stack of (msg_start, group_type, comment, nesting_level)
+    let mut group_stack: Vec<(usize, String, String, usize)> = Vec::new();
     // skinparam { } block depth: when > 0, skip lines until closing }
     let mut skinparam_depth: u32 = 0;
 
@@ -1327,43 +1580,65 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
-        // Handle "end" — close the current group
+        // Handle <style> blocks: skip until </style>
+        if trimmed.starts_with("<style>") {
+            skinparam_depth = 1; // reuse the depth counter for style blocks
+            continue;
+        }
+
+        // Handle "end" — close the current group (pop from stack)
         if trimmed == "end" {
-            if let Some(start) = group_start_msg.take() {
+            if let Some((start, gtype, comment, level)) = group_stack.pop() {
                 groups.push(GroupInfo {
-                    title: std::mem::take(&mut group_title),
+                    group_type: gtype,
+                    comment,
                     msg_start: start,
                     msg_end: msg_count,
+                    nesting_level: level,
                 });
             }
             continue;
         }
 
-        // Handle "group <title>" — start a new group
-        if trimmed == "group" {
-            // Close any open group first (shouldn't happen in well-formed input)
-            if let Some(start) = group_start_msg.take() {
+        // Handle "else [condition]" — close current group, start new else at same level
+        if trimmed == "else" || trimmed.starts_with("else ") {
+            let else_comment = if trimmed == "else" {
+                String::new()
+            } else {
+                trimmed[5..].trim().to_string()
+            };
+            if let Some((start, gtype, comment, level)) = group_stack.pop() {
                 groups.push(GroupInfo {
-                    title: std::mem::take(&mut group_title),
+                    group_type: gtype,
+                    comment,
                     msg_start: start,
                     msg_end: msg_count,
+                    nesting_level: level,
                 });
+                // Start new else section at the same nesting level
+                group_stack.push((msg_count, "else".to_string(), else_comment, level));
             }
-            group_start_msg = Some(msg_count);
-            group_title = "group".to_string();
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("group ") {
-            // Close any open group first
-            if let Some(start) = group_start_msg.take() {
-                groups.push(GroupInfo {
-                    title: std::mem::take(&mut group_title),
-                    msg_start: start,
-                    msg_end: msg_count,
-                });
-            }
-            group_start_msg = Some(msg_count);
-            group_title = rest.trim().to_string();
+
+        // Handle group-starting keywords: group, alt, opt, loop, par, break, critical, partition, ref
+        // Each starts a new nested group.
+        let group_keyword = {
+            let kw_end = trimmed.find(|c: char| c.is_whitespace()).unwrap_or(trimmed.len());
+            &trimmed[..kw_end]
+        };
+        let is_group_keyword = matches!(
+            group_keyword,
+            "group" | "alt" | "opt" | "loop" | "par" | "break" | "critical" | "partition" | "ref"
+        );
+        if is_group_keyword {
+            let nesting_level = group_stack.len();
+            let comment = if trimmed.len() > group_keyword.len() {
+                trimmed[group_keyword.len()..].trim().to_string()
+            } else {
+                String::new()
+            };
+            group_stack.push((msg_count, group_keyword.to_string(), comment, nesting_level));
             continue;
         }
 

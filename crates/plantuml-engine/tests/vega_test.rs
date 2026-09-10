@@ -245,6 +245,131 @@ fn test_mvp_hello_both() {
     run_sequence_svg_test("mvp/hello-both");
 }
 
+#[test]
+fn test_altpar_001() {
+    run_sequence_svg_test("asciiverse/altpar_001");
+}
+
+#[test]
+fn test_altpar_002() {
+    run_sequence_svg_test("asciiverse/altpar_002");
+}
+
+#[test]
+fn test_altpar_003() {
+    run_sequence_svg_test("asciiverse/altpar_003");
+}
+
+#[test]
+fn test_altpar_004() {
+    run_sequence_svg_test("asciiverse/altpar_004");
+}
+
+#[test]
+fn test_altpar_005() {
+    run_sequence_svg_test("asciiverse/altpar_005");
+}
+
+#[test]
+fn test_altpar_006() {
+    run_sequence_svg_test("asciiverse/altpar_006");
+}
+
+#[test]
+fn test_altpar_007() {
+    run_sequence_svg_test("asciiverse/altpar_007");
+}
+
+#[test]
+fn test_altpar_008() {
+    run_sequence_svg_test("asciiverse/altpar_008");
+}
+
+#[test]
+fn test_basic_002() {
+    run_sequence_svg_test("asciiverse/basic_002");
+}
+
+#[test]
+fn test_basic_003() {
+    run_sequence_svg_test("asciiverse/basic_003");
+}
+
+#[test]
+fn test_layout_001() {
+    run_sequence_svg_test("asciiverse/layout_001");
+}
+
+#[test]
+fn test_layout_002() {
+    run_sequence_svg_test("asciiverse/layout_002");
+}
+
+#[test]
+fn test_layout_002b() {
+    run_sequence_svg_test("asciiverse/layout_002b");
+}
+
+#[test]
+fn test_layout_003() {
+    run_sequence_svg_test("asciiverse/layout_003");
+}
+
+#[test]
+fn test_leftmsg_001() {
+    run_sequence_svg_test("asciiverse/leftmsg_001");
+}
+
+#[test]
+fn test_leftmsg_002() {
+    run_sequence_svg_test("asciiverse/leftmsg_002");
+}
+
+#[test]
+fn test_leftmsg_003() {
+    run_sequence_svg_test("asciiverse/leftmsg_003");
+}
+
+#[test]
+fn test_nested_001() {
+    run_sequence_svg_test("asciiverse/nested_001");
+}
+
+#[test]
+fn test_partition_001() {
+    run_sequence_svg_test("asciiverse/partition_001");
+}
+
+#[test]
+fn test_selfnote_001() {
+    run_sequence_svg_test("asciiverse/selfnote_001");
+}
+
+#[test]
+fn test_selfnote_001b() {
+    run_sequence_svg_test("asciiverse/selfnote_001b");
+}
+
+#[test]
+fn test_selfnote_001c() {
+    run_sequence_svg_test("asciiverse/selfnote_001c");
+}
+
+#[test]
+fn test_selfnote_002() {
+    run_sequence_svg_test("asciiverse/selfnote_002");
+}
+
+#[test]
+fn test_timeline_001() {
+    run_sequence_svg_test("asciiverse/timeline_001");
+}
+
+#[test]
+fn test_timeline_002() {
+    run_sequence_svg_test("asciiverse/timeline_002");
+}
+
 
 /// Runs a sequence diagram SVG test: parses the .puml, renders SVG, compares against expected .svg.
 fn run_sequence_svg_test(name: &str) {
