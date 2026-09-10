@@ -65,6 +65,8 @@ const ARROWHEAD_SIZE: f64 = 10.0;
 const ARROWHEAD_TIP_OFFSET: f64 = 2.0;
 /// Arrow line end offset from target center.
 const ARROW_LINE_END_OFFSET: f64 = 6.0;
+/// Arrow delta Y (half-height of arrowhead). From Java's getArrowDeltaY() = 4.
+const ARROW_DELTA_Y: f64 = 4.0;
 /// Ascent for font size 14.
 const ASCENT_14: f64 = 12.889;
 /// Message text Y offset above arrow.
@@ -412,20 +414,9 @@ pub fn render_sequence_svg(
                     } else {
                         0.0
                     };
-                    // When the source participant is activated (level_p1 > 0 for forward,
-                    // level_p2 > 0 for reverse), the arrow starts from the activation bar
-                    // edge (posC + LIVE_DELTA_SIZE * level). The posC constraint alone
-                    // doesn't account for this source offset. A posB constraint with
-                    // min_spacing = arrow_w ensures the full arrow width fits between
-                    // posD[lo] and posB[hi], which accounts for both head widths and
-                    // gives the correct spacing when the source is activated.
-                    let source_activated = if is_reverse { level_p2 > 0 } else { level_p1 > 0 };
-                    if source_activated && hi - lo == 1 {
-                        let required = text_w + 24.0;
-                        if required > min_spacing[hi] {
-                            min_spacing[hi] = required;
-                        }
-                    }
+                    // posC constraint with activation offsets already accounts for
+                    // the arrow width and activation bar edges. No additional posB
+                    // constraint needed for source-activated messages.
                     nonadjacent_constraints.push((lo, hi, point1_offset, point2_pre_offset, text_w + 24.0));
                 }
             }
@@ -816,13 +807,15 @@ pub fn render_sequence_svg(
     // Track the start Y of the current group cluster (for parallel siblings)
     let mut cluster_start_y: f64 = 0.0;
     let mut msg_idx = 0usize;
-    let mut current_position = lifeline_y;
+    // Java's PlayingSpace.startingY = 8: the tile stack starts 8px below the body origin.
+    // Standalone LifeEvents before the first message use this as their Y position.
+    let mut current_position = lifeline_y + 8.0;
     // Activation tracking: (participant_idx, start_y, end_y)
     let mut activations: Vec<(usize, f64, f64)> = Vec::new();
     // Destroy tracking: (participant_idx, destroy_y)
     let mut destroys: Vec<(usize, f64)> = Vec::new();
-    // Pending activation: (participant_idx, start_y)
-    let mut pending_activations: Vec<(usize, f64)> = Vec::new();
+    // Pending activations per participant: each participant has its own stack of start Ys
+    let mut pending_activations: Vec<Vec<f64>> = vec![Vec::new(); participants.len()];
     // Per-participant activation level (running count of activates minus deactivates)
     let mut participant_levels: Vec<i32> = vec![0; participants.len()];
     for event in diagram.events() {
@@ -870,7 +863,8 @@ pub fn render_sequence_svg(
                     let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                     current_y += inc + ELSE_TILE_HEIGHT;
                 } else {
-                    current_y = lifeline_y + 1.0 + text_h;
+                    // Parallel message not first in a group: use the cluster's chaining point
+                    current_y = cluster_start_y;
                 }
             } else if msg_idx == 0 {
                 // First message overall
@@ -1052,22 +1046,36 @@ pub fn render_sequence_svg(
 
             msg_idx += 1;
         } else if let SequenceEvent::LifeEvent(le) = event {
+            // Determine Y position based on whether this is an inline or standalone LifeEvent.
+            // Inline LifeEvents (attached to a message via ++/--) use the message's arrow Y.
+            // Standalone LifeEvents use current_position (last message's arrow Y or lifeline_y + 8 before first msg).
             let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
             if le.is_activate() {
-                pending_activations.push((p_idx, current_position));
+                if p_idx < pending_activations.len() {
+                    pending_activations[p_idx].push(current_position);
+                }
                 if p_idx < participant_levels.len() {
                     participant_levels[p_idx] += 1;
                 }
             } else if le.is_deactivate() {
-                if let Some((pi, start_y)) = pending_activations.pop() {
-                    activations.push((pi, start_y, current_position));
-                }
-                if p_idx < participant_levels.len() {
-                    participant_levels[p_idx] = (participant_levels[p_idx] - 1).max(0);
+                if p_idx < pending_activations.len() {
+                    if let Some(start_y) = pending_activations[p_idx].pop() {
+                        // Java's LiveBoxes.addStep: when a deactivation's Y matches
+                        // an existing step Y, add 5.0 to avoid zero-height bars.
+                        // The tile Y offset (8) + deactivation offset (5) = 13 total.
+                        let end_y = if (start_y - current_position).abs() < 0.001 {
+                            current_position + 13.0
+                        } else {
+                            current_position
+                        };
+                        activations.push((p_idx, start_y, end_y));
+                    }
                 }
             } else if le.is_destroy() {
-                if let Some((pi, start_y)) = pending_activations.pop() {
-                    activations.push((pi, start_y, current_position));
+                if p_idx < pending_activations.len() {
+                    if let Some(start_y) = pending_activations[p_idx].pop() {
+                        activations.push((p_idx, start_y, current_position));
+                    }
                 }
                 destroys.push((p_idx, current_position));
                 if p_idx < participant_levels.len() {
@@ -1530,8 +1538,10 @@ pub fn render_sequence_svg(
     };
     let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
     // Flush remaining pending activations (autoactivate without explicit deactivate)
-    for (pi, start_y) in &pending_activations {
-        activations.push((*pi, *start_y, lifeline_bottom));
+    for (pi, stack) in pending_activations.iter().enumerate() {
+        for &start_y in stack {
+            activations.push((pi, start_y, lifeline_bottom));
+        }
     }
 
     let lifeline_height = if arrow_ys.is_empty() {
@@ -1689,7 +1699,7 @@ pub fn render_sequence_svg(
     }
     // HEIGHT_EXTRA (1px) is only needed for show_footbox: the +1 from ensure_visible
     // already provides the extra pixel for hide_footbox.
-    let height_extra = if hide_footbox { 0.0 } else { HEIGHT_EXTRA };
+    let height_extra = if hide_footbox { 0.0 } else if has_actor { 0.0 } else { HEIGHT_EXTRA };
     let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + height_extra;
 
     // ── Create SvgGraphics ────────────────────────────────────────────────
@@ -1865,41 +1875,11 @@ pub fn render_sequence_svg(
         let cx = pos_c_vals[i] + x_offset;
 
         if is_actor[i] {
-            // Actor: draw stickman + text below
-            // Stickman head center: (cx, head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM/2)
-            let head_cy = head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
-            svg.set_fill_color(COLOR_BACK);
-            svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
-            svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
-
-            // Body + arms + legs as path
-            let body_top = head_cy + STICKMAN_HEAD_DIAM / 2.0; // head_y + 0.5 + 16 = head_y + 16.5
-            let body_bottom = body_top + STICKMAN_BODY_LEN; // head_y + 43.5
-            let arms_y = body_top + 8.0; // head_y + 24.5 (armsY = 8)
-            let legs_bottom = body_bottom + STICKMAN_LEGS_Y; // head_y + 58.5
-
-            svg.set_fill_color("none");
-            svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
-            let path_d = format!(
-                "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
-                cx = format_number_path(cx),
-                body_top = format_number_path(body_top),
-                body_bottom = format_number_path(body_bottom),
-                arms_y = format_number_path(arms_y),
-                arms_l = format_number_path(cx - STICKMAN_ARMS_LEN),
-                arms_r = format_number_path(cx + STICKMAN_ARMS_LEN),
-                legs_bottom = format_number_path(legs_bottom),
-                leg_lx = format_number_path(cx - STICKMAN_LEGS_X),
-                leg_rx = format_number_path(cx + STICKMAN_LEGS_X),
-            );
-            svg.svg_path(&path_d, 0.0);
-
+            // Actor: draw text first, then stickman (matching Java's ComponentRoseActor order)
             // Text below stickman
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
-            let text_x = cx - text_w / 2.0;
-            let text_y = head_y + STICKMAN_HEIGHT + ASCENT_14 - 2.0; // Adjust for actor text position
+            let text_x = cx - text_w / 2.0 - ACTOR_PADDING_H;
+            let text_y = head_y + STICKMAN_HEIGHT + ASCENT_14 - 2.0;
 
             svg.set_fill_color(COLOR_TEXT);
             svg.set_stroke_color(None);
@@ -1917,6 +1897,36 @@ pub fn render_sequence_svg(
                 &indexmap::IndexMap::new(),
                 None,
             );
+
+            // Stickman head circle
+            let head_cy = head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
+            svg.set_fill_color(COLOR_BACK);
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS, None);
+            svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
+
+            // Body + arms + legs as path
+            let body_top = head_cy + STICKMAN_HEAD_DIAM / 2.0;
+            let body_bottom = body_top + STICKMAN_BODY_LEN;
+            let arms_y = body_top + 8.0;
+            let legs_bottom = body_bottom + STICKMAN_LEGS_Y;
+
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS, None);
+            let path_d = format!(
+                "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
+                cx = format_number_path(cx),
+                body_top = format_number_path(body_top),
+                body_bottom = format_number_path(body_bottom),
+                arms_y = format_number_path(arms_y),
+                arms_l = format_number_path(cx - STICKMAN_ARMS_LEN),
+                arms_r = format_number_path(cx + STICKMAN_ARMS_LEN),
+                legs_bottom = format_number_path(legs_bottom),
+                leg_lx = format_number_path(cx - STICKMAN_LEGS_X),
+                leg_rx = format_number_path(cx + STICKMAN_LEGS_X),
+            );
+            svg.svg_path(&path_d, 0.0);
         } else {
             // Regular participant: draw rectangle + text inside
             svg.set_fill_color(COLOR_BACK);
@@ -1957,7 +1967,7 @@ pub fn render_sequence_svg(
         if is_actor[i] {
             // Actor footbox: text above + stickman below (reversed from head)
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
-            let text_x = cx - text_w / 2.0;
+            let text_x = cx - text_w / 2.0 - ACTOR_PADDING_H;
             let text_y = footbox_y + ASCENT_14 - 2.0;
 
             svg.set_fill_color(COLOR_TEXT);
@@ -1978,11 +1988,13 @@ pub fn render_sequence_svg(
             );
 
             // Stickman below text
-            let stickman_top = footbox_y + TEXT_BLOCK_HEIGHT; // text area height
+            // Actor text height = ACTOR_HEAD_LAYOUT_HEIGHT - STICKMAN_HEIGHT = 74 - 60 = 14
+            // (pure text block height for font-size 14, no top/bottom padding for actors)
+            let stickman_top = footbox_y + (ACTOR_HEAD_LAYOUT_HEIGHT - STICKMAN_HEIGHT);
             let head_cy = stickman_top + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
             svg.set_fill_color(COLOR_BACK);
             svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            svg.set_stroke_width(STICKMAN_THICKNESS, None);
             svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
 
             let body_top = head_cy + STICKMAN_HEAD_DIAM / 2.0;
@@ -1992,7 +2004,7 @@ pub fn render_sequence_svg(
 
             svg.set_fill_color("none");
             svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            svg.set_stroke_width(STICKMAN_THICKNESS, None);
             let path_d = format!(
                 "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
                 cx = format_number_path(cx),
@@ -2487,40 +2499,58 @@ fn draw_message(
             &[base_x, y_bottom - half, tip_x, y_bottom, base_x, y_bottom + half, base_x - 4.0 * tip_dir, y_bottom],
         );
     } else if is_return {
-        // Return arrow: right-to-left, dashed, left-pointing arrowhead
+        // Return arrow: right-to-left, left-pointing arrowhead
         // tip is 1px past target lifeline, base is 10px further right
         let tip_x = x2 + 1.0;
         let base_x = tip_x + ARROWHEAD_SIZE;
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
+        let is_async = msg.arrow_config().is_async2();
+
         svg.set_fill_color(COLOR_ARROW);
         svg.set_stroke_color(Some(COLOR_ARROW));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
-        svg.svg_polygon(
-            0.0,
-            &[base_x, y - half, tip_x, y, base_x, y + half, base_x - 4.0, y],
-        );
+        if is_async {
+            // ASYNC (<<-): thin arrowhead as 2 lines, matching Java's drawDressing1
+            svg.svg_line(tip_x, y, base_x, y - ARROW_DELTA_Y, 0.0);
+            svg.svg_line(tip_x, y, base_x, y + ARROW_DELTA_Y, 0.0);
+        } else {
+            svg.svg_polygon(
+                0.0,
+                &[base_x, y - half, tip_x, y, base_x, y + half, base_x - 4.0, y],
+            );
+        }
 
-        // Line: from target+5 to source-1 (dashed only if arrow is dotted)
+        // Line: ASYNC starts at x2 (start=0 in Java), NORMAL starts at x2+5 (start=arrowDeltaX/2)
+        let line_start = if is_async { x2 } else { x2 + 5.0 };
         svg.set_stroke_color(Some(COLOR_ARROW));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
-        svg.svg_line(x2 + 5.0, y, x1 - 1.0, y, 0.0);
+        svg.svg_line(line_start, y, x1 - 1.0, y, 0.0);
     } else {
         // Normal arrow: left-to-right, solid, right-pointing arrowhead
         let tip_x = x2 - ARROWHEAD_TIP_OFFSET;
         let base_x = tip_x - ARROWHEAD_SIZE;
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
+        let is_async = msg.arrow_config().is_async2();
+
         svg.set_fill_color(COLOR_ARROW);
         svg.set_stroke_color(Some(COLOR_ARROW));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
-        svg.svg_polygon(
-            0.0,
-            &[base_x, y - half, tip_x, y, base_x, y + half, base_x + 4.0, y],
-        );
+        if is_async {
+            // ASYNC (->>): thin arrowhead as 2 lines, matching Java's drawDressing2
+            svg.svg_line(tip_x, y, base_x, y - ARROW_DELTA_Y, 0.0);
+            svg.svg_line(tip_x, y, base_x, y + ARROW_DELTA_Y, 0.0);
+        } else {
+            svg.svg_polygon(
+                0.0,
+                &[base_x, y - half, tip_x, y, base_x, y + half, base_x + 4.0, y],
+            );
+        }
 
-        // Solid line: from source to target-6
+        // Solid line: from source to target. ASYNC extends to x2-1, NORMAL to x2-6.
+        let line_end = if is_async { x2 - 1.0 } else { x2 - ARROW_LINE_END_OFFSET };
         svg.set_stroke_color(Some(COLOR_ARROW));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
-        svg.svg_line(x1, y, x2 - ARROW_LINE_END_OFFSET, y, 0.0);
+        svg.svg_line(x1, y, line_end, y, 0.0);
     }
 
     // Message text (only if label is non-empty)
@@ -3238,6 +3268,11 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 "\\\\-" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
                     .with_body(plantuml_skin::ArrowBody::Dotted),
                 "<-" => plantuml_skin::ArrowConfiguration::with_direction_normal().reverse_define(),
+                "->>" => plantuml_skin::ArrowConfiguration::with_direction_normal()
+                    .with_head2(plantuml_skin::ArrowHead::Async),
+                "<<-" => plantuml_skin::ArrowConfiguration::with_direction_normal()
+                    .reverse_define()
+                    .with_head1(plantuml_skin::ArrowHead::Async),
                 _ => plantuml_skin::ArrowConfiguration::with_direction_normal(),
             };
             let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
@@ -3277,7 +3312,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     .find(|p| p.code() == code)
                     .cloned();
                 if let Some(p) = p {
-                    diagram.activate(&p, LifeEventType::Activate);
+                    diagram.activate_inline(&p, LifeEventType::Activate, msg_count);
                 }
             }
             for code in &deacts {
@@ -3285,7 +3320,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     .find(|p| p.code() == code)
                     .cloned();
                 if let Some(p) = p {
-                    diagram.activate(&p, LifeEventType::Deactivate);
+                    diagram.activate_inline(&p, LifeEventType::Deactivate, msg_count);
                 }
             }
             msg_activates.push(acts);

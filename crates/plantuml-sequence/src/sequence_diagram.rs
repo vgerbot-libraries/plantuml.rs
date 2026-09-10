@@ -102,6 +102,11 @@ impl SequenceDiagram {
         let life_event = LifeEvent::new(participant.clone(), event_type);
         self.events.push(SequenceEvent::LifeEvent(life_event));
     }
+    /// Activates or deactivates a participant, attached to a specific message (inline `++`/`--`).
+    pub fn activate_inline(&mut self, participant: &Participant, event_type: LifeEventType, message_index: usize) {
+        let life_event = LifeEvent::new_inline(participant.clone(), event_type, message_index);
+        self.events.push(SequenceEvent::LifeEvent(life_event));
+    }
 
     /// Returns the next message number.
     #[must_use]
