@@ -398,7 +398,7 @@ pub fn render_sequence_svg(
     let mut msg_wrapped_lines: Vec<Vec<String>> = Vec::new();
     let mut current_y = lifeline_y;
     let mut prev_is_self = false;
-    let mut prev_had_note = false;
+    let mut prev_note_h: Option<f64> = None;
     let mut prev_group: Option<usize> = None;
     let mut prev_frame_bottom: Option<f64> = None;
     let mut prev_frame_bottom_level: usize = 0;
@@ -455,7 +455,7 @@ pub fn render_sequence_svg(
                 // Else section: normal increment + else tile height (no group gap/header)
                 // Ported from ElseTile YGauge: min = prev_tile_max, height = ELSE_TILE_HEIGHT
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
-                let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
+                let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                 current_y += inc + ELSE_TILE_HEIGHT;
             } else if is_first_in_group && curr_group.map(|gi| groups[gi].parallel).unwrap_or(false) {
                 // Parallel group: top-aligned with the previous tile's chaining point.
@@ -478,18 +478,19 @@ pub fn render_sequence_svg(
                 if curr_level > prev_level {
                     // Nested group within an else/parent: normal increment + header offset
                     let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
-                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
+                    let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                     current_y += inc + GROUP_HEADER_OFFSET + header_extra;
                 } else if let Some(fb) = prev_frame_bottom {
                     current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
                 } else {
                     // First group after non-grouped messages
                     let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
-                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
+                    let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                     current_y += inc + GROUP_HEADER_OFFSET + header_extra;
                 }
-            } else if prev_had_note {
-                current_y += ARROW_Y_BASE + text_h;
+            } else if let Some(nh) = prev_note_h {
+                let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                current_y += nh.max(1.0 + text_h + prev_self_extra);
             } else {
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                 current_y += 1.0 + text_h + prev_self_extra;
@@ -521,7 +522,10 @@ pub fn render_sequence_svg(
                 }
             }
             arrow_ys.push(current_y);
-            prev_had_note = notes.iter().any(|n| n.msg_index == msg_idx);
+            prev_note_h = notes.iter().find(|n| n.msg_index == msg_idx).map(|note| {
+                let note_lines = note.text.split("\\n").count();
+                (note_lines as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y + NOTE_CORNERSIZE
+            });
             prev_is_self = is_self;
             // Update current_position for LifeEvent Y tracking
             current_position = current_y + if is_self { SELF_ARROW_HEIGHT } else { 0.0 };
