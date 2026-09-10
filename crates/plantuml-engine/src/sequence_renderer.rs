@@ -136,8 +136,43 @@ const GROUP_TEXT_Y_OFFSET: f64 = 11.111;
 const COLOR_GROUP_HEADER: &str = "#EEE";
 /// Group frame stroke color.
 const COLOR_GROUP_STROKE: &str = "#000";
-// ── Public API ────────────────────────────────────────────────────────────
 
+/// Wraps message text to fit within max_width, splitting by words.
+/// Ported from Java's StringBounder word-wrap logic for MaxMessageSize.
+fn wrap_message_text(
+    bounder: &StringBounderFromWidthTable,
+    font: &UFont,
+    label: &str,
+    max_width: f64,
+) -> Vec<String> {
+    let mut result = Vec::new();
+    for explicit_line in label.split("\\n") {
+        let words: Vec<&str> = explicit_line.split_whitespace().collect();
+        if words.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let mut current = String::new();
+        for word in &words {
+            let candidate = if current.is_empty() {
+                word.to_string()
+            } else {
+                format!("{current} {word}")
+            };
+            let candidate_w = bounder.calculate_dimension(font, &candidate).width();
+            if candidate_w <= max_width || current.is_empty() {
+                current = candidate;
+            } else {
+                result.push(current);
+                current = word.to_string();
+            }
+        }
+        if !current.is_empty() {
+            result.push(current);
+        }
+    }
+    result
+}
 /// Renders a sequence diagram to an SVG string.
 #[must_use]
 pub fn render_sequence_svg(
@@ -152,6 +187,7 @@ pub fn render_sequence_svg(
     msg_activates: &[Vec<String>],
     msg_deactivates: &[Vec<String>],
     msg_parallel: &[bool],
+    max_message_size: Option<f64>,
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -219,6 +255,28 @@ pub fn render_sequence_svg(
         }
     }
     let msg_self_levels = pre_msg_self_levels;
+    // Precompute wrapped lines and their max widths for all messages
+    let mut pre_wrapped_lines: Vec<Vec<String>> = Vec::new();
+    let mut pre_wrapped_widths: Vec<f64> = Vec::new();
+    for event in diagram.events() {
+        if let SequenceEvent::Message(msg) = event {
+            let label = msg.label();
+            let wrapped = if !label.is_empty() {
+                if let Some(max_w) = max_message_size {
+                    wrap_message_text(&bounder, &font_m, label, max_w)
+                } else {
+                    label.split("\\n").map(String::from).collect()
+                }
+            } else {
+                Vec::new()
+            };
+            let max_w = wrapped.iter()
+                .map(|l| bounder.calculate_dimension(&font_m, l).width())
+                .fold(0.0_f64, f64::max);
+            pre_wrapped_lines.push(wrapped);
+            pre_wrapped_widths.push(max_w);
+        }
+    }
     let mut min_spacing = vec![PARTICIPANT_SPACING; participants.len().max(1)];
     let mut nonadjacent_constraints: Vec<(usize, usize, f64)> = Vec::new();
 
@@ -228,11 +286,12 @@ pub fn render_sequence_svg(
             let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
             let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
             let label = msg.label();
+            let text_w = pre_wrapped_widths[spacing_msg_idx];
             if p1_idx == p2_idx {
                 // Self-message: posC2 = posC + getMaxPosition() (global max activation level)
                 // getMaxX() = posC2 + compWidth where compWidth = max(text_w + 2*padding, arrowWidth + 5)
                 // Ported from: CommunicationTileSelf.getMaxX() + LivingSpace.getPosC2()
-                let text_w = max_line_width(&bounder, &font_m, label);
+                let text_w = pre_wrapped_widths[spacing_msg_idx];
                 let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
                 let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
                 if p1_idx + 1 < participants.len() {
@@ -243,7 +302,7 @@ pub fn render_sequence_svg(
                     }
                 }
             } else if !label.is_empty() {
-                let text_w = max_line_width(&bounder, &font_m, label);
+                let text_w = pre_wrapped_widths[spacing_msg_idx];
                 let lo = p1_idx.min(p2_idx);
                 let hi = p1_idx.max(p2_idx);
                 let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
@@ -336,6 +395,7 @@ pub fn render_sequence_svg(
     let mut arrow_ys: Vec<f64> = Vec::new();
     let mut is_self_flags: Vec<bool> = Vec::new();
     let mut msg_text_heights: Vec<f64> = Vec::new();
+    let mut msg_wrapped_lines: Vec<Vec<String>> = Vec::new();
     let mut current_y = lifeline_y;
     let mut prev_is_self = false;
     let mut prev_had_note = false;
@@ -355,11 +415,10 @@ pub fn render_sequence_svg(
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let has_text = !msg.label().is_empty();
-            let line_count = if has_text {
-                msg.label().split("\\n").count()
-            } else {
-                0
-            };
+            // Use precomputed wrapped lines
+            let wrapped_lines = pre_wrapped_lines[msg_idx].clone();
+            let line_count = wrapped_lines.len();
+            msg_wrapped_lines.push(wrapped_lines);
             let text_h = (line_count as f64) * 13.0 + 13.0;
             msg_text_heights.push(text_h);
             let is_self = msg.p1().code() == msg.p2().code();
@@ -398,6 +457,14 @@ pub fn render_sequence_svg(
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                 let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
                 current_y += inc + ELSE_TILE_HEIGHT;
+            } else if is_first_in_group && curr_group.map(|gi| groups[gi].parallel).unwrap_or(false) {
+                // Parallel group: top-aligned with the previous tile's chaining point.
+                // Same Y as the first group's first message (not stacked below).
+                let curr_level = curr_group
+                    .and_then(|gi| groups.get(gi))
+                    .map(|g| g.nesting_level)
+                    .unwrap_or(0);
+                current_y = lifeline_y + 1.0 + text_h + GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
             } else if is_first_in_group {
                 // First message in a subsequent group (non-else)
                 let curr_level = curr_group
@@ -494,7 +561,14 @@ pub fn render_sequence_svg(
                         let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
                         (fy, fh)
                     };
-                    prev_frame_bottom = Some(frame_y + frame_height);
+                    let fb = frame_y + frame_height;
+                    // For parallel groups, take max with existing prev_frame_bottom
+                    // (parallel siblings should not reduce the overall bottom)
+                    if group.parallel {
+                        prev_frame_bottom = Some(prev_frame_bottom.map(|existing| existing.max(fb)).unwrap_or(fb));
+                    } else {
+                        prev_frame_bottom = Some(fb);
+                    }
                     prev_frame_bottom_level = group.nesting_level;
                 }
             }
@@ -581,7 +655,7 @@ pub fn render_sequence_svg(
                     let p1_c = pos_c_vals[p1_idx];
                     let p2_c = pos_c_vals[p2_idx];
                     let (mut d_min, mut d_max) = if is_self {
-                        let label_w = max_line_width(&bounder, &font_m, msg.label());
+                        let label_w = pre_wrapped_widths[msg_iter_idx];
                         let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
                         let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
                         if is_reverse {
@@ -638,7 +712,12 @@ pub fn render_sequence_svg(
             //   opt subtracts 2 headers, alt subtracts 1 header.
             let innermost = *msg_start_innermost.get(&group.msg_start).unwrap_or(&group.nesting_level);
             let headers_to_subtract = (innermost + 1) - group.nesting_level;
-            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - GROUP_HEADER_HEIGHT - p_extra;
+            // For wrapped text, subtract the extra text height so the frame Y
+            // stays at the group's chaining point (independent of text wrapping).
+            // Single-line text_h = 26; extra = text_h - 26.
+            let first_text_h = msg_text_heights[group.msg_start];
+            let extra_text_h = (first_text_h - 26.0).max(0.0);
+            let fy = arrow_ys[group.msg_start] - extra_text_h - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - GROUP_HEADER_HEIGHT - p_extra;
             let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
             (fy, fh)
         };
@@ -1467,6 +1546,7 @@ pub fn render_sequence_svg(
                 p1_idx, p2_idx,
                 msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
                 msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
+                msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
             );
             for note in notes {
                 if note.msg_index != msg_idx {
@@ -1609,7 +1689,6 @@ fn draw_note(
     }
 }
 
-/// Draws a message arrow between two participants.
 fn draw_message(
     svg: &mut SvgGraphics,
     msg: &Message,
@@ -1622,6 +1701,7 @@ fn draw_message(
     p2_idx: usize,
     level_ignore: i32,
     level_considere: i32,
+    wrapped_lines: &[String],
 ) {
     let x1 = pos_c[p1_idx] + x_offset;
     let x2 = pos_c[p2_idx] + x_offset;
@@ -1726,12 +1806,18 @@ fn draw_message(
     // Message text (only if label is non-empty)
     let label = msg.label();
     if !label.is_empty() {
+        // Use wrapped lines if provided, otherwise split by \\n
+        let lines: Vec<&str> = if !wrapped_lines.is_empty() {
+            wrapped_lines.iter().map(String::as_str).collect()
+        } else {
+            label.split("\\n").collect()
+        };
         let text_x = if is_self {
             if is_reverse {
                 // <-- : text at left edge of component
                 // comp_width = max(SELF_XRIGHT, MESSAGE_TEXT_X_OFFSET + label_width)
                 // When comp_width == SELF_XRIGHT (loop wider than text), text is 1px left of loop
-                let label_w = max_line_width(bounder, font, label);
+                let label_w = lines.iter().map(|l| bounder.calculate_dimension(font, l).width()).fold(0.0_f64, f64::max);
                 let comp_width = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
                 x1 - ld * max_level - comp_width.max(SELF_XRIGHT + 1.0)
             } else {
@@ -1744,30 +1830,49 @@ fn draw_message(
         } else {
             x1 + MESSAGE_TEXT_X_OFFSET
         };
-        // Handle multi-line text: split on literal \n
-        let lines: Vec<&str> = label.split("\\n").collect();
         let text_y = y - MESSAGE_TEXT_Y_OFFSET - ((lines.len().max(1) - 1) as f64) * 13.0;
 
         svg.set_fill_color(COLOR_TEXT);
         svg.set_stroke_color(None);
         svg.set_stroke_width(0.0, None);
-        // Handle multi-line text: split on literal \n (already split above)
+        // When text is wrapped (MaxMessageSize active), render each word as a separate
+        // <text> element with textLength, matching Java PlantUML's text block rendering.
+        // Otherwise, render each line as a single <text> element (existing behavior).
+        let is_wrapped = !wrapped_lines.is_empty() && wrapped_lines.len() > label.split("\\n").count();
         for (line_idx, line) in lines.iter().enumerate() {
-            let text_w = bounder.calculate_dimension(font, line).width();
             let line_y = text_y + (line_idx as f64) * 13.0;
-            svg.text(
-                line,
-                text_x,
-                line_y,
-                None,
-                FONT_SIZE_MESSAGE,
-                None,
-                None,
-                None,
-                text_w,
-                &indexmap::IndexMap::new(),
-                None,
-            );
+            if is_wrapped {
+                let words: Vec<&str> = line.split_whitespace().collect();
+                if words.is_empty() {
+                    let text_w = bounder.calculate_dimension(font, line).width();
+                    svg.text(
+                        line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                        text_w, &indexmap::IndexMap::new(), None,
+                    );
+                } else {
+                    let mut offset_x: f64 = 0.0;
+                    for (wi, word) in words.iter().enumerate() {
+                        let word_w = bounder.calculate_dimension(font, word).width();
+                        if wi > 0 {
+                            svg.text(
+                                "\u{00A0}", text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                                0.0, &indexmap::IndexMap::new(), None,
+                            );
+                        }
+                        svg.text(
+                            word, text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                            word_w, &indexmap::IndexMap::new(), None,
+                        );
+                        offset_x += word_w;
+                    }
+                }
+            } else {
+                let text_w = bounder.calculate_dimension(font, line).width();
+                svg.text(
+                    line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                    text_w, &indexmap::IndexMap::new(), None,
+                );
+            }
         }
     }
 }
@@ -1894,6 +1999,8 @@ pub struct GroupInfo {
     pub msg_end: usize,
     /// Nesting level (0 = top-level group, 1 = nested inside one group, etc.).
     pub nesting_level: usize,
+    /// Whether this group starts in parallel with the previous tile (`&` prefix).
+    pub parallel: bool,
 }
 
 /// Parsed sequence diagram with SVG metadata.
@@ -1920,6 +2027,8 @@ pub struct ParsedSequence {
     pub msg_deactivates: Vec<Vec<String>>,
     /// Whether each message is parallel (drawn at same Y as previous, from `&` prefix).
     pub msg_parallel: Vec<bool>,
+    /// Maximum message text width for wrapping (from `Maxmessagesize` skinparam).
+    pub max_message_size: Option<f64>,
 }
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
@@ -1938,14 +2047,16 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut groups: Vec<GroupInfo> = Vec::new();
     let mut msg_count = 0usize;
     // Group parsing state: stack of (msg_start, group_type, comment, nesting_level)
-    let mut group_stack: Vec<(usize, String, String, usize)> = Vec::new();
+    let mut group_stack: Vec<(usize, String, String, usize, bool)> = Vec::new();
     // skinparam { } block depth: when > 0, skip lines until closing }
     let mut skinparam_depth: u32 = 0;
     let mut msg_activates: Vec<Vec<String>> = Vec::new();
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
     let mut msg_parallel: Vec<bool> = Vec::new();
     let mut next_msg_parallel = false;
-    for (line_num, line) in text.lines().enumerate() {
+    let mut max_message_size: Option<f64> = None;
+    let lines: Vec<&str> = text.lines().collect();
+    for (line_num, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("@startuml") {
             in_diagram = true;
@@ -1977,6 +2088,12 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         }
         // Handle skinparam { } multi-line blocks: when depth > 0, skip until closing }
         if skinparam_depth > 0 {
+            // Parse Maxmessagesize inside skinparam blocks
+            if let Some(rest) = trimmed.strip_prefix("Maxmessagesize ") {
+                if let Ok(val) = rest.trim().parse::<f64>() {
+                    max_message_size = Some(val);
+                }
+            }
             if trimmed.contains('}') {
                 skinparam_depth = skinparam_depth.saturating_sub(1);
             } else if trimmed.ends_with('{') {
@@ -1997,6 +2114,12 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
 
         // Handle skinparam: either single-line or multi-line block with {
         if trimmed.starts_with("skinparam ") {
+            // Check for single-line Maxmessagesize
+            if let Some(rest) = trimmed.strip_prefix("skinparam Maxmessagesize ") {
+                if let Ok(val) = rest.trim().parse::<f64>() {
+                    max_message_size = Some(val);
+                }
+            }
             if trimmed.ends_with('{') {
                 skinparam_depth = 1;
             }
@@ -2011,13 +2134,14 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
 
         // Handle "end" — close the current group (pop from stack)
         if trimmed == "end" {
-            if let Some((start, gtype, comment, level)) = group_stack.pop() {
+            if let Some((start, gtype, comment, level, parallel)) = group_stack.pop() {
                 groups.push(GroupInfo {
                     group_type: gtype,
                     comment,
                     msg_start: start,
                     msg_end: msg_count,
                     nesting_level: level,
+                    parallel,
                 });
             }
             continue;
@@ -2030,16 +2154,17 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             } else {
                 trimmed[5..].trim().to_string()
             };
-            if let Some((start, gtype, comment, level)) = group_stack.pop() {
+            if let Some((start, gtype, comment, level, parallel)) = group_stack.pop() {
                 groups.push(GroupInfo {
                     group_type: gtype,
                     comment,
                     msg_start: start,
                     msg_end: msg_count,
                     nesting_level: level,
+                    parallel,
                 });
-                // Start new else section at the same nesting level
-                group_stack.push((msg_count, "else".to_string(), else_comment, level));
+                // Start new else section at the same nesting level (inherit parallel flag)
+                group_stack.push((msg_count, "else".to_string(), else_comment, level, parallel));
             }
             continue;
         }
@@ -2061,7 +2186,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             } else {
                 String::new()
             };
-            group_stack.push((msg_count, group_keyword.to_string(), comment, nesting_level));
+            let is_parallel = next_msg_parallel;
+            next_msg_parallel = false;
+            group_stack.push((msg_count, group_keyword.to_string(), comment, nesting_level, is_parallel));
             continue;
         }
 
@@ -2257,6 +2384,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             msg_activates,
             msg_deactivates,
             msg_parallel,
+            max_message_size,
         })
     }
 }

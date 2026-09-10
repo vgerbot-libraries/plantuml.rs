@@ -333,7 +333,7 @@ impl SvgGraphics {
             );
 
             // textLength: only for multi-char text with length adjust enabled
-            if text.len() > 1
+            if text.chars().count() > 1
                 && (self.option.length_adjust() == LengthAdjust::Spacing
                     || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs)
             {
@@ -514,8 +514,18 @@ pub enum TransparentFillBehavior {
 /// Java's `String.format("%.3f", x)` first converts `x` to its shortest string
 /// representation (`Double.toString`), then rounds HALF_UP.  Rust's
 /// `format!("{:.3}")` rounds the exact double value (HALF_EVEN), which can
-/// differ for values like 53.4625 (stored as 53.46249999…).  To match Java we
-/// obtain the shortest representation first, then round as a decimal string.
+/// Formats a coordinate/length as Java's `SvgGraphics.format(double)` does.
+///
+/// Java: `String.format(Locale.US, "%.{decimal}f", x * scale)` which converts
+/// the double to `BigDecimal.valueOf(x)` (= `new BigDecimal(Double.toString(x))`,
+/// the shortest round-trippable decimal) then rounds HALF_UP to `decimal` places.
+///
+/// We replicate this: `format!("{}", x)` gives Rust's shortest round-trippable
+/// representation (equivalent to `Double.toString`), then `round_half_up` rounds
+/// that decimal string with HALF_UP.  Operating on the shortest decimal string
+/// (not the raw f64) is essential: a value stored as 70.78749999…  has shortest
+/// repr "70.7875", which Java rounds to "70.788"; rounding the raw f64 directly
+/// would see digit 4 and give "70.787".
 fn format_number(xx: f64, scale: f64, decimal: usize) -> String {
     let x = xx * scale;
     if x == 0.0 {
