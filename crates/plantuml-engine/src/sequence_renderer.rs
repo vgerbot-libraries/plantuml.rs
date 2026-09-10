@@ -10,7 +10,7 @@ use plantuml_core::string_bounder::StringBounder;
 use plantuml_core::u_font::{FontStyle, UFont};
 use plantuml_klimt::string_bounder_from_width_table::StringBounderFromWidthTable;
 use plantuml_sequence::sequence_diagram::SequenceEvent;
-use plantuml_sequence::{LifeEventType, Message, SequenceDiagram};
+use plantuml_sequence::{LifeEventType, Message, ParticipantType, SequenceDiagram};
 use plantuml_svg::{SvgGraphics, SvgOption};
 
 // ── Layout constants (from Java Teoz/Rose defaults) ───────────────────────
@@ -196,13 +196,52 @@ pub fn render_sequence_svg(
     let participants = diagram.participants();
 
     // ── Compute participant head dimensions ──────────────────────────────
+    // Actor stickman dimensions (from ActorStickMan.java)
+    const STICKMAN_HEAD_DIAM: f64 = 16.0;
+    const STICKMAN_BODY_LEN: f64 = 27.0;
+    const STICKMAN_LEGS_Y: f64 = 15.0;
+    const STICKMAN_ARMS_LEN: f64 = 13.0;
+    const STICKMAN_LEGS_X: f64 = 13.0;
+    const STICKMAN_THICKNESS: f64 = 0.5;
+    const STICKMAN_HEIGHT: f64 =
+        STICKMAN_HEAD_DIAM + STICKMAN_BODY_LEN + STICKMAN_LEGS_Y + 2.0 * STICKMAN_THICKNESS + 1.0; // 60
+    const STICKMAN_WIDTH: f64 = STICKMAN_ARMS_LEN.max(STICKMAN_LEGS_X) * 2.0 + 2.0 * STICKMAN_THICKNESS; // 27
+    const ACTOR_PADDING_H: f64 = 3.0; // Actor horizontal padding (from ComponentRoseActor)
+    // Actor text height: textBlock height + padding(0,0) = same as regular text block height
+    // Actor head height = stickman(60) + text_block(19) = 79 in Java
+    // head_layout_height = headHeight - STARTING_Y = 79 - 5 = 74
+    const ACTOR_HEAD_LAYOUT_HEIGHT: f64 = 74.0; // headHeight(79) - STARTING_Y(5)
+
     let mut head_widths: Vec<f64> = Vec::with_capacity(participants.len());
+    let mut is_actor: Vec<bool> = Vec::with_capacity(participants.len());
     for p in participants {
         let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
-        head_widths.push(text_w + 2.0 * PADDING_H);
+        let actor = p.ptype() == ParticipantType::Actor;
+        is_actor.push(actor);
+        if actor {
+            // Actor: max(stickman_width, text_width + ACTOR_PADDING_H + ACTOR_PADDING_H)
+            // Java: getTextWidth = text_width + padding.left + padding.right; padding=(0,3,0,3)
+            head_widths.push(STICKMAN_WIDTH.max(text_w + ACTOR_PADDING_H + ACTOR_PADDING_H));
+        } else {
+            // Java: getPreferredWidth = getTextWidth + margin.left + margin.right
+            // getTextWidth = text_width + padding.left + padding.right; padding=(5,7,5,7)
+            // Must add padding.left and padding.right separately to match Java's float addition order
+            head_widths.push(text_w + PADDING_H + PADDING_H);
+        }
     }
-    let head_rect_height = TEXT_BLOCK_HEIGHT;
-    let head_layout_height = TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA;
+    // head_layout_height = max of all participants' head layout heights
+    let has_actor = is_actor.iter().any(|&a| a);
+    let head_layout_height = if has_actor {
+        ACTOR_HEAD_LAYOUT_HEIGHT.max(TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA)
+    } else {
+        TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA
+    };
+    // head_rect_height for footbox_bottom computation: the max head component height
+    let head_rect_height = if has_actor {
+        (ACTOR_HEAD_LAYOUT_HEIGHT).max(TEXT_BLOCK_HEIGHT) // 74 for actors
+    } else {
+        TEXT_BLOCK_HEIGHT
+    };
 
     // ── Compute X positions using Real constraint system ─────────────────
     // First, compute text-based spacing constraints from messages
@@ -225,6 +264,9 @@ pub fn render_sequence_svg(
     let mut pre_participant_levels: Vec<i32> = vec![0; participants.len()];
     let mut max_participant_levels: Vec<i32> = vec![0; participants.len()];
     let mut pre_msg_self_levels: Vec<(i32, i32)> = Vec::new();
+    // Track activation levels at each message for spacing constraints
+    let mut msg_p1_levels: Vec<i32> = Vec::new();
+    let mut msg_p2_levels: Vec<i32> = Vec::new();
     {
         let mut mi = 0usize;
         for event in diagram.events() {
@@ -240,6 +282,21 @@ pub fn render_sequence_svg(
                 } else {
                     pre_msg_self_levels.push((0, 0));
                 }
+                // Record activation levels at this message for IGNORE_FUTURE_DEACTIVATE mode.
+                // Java getLevelAt() with IGNORE_FUTURE_DEACTIVATE:
+                // - Includes activations up to and including this message (lookahead for same-message activates)
+                // - Ignores future deactivations (does NOT subtract inline deactivations)
+                let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                let p1_level = pre_participant_levels.get(p1_idx).copied().unwrap_or(0);
+                let p2_level = pre_participant_levels.get(p2_idx).copied().unwrap_or(0);
+                // Add inline activations attached to this message (lookahead in Java)
+                let inline_acts_p1 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
+                let inline_acts_p2 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32).unwrap_or(0);
+                let p1_level_for_constraint = p1_level + inline_acts_p1;
+                let p2_level_for_constraint = p2_level + inline_acts_p2;
+                msg_p1_levels.push(p1_level_for_constraint);
+                msg_p2_levels.push(p2_level_for_constraint);
                 mi += 1;
             } else if let SequenceEvent::LifeEvent(le) = event {
                 let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
@@ -278,7 +335,13 @@ pub fn render_sequence_svg(
         }
     }
     let mut min_spacing = vec![PARTICIPANT_SPACING; participants.len().max(1)];
-    let mut nonadjacent_constraints: Vec<(usize, usize, f64)> = Vec::new();
+    // Each constraint stores: (lo, hi, point1_offset, point2_pre_offset, arrow_width)
+    // Matching Java CommunicationTile.addConstraints() exactly:
+    // Forward: point2.ensureBiggerThan(point1.addFixed(width))
+    //   where point2 = posC[hi] + (-5 if level2>0 else 0), point1 = posC[lo]
+    // Reverse: point1.ensureBiggerThan(point2.addFixed(width))
+    //   where point1 = posC[hi] + (-5 if level1>0 else 0), point2 = posC[lo] + level2*5
+    let mut nonadjacent_constraints: Vec<(usize, usize, f64, f64, f64)> = Vec::new();
 
     let mut spacing_msg_idx = 0usize;
     for event in diagram.events() {
@@ -289,9 +352,6 @@ pub fn render_sequence_svg(
             let text_w = pre_wrapped_widths[spacing_msg_idx];
             if p1_idx == p2_idx {
                 // Self-message: posC2 = posC + getMaxPosition() (global max activation level)
-                // getMaxX() = posC2 + compWidth where compWidth = max(text_w + 2*padding, arrowWidth + 5)
-                // Ported from: CommunicationTileSelf.getMaxX() + LivingSpace.getPosC2()
-                let text_w = pre_wrapped_widths[spacing_msg_idx];
                 let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
                 let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
                 if p1_idx + 1 < participants.len() {
@@ -302,19 +362,42 @@ pub fn render_sequence_svg(
                     }
                 }
             } else if !label.is_empty() {
-                let text_w = pre_wrapped_widths[spacing_msg_idx];
                 let lo = p1_idx.min(p2_idx);
                 let hi = p1_idx.max(p2_idx);
-                let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
-                if hi - lo == 1 {
-                    // Adjacent: direct spacing constraint
-                    if required > min_spacing[hi] {
-                        min_spacing[hi] = required;
+                let is_reverse = p1_idx > p2_idx;
+                let level_p1 = msg_p1_levels.get(spacing_msg_idx).copied().unwrap_or(0);
+                let level_p2 = msg_p2_levels.get(spacing_msg_idx).copied().unwrap_or(0);
+                // Match Java CommunicationTile.addConstraints() exactly.
+                // For messages without activation, use posB constraint (matching original behavior).
+                // For messages with activation, use posC constraint with exact Java addFixed chain.
+                let has_activation = if is_reverse {
+                    level_p1 > 0 || level_p2 > 0
+                } else {
+                    level_p2 > 0
+                };
+                if !has_activation {
+                    // No activation: use posB constraint (posB[hi] >= posD[lo] + required)
+                    let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
+                    if hi - lo == 1 {
+                        if required > min_spacing[hi] {
+                            min_spacing[hi] = required;
+                        }
+                    } else {
+                        nonadjacent_constraints.push((lo, hi, 0.0, 0.0, text_w + 24.0));
                     }
                 } else {
-                    // Non-adjacent: posC[hi] >= posC[lo] + text_w + 24
-                    // Collected as a cross-participant constraint, applied after Real vars exist
-                    nonadjacent_constraints.push((lo, hi, text_w + 24.0));
+                    // With activation: use posC constraint matching Java's exact addFixed chain
+                    let point1_offset = if is_reverse {
+                        if level_p1 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 }
+                    } else {
+                        if level_p2 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 }
+                    };
+                    let point2_pre_offset = if is_reverse {
+                        level_p2 as f64 * ACTIVATION_BAR_EXPLICIT_OFFSET
+                    } else {
+                        0.0
+                    };
+                    nonadjacent_constraints.push((lo, hi, point1_offset, point2_pre_offset, text_w + 24.0));
                 }
             }
             spacing_msg_idx += 1;
@@ -336,10 +419,24 @@ pub fn render_sequence_svg(
         let constraint = plantuml_real::add_fixed(&pos_d[i - 1], min_spacing[i]);
         plantuml_real::ensure_bigger_than(&pos_b[i], &constraint);
     }
-    // Non-adjacent message constraints: posC[hi] >= posC[lo] + text_w + 24
-    for &(lo, hi, total) in &nonadjacent_constraints {
-        let constraint = plantuml_real::add_fixed(&pos_c[lo], total);
-        plantuml_real::ensure_bigger_than(&pos_c[hi], &constraint);
+    // Message constraints matching Java CommunicationTile.addConstraints() exactly.
+    // Java creates point1/point2 Real objects with addFixed, then ensureBiggerThan.
+    // The exact chain of addFixed operations matters for floating point precision.
+    for &(lo, hi, p1_off, p2_pre, arrow_w) in &nonadjacent_constraints {
+        // point1 = posC[hi] + p1_off  (p1_off = -5 if activation, else 0)
+        // point2 = posC[lo] + p2_pre  (p2_pre = level2*5 for reverse, else 0)
+        // constraint = point2 + arrow_w
+        // ensure_bigger_than(point1, constraint)
+        let mut point1 = pos_c[hi].clone();
+        if p1_off != 0.0 {
+            point1 = plantuml_real::add_fixed(&point1, p1_off);
+        }
+        let mut point2 = pos_c[lo].clone();
+        if p2_pre != 0.0 {
+            point2 = plantuml_real::add_fixed(&point2, p2_pre);
+        }
+        let constraint = plantuml_real::add_fixed(&point2, arrow_w);
+        plantuml_real::ensure_bigger_than(&point1, &constraint);
     }
     plantuml_real::compile_now(xorigin.get_line());
 
@@ -1130,14 +1227,18 @@ pub fn render_sequence_svg(
         let p_center = pos_c_vals.get(p_idx).copied().unwrap_or(0.0) + x_offset;
         let note_text_w = max_line_width(&bounder, &font_m, &note.text);
         let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X;
+        // Java CommunicationTileNoteRight.getNotePosition = posC + level * LIVE_DELTA_SIZE
+        // getMaxX = getNotePosition + getPreferredWidth = posC + level*5 + layout_w
+        let note_level = if is_reverse { msg_p1_levels.get(msg_idx).copied().unwrap_or(0) } else { msg_p2_levels.get(msg_idx).copied().unwrap_or(0) };
+        let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
         let layout_right = if is_self_msg && !is_reverse {
-            // RIGHT note on --> self-message: layout_right = posC + comp_width + layout_w
+            // RIGHT note on --> self-message: layout_right = posC + comp_width + level_dx + layout_w
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-            p_center + comp_width + layout_w
+            p_center + comp_width + level_dx + layout_w
         } else {
-            // RIGHT note on <-- self-message or normal message: layout_right = posC + layout_w
-            p_center + layout_w
+            // RIGHT note on <-- self-message or normal message: layout_right = posC + level_dx + layout_w
+            p_center + level_dx + layout_w
         };
         if layout_right > max_note_right {
             max_note_right = layout_right;
@@ -1344,32 +1445,89 @@ pub fn render_sequence_svg(
     for (i, p) in participants.iter().enumerate() {
         let x = pos_b_vals[i] + x_offset;
         let w = head_widths[i];
+        let cx = pos_c_vals[i] + x_offset;
 
-        svg.set_fill_color(COLOR_BACK);
-        svg.set_stroke_color(Some(COLOR_STROKE));
-        svg.set_stroke_width(STROKE_WIDTH_BOX, None);
-        svg.svg_rectangle(x, head_y, w, head_rect_height, ROUND_CORNER, ROUND_CORNER, 0.0);
+        if is_actor[i] {
+            // Actor: draw stickman + text below
+            // Stickman head center: (cx, head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM/2)
+            let head_cy = head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
+            svg.set_fill_color(COLOR_BACK);
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
 
-        let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
-        let text_x = x + (w - text_w) / 2.0;
-        let text_y = head_y + PADDING_TOP + ASCENT_14;
+            // Body + arms + legs as path
+            let body_top = head_cy + STICKMAN_HEAD_DIAM / 2.0; // head_y + 0.5 + 16 = head_y + 16.5
+            let body_bottom = body_top + STICKMAN_BODY_LEN; // head_y + 43.5
+            let arms_y = body_top + 8.0; // head_y + 24.5 (armsY = 8)
+            let legs_bottom = body_bottom + STICKMAN_LEGS_Y; // head_y + 58.5
 
-        svg.set_fill_color(COLOR_TEXT);
-        svg.set_stroke_color(None);
-        svg.set_stroke_width(0.0, None);
-        svg.text(
-            p.display(),
-            text_x,
-            text_y,
-            None,
-            FONT_SIZE_PARTICIPANT,
-            None,
-            None,
-            None,
-            text_w,
-            &indexmap::IndexMap::new(),
-            None,
-        );
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            let path_d = format!(
+                "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
+                cx = format_number_path(cx),
+                body_top = format_number_path(body_top),
+                body_bottom = format_number_path(body_bottom),
+                arms_y = format_number_path(arms_y),
+                arms_l = format_number_path(cx - STICKMAN_ARMS_LEN),
+                arms_r = format_number_path(cx + STICKMAN_ARMS_LEN),
+                legs_bottom = format_number_path(legs_bottom),
+                leg_lx = format_number_path(cx - STICKMAN_LEGS_X),
+                leg_rx = format_number_path(cx + STICKMAN_LEGS_X),
+            );
+            svg.svg_path(&path_d, 0.0);
+
+            // Text below stickman
+            let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
+            let text_x = cx - text_w / 2.0;
+            let text_y = head_y + STICKMAN_HEIGHT + ASCENT_14 - 2.0; // Adjust for actor text position
+
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                p.display(),
+                text_x,
+                text_y,
+                None,
+                FONT_SIZE_PARTICIPANT,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+        } else {
+            // Regular participant: draw rectangle + text inside
+            svg.set_fill_color(COLOR_BACK);
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+            svg.svg_rectangle(x, head_y, w, TEXT_BLOCK_HEIGHT, ROUND_CORNER, ROUND_CORNER, 0.0);
+
+            let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
+            let text_x = x + (w - text_w) / 2.0;
+            let text_y = head_y + PADDING_TOP + ASCENT_14;
+
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                p.display(),
+                text_x,
+                text_y,
+                None,
+                FONT_SIZE_PARTICIPANT,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+        }
     }
 
     // ── Draw footboxes ───────────────────────────────────────────────────
@@ -1377,32 +1535,88 @@ pub fn render_sequence_svg(
     for (i, p) in participants.iter().enumerate() {
         let x = pos_b_vals[i] + x_offset;
         let w = head_widths[i];
+        let cx = pos_c_vals[i] + x_offset;
 
-        svg.set_fill_color(COLOR_BACK);
-        svg.set_stroke_color(Some(COLOR_STROKE));
-        svg.set_stroke_width(STROKE_WIDTH_BOX, None);
-        svg.svg_rectangle(x, footbox_y, w, head_rect_height, ROUND_CORNER, ROUND_CORNER, 0.0);
+        if is_actor[i] {
+            // Actor footbox: text above + stickman below (reversed from head)
+            let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
+            let text_x = cx - text_w / 2.0;
+            let text_y = footbox_y + ASCENT_14 - 2.0;
 
-        let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
-        let text_x = x + (w - text_w) / 2.0;
-        let text_y = footbox_y + PADDING_TOP + ASCENT_14;
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                p.display(),
+                text_x,
+                text_y,
+                None,
+                FONT_SIZE_PARTICIPANT,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
 
-        svg.set_fill_color(COLOR_TEXT);
-        svg.set_stroke_color(None);
-        svg.set_stroke_width(0.0, None);
-        svg.text(
-            p.display(),
-            text_x,
-            text_y,
-            None,
-            FONT_SIZE_PARTICIPANT,
-            None,
-            None,
-            None,
-            text_w,
-            &indexmap::IndexMap::new(),
-            None,
-        );
+            // Stickman below text
+            let stickman_top = footbox_y + TEXT_BLOCK_HEIGHT; // text area height
+            let head_cy = stickman_top + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
+            svg.set_fill_color(COLOR_BACK);
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
+
+            let body_top = head_cy + STICKMAN_HEAD_DIAM / 2.0;
+            let body_bottom = body_top + STICKMAN_BODY_LEN;
+            let arms_y = body_top + 8.0;
+            let legs_bottom = body_bottom + STICKMAN_LEGS_Y;
+
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STICKMAN_THICKNESS * 2.0, None);
+            let path_d = format!(
+                "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
+                cx = format_number_path(cx),
+                body_top = format_number_path(body_top),
+                body_bottom = format_number_path(body_bottom),
+                arms_y = format_number_path(arms_y),
+                arms_l = format_number_path(cx - STICKMAN_ARMS_LEN),
+                arms_r = format_number_path(cx + STICKMAN_ARMS_LEN),
+                legs_bottom = format_number_path(legs_bottom),
+                leg_lx = format_number_path(cx - STICKMAN_LEGS_X),
+                leg_rx = format_number_path(cx + STICKMAN_LEGS_X),
+            );
+            svg.svg_path(&path_d, 0.0);
+        } else {
+            // Regular participant: draw rectangle + text inside
+            svg.set_fill_color(COLOR_BACK);
+            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+            svg.svg_rectangle(x, footbox_y, w, TEXT_BLOCK_HEIGHT, ROUND_CORNER, ROUND_CORNER, 0.0);
+
+            let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
+            let text_x = x + (w - text_w) / 2.0;
+            let text_y = footbox_y + PADDING_TOP + ASCENT_14;
+
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                p.display(),
+                text_x,
+                text_y,
+                None,
+                FONT_SIZE_PARTICIPANT,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+        }
     }
     }
 
@@ -1586,6 +1800,8 @@ pub fn render_sequence_svg(
                 msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
                 msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
                 msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
+                msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
             );
             for note in notes {
                 if note.msg_index != msg_idx {
@@ -1595,6 +1811,8 @@ pub fn render_sequence_svg(
                     &mut svg, note, msg, &pcode_to_idx, &pos_c_vals, x_offset,
                     y, msg_idx, &msg_text_heights, &bounder, &font_m,
                     pre_wrapped_widths.get(msg_idx).copied().unwrap_or(0.0),
+                    msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
+                    msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
                 );
             }
             msg_idx += 1;
@@ -1621,6 +1839,8 @@ fn draw_note(
     bounder: &StringBounderFromWidthTable,
     font_m: &UFont,
     pre_wrapped_width: f64,
+    msg_p1_level: i32,
+    msg_p2_level: i32,
 ) {
     let is_self_msg = msg.is_self_message();
     let is_reverse_syntax = msg.arrow_config().is_reverse_define();
@@ -1669,16 +1889,23 @@ fn draw_note(
         0.0
     };
 
-    // Note X position: polygon is drawn at layout_position + paddingX
+    // Note X position: polygon is drawn at getNotePosition + getPaddingX()
+    // For RIGHT notes: getNotePosition = posC + level * LIVE_DELTA_SIZE
+    // For LEFT notes: getNotePosition = posC - getPreferredWidth (no level offset)
     // For self-messages, the layout position is offset by comp_width
+    let note_level = match note.position {
+        NotePosition::Right => if is_reverse { msg_p1_level } else { msg_p2_level },
+        NotePosition::Left => 0, // LEFT notes don't have level offset in Java
+    };
+    let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
     let note_x = match note.position {
         NotePosition::Right => {
             if is_self_msg && !is_reverse {
-                // RIGHT on --> : polygon at posC + comp_width + paddingX
-                p_center + comp_width + NOTE_PADDING_X
+                // RIGHT on --> : polygon at posC + comp_width + level_dx + paddingX
+                p_center + comp_width + level_dx + NOTE_PADDING_X
             } else {
-                // RIGHT on <-- or normal: polygon at posC + paddingX
-                p_center + NOTE_PADDING_X
+                // RIGHT on <-- or normal: polygon at posC + level_dx + paddingX
+                p_center + level_dx + NOTE_PADDING_X
             }
         }
         NotePosition::Left => {
@@ -1740,15 +1967,40 @@ fn draw_message(
     level_ignore: i32,
     level_considere: i32,
     wrapped_lines: &[String],
+    msg_p1_level: i32,
+    msg_p2_level: i32,
 ) {
-    let x1 = pos_c[p1_idx] + x_offset;
-    let x2 = pos_c[p2_idx] + x_offset;
+    let x1_raw = pos_c[p1_idx] + x_offset;
+    let x2_raw = pos_c[p2_idx] + x_offset;
     let is_self = p1_idx == p2_idx;
     let is_return = p1_idx > p2_idx;
     let is_reverse = msg.arrow_config().is_reverse_define();
     let is_dashed = msg.arrow_config().is_dotted();
     let ld = ACTIVATION_BAR_EXPLICIT_OFFSET; // LIVE_DELTA_SIZE = 5
     let max_level = level_ignore.max(level_considere) as f64;
+
+    // Java CommunicationTile.drawU(): adjust x1/x2 based on activation levels
+    // For non-reverse: x1 += ld * level1; x2 += ld * (level2 > 0 ? level2 - 2 : level2)
+    // For reverse: x1 -= ld if level1==1; x1 += ld*(level1-2) if level1>2; x2 += ld * level2
+    // Self-messages handle activation levels separately (CommunicationTileSelf.drawU)
+    let (x1, x2) = if is_self {
+        (x1_raw, x2_raw)
+    } else if is_return {
+        let mut x1 = x1_raw;
+        let mut x2 = x2_raw;
+        if msg_p1_level == 1 {
+            x1 -= ld;
+        } else if msg_p1_level > 2 {
+            x1 += ld * (msg_p1_level as f64 - 2.0);
+        }
+        x2 += ld * (msg_p2_level as f64);
+        (x1, x2)
+    } else {
+        let x1 = x1_raw + ld * (msg_p1_level as f64);
+        let level2_adj = if msg_p2_level > 0 { msg_p2_level - 2 } else { msg_p2_level };
+        let x2 = x2_raw + ld * (level2_adj as f64);
+        (x1, x2)
+    };
 
     if is_self {
         // Self-message: draw a loop to the right (--> ) or left (<--) of the participant
@@ -2310,12 +2562,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             "database", "entity", "queue",
         ] {
             let prefix = format!("{kw} ");
-            if let Some(rest) = trimmed.strip_prefix(&prefix) {
-                // Support "Name" or "Display Name" or "Name as alias"
-                let name = rest.trim();
-                // Handle "participant 'Display Name' as alias" format
+            if trimmed.to_lowercase().starts_with(&prefix) {
+                let name = trimmed[kw.len() + 1..].trim();
                 let (code, display) = if name.starts_with('"') {
-                    // "Display Name" as alias
                     if let Some(end) = name[1..].find('"') {
                         let display = &name[1..1 + end];
                         let after = name[2 + end..].trim();
@@ -2334,7 +2583,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 } else {
                     (name.to_string(), name.to_string())
                 };
-                diagram.declare_participant(&code, &display);
+                let ptype = plantuml_sequence::ParticipantType::from_str(kw)
+                    .unwrap_or(plantuml_sequence::ParticipantType::Participant);
+                diagram.declare_participant_with_type(&code, &display, ptype);
                 found_participant_decl = true;
                 break;
             }
@@ -2414,7 +2665,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
-        if let Some((p1_code, p2_code, label, arrow)) = parse_arrow_line(trimmed) {
+        if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate)) = parse_arrow_line(trimmed) {
             last_p1 = Some(p1_code.clone());
             last_p2 = Some(p2_code.clone());
             let p1 = diagram.get_or_create_participant(&p1_code);
@@ -2425,13 +2676,26 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     .with_body(plantuml_skin::ArrowBody::Dotted),
                 "<--" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
                     .with_body(plantuml_skin::ArrowBody::Dotted),
+                "\\\\--" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
+                    .with_body(plantuml_skin::ArrowBody::Dotted),
+                "\\\\-" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
+                    .with_body(plantuml_skin::ArrowBody::Dotted),
                 "<-" => plantuml_skin::ArrowConfiguration::with_direction_normal().reverse_define(),
                 _ => plantuml_skin::ArrowConfiguration::with_direction_normal(),
             };
             let msg = Message::new(p1, p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
-            msg_activates.push(Vec::new());
-            msg_deactivates.push(Vec::new());
+            // Apply inline activation/deactivation
+            let mut acts = Vec::new();
+            let mut deacts = Vec::new();
+            if inline_deactivate {
+                deacts.push(p1_code.clone());
+            }
+            if inline_activate {
+                acts.push(p2_code.clone());
+            }
+            msg_activates.push(acts);
+            msg_deactivates.push(deacts);
             msg_parallel.push(next_msg_parallel);
             next_msg_parallel = false;
             msg_count += 1;
@@ -2458,18 +2722,27 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     }
 }
 
-/// Parses an arrow line like "Alice -> Bob : hello".
 /// Parses an arrow line like "Alice -> Bob : hello" or "Test --> Test: Text".
-/// Handles common arrow types: ->, -->, <-, <--, ->>, <<-.
-/// Returns (p1_code, p2_code, label, arrow_string).
-fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str)> {
+/// Handles common arrow types: ->, -->, <-, <--, ->>, <<-, \\--, \\-.
+/// Extracts inline activation markers (++/--/--++) from the p2 part.
+/// Returns (p1_code, p2_code, label, arrow_string, inline_activate, inline_deactivate).
+fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str, bool, bool)> {
     // Try each arrow pattern, longest first to avoid partial matches
-    let arrows: [&str; 6] = ["-->", "<--", "->>", "<<-", "->", "<-"];
-    for arrow in &arrows {
+    let arrows: [(&str, &str); 8] = [
+        ("-->", "-->"),
+        ("<--", "<--"),
+        ("->>", "->>"),
+        ("<<-", "<<-"),
+        ("\\\\--", "\\\\--"),
+        ("\\\\-", "\\\\-"),
+        ("->", "->"),
+        ("<-", "<-"),
+    ];
+    for (arrow, ret) in &arrows {
         if let Some(pos) = line.find(arrow) {
             let p1_code = line[..pos].trim().to_string();
             let rest = &line[pos + arrow.len()..];
-            let (p2_part, label) = if let Some(colon_pos) = rest.find(':') {
+            let (p2_part_raw, label) = if let Some(colon_pos) = rest.find(':') {
                 (
                     rest[..colon_pos].trim().to_string(),
                     rest[colon_pos + 1..].trim().to_string(),
@@ -2477,10 +2750,35 @@ fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str)
             } else {
                 (rest.trim().to_string(), String::new())
             };
-            if p1_code.is_empty() || p2_part.is_empty() {
+            if p1_code.is_empty() || p2_part_raw.is_empty() {
                 continue;
             }
-            return Some((p1_code, p2_part, label, arrow));
+            // Extract inline activation markers from p2_part
+            // Markers: --++ (deactivate source, activate target), ++ (activate), -- (deactivate)
+            // Also strip #color modifiers
+            let mut p2_part = p2_part_raw.clone();
+            // Strip #color modifier (e.g., "#red")
+            if let Some(hash_pos) = p2_part.find('#') {
+                p2_part = p2_part[..hash_pos].trim().to_string();
+            }
+            let mut inline_activate = false;
+            let mut inline_deactivate = false;
+            // Check for --++ first (longest match)
+            if p2_part.ends_with("--++") {
+                inline_deactivate = true;
+                inline_activate = true;
+                p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
+            } else if p2_part.ends_with("++") {
+                inline_activate = true;
+                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
+            } else if p2_part.ends_with("--") {
+                inline_deactivate = true;
+                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
+            }
+            if p2_part.is_empty() {
+                continue;
+            }
+            return Some((p1_code, p2_part, label, ret, inline_activate, inline_deactivate));
         }
     }
     None

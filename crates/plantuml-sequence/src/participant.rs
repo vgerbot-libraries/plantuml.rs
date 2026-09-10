@@ -50,6 +50,11 @@ impl Participant {
         self.display = display.into();
     }
 
+    /// Sets the participant type.
+    pub fn set_ptype(&mut self, ptype: ParticipantType) {
+        self.ptype = ptype;
+    }
+
     /// Returns the participant type.
     #[must_use]
     pub const fn ptype(&self) -> ParticipantType {

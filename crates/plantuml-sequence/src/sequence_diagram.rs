@@ -69,15 +69,25 @@ impl SequenceDiagram {
     /// Declares a participant with a display name. If the participant already
     /// exists, updates its display name (without reordering).
     pub fn declare_participant(&mut self, code: &str, display: &str) {
+        self.declare_participant_with_type(code, display, ParticipantType::Participant);
+    }
+
+    /// Declares a participant with a display name and explicit type.
+    /// If the participant already exists, updates its display name and type.
+    pub fn declare_participant_with_type(
+        &mut self,
+        code: &str,
+        display: &str,
+        ptype: ParticipantType,
+    ) {
         if let Some(pos) = self.participants.iter().position(|p| p.code() == code) {
             self.participants[pos].set_display(display);
+            // Update type if a more specific one is provided
+            if ptype != ParticipantType::Participant {
+                self.participants[pos].set_ptype(ptype);
+            }
         } else {
-            let p = Participant::new(
-                ParticipantType::Participant,
-                code,
-                display,
-                self.participants.len() as i32,
-            );
+            let p = Participant::new(ptype, code, display, self.participants.len() as i32);
             self.participants.push(p);
         }
     }
