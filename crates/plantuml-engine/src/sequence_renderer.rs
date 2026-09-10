@@ -810,12 +810,12 @@ pub fn render_sequence_svg(
     // Java's PlayingSpace.startingY = 8: the tile stack starts 8px below the body origin.
     // Standalone LifeEvents before the first message use this as their Y position.
     let mut current_position = lifeline_y + 8.0;
-    // Activation tracking: (participant_idx, start_y, end_y)
-    let mut activations: Vec<(usize, f64, f64)> = Vec::new();
+    // Activation tracking: (participant_idx, start_y, end_y, level)
+    let mut activations: Vec<(usize, f64, f64, i32)> = Vec::new();
     // Destroy tracking: (participant_idx, destroy_y)
     let mut destroys: Vec<(usize, f64)> = Vec::new();
-    // Pending activations per participant: each participant has its own stack of start Ys
-    let mut pending_activations: Vec<Vec<f64>> = vec![Vec::new(); participants.len()];
+    // Pending activations per participant: each participant has its own stack of (start_y, level)
+    let mut pending_activations: Vec<Vec<(f64, i32)>> = vec![Vec::new(); participants.len()];
     // Per-participant activation level (running count of activates minus deactivates)
     let mut participant_levels: Vec<i32> = vec![0; participants.len()];
     for event in diagram.events() {
@@ -1052,14 +1052,15 @@ pub fn render_sequence_svg(
             let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
             if le.is_activate() {
                 if p_idx < pending_activations.len() {
-                    pending_activations[p_idx].push(current_position);
+                    let level = participant_levels[p_idx] + 1;
+                    pending_activations[p_idx].push((current_position, level));
                 }
                 if p_idx < participant_levels.len() {
                     participant_levels[p_idx] += 1;
                 }
             } else if le.is_deactivate() {
                 if p_idx < pending_activations.len() {
-                    if let Some(start_y) = pending_activations[p_idx].pop() {
+                    if let Some((start_y, level)) = pending_activations[p_idx].pop() {
                         // Java's LiveBoxes.addStep: when a deactivation's Y matches
                         // an existing step Y, add 5.0 to avoid zero-height bars.
                         // The tile Y offset (8) + deactivation offset (5) = 13 total.
@@ -1068,13 +1069,16 @@ pub fn render_sequence_svg(
                         } else {
                             current_position
                         };
-                        activations.push((p_idx, start_y, end_y));
+                        activations.push((p_idx, start_y, end_y, level));
                     }
+                }
+                if p_idx < participant_levels.len() {
+                    participant_levels[p_idx] = (participant_levels[p_idx] - 1).max(0);
                 }
             } else if le.is_destroy() {
                 if p_idx < pending_activations.len() {
-                    if let Some(start_y) = pending_activations[p_idx].pop() {
-                        activations.push((p_idx, start_y, current_position));
+                    if let Some((start_y, level)) = pending_activations[p_idx].pop() {
+                        activations.push((p_idx, start_y, current_position, level));
                     }
                 }
                 destroys.push((p_idx, current_position));
@@ -1222,19 +1226,39 @@ pub fn render_sequence_svg(
         // for each tile, including LifeEventTiles. LifeEventTile.getMaxX() =
         // posC + levelAt * LIVE_DELTA_SIZE, getMinX() = posC - LIVE_DELTA_SIZE
         // (if level > 0). These extend the frame beyond the message endpoints.
+        // Track per-group running activation levels: iterate ALL events to build
+        // the correct running level, but only record max levels within the group's
+        // range so the frame width doesn't include activations from other groups.
+        let mut run_levels: Vec<i32> = vec![0; participants.len()];
+        let mut group_max_levels: Vec<i32> = vec![0; participants.len()];
         let mut mi_check = 0usize;
         for event in diagram.events() {
-            if let SequenceEvent::Message(msg) = event {
+            if let SequenceEvent::Message(_) = event {
                 mi_check += 1;
+                // At the first message in the group, record the current levels
+                // as the initial max (activations from before the group carry over).
+                if mi_check == group.msg_start + 1 {
+                    for pi in 0..participants.len() {
+                        group_max_levels[pi] = run_levels[pi];
+                    }
+                }
             } else if let SequenceEvent::LifeEvent(le) = event {
+                let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                if p_idx < participants.len() {
+                    if le.is_activate() {
+                        run_levels[p_idx] += 1;
+                    } else if le.is_deactivate() || le.is_destroy() {
+                        run_levels[p_idx] = (run_levels[p_idx] - 1).max(0);
+                    }
+                    // Only update max levels for LifeEvents within the group's range.
+                    if mi_check > group.msg_start && mi_check <= group.msg_end {
+                        group_max_levels[p_idx] = group_max_levels[p_idx].max(run_levels[p_idx]);
+                    }
+                }
                 // LifeEvents inside the group's message range extend the frame.
-                // mi_check is the index of the next message, so a LifeEvent after
-                // the mi-th message has mi_check = mi + 1. It's inside the group
-                // if mi >= msg_start && mi < msg_end, i.e., mi_check > msg_start && mi_check <= msg_end.
                 if mi_check > group.msg_start && mi_check <= group.msg_end {
-                    let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
                     if p_idx < pos_c_vals.len() {
-                        let level = *max_participant_levels.get(p_idx).unwrap_or(&0) as f64;
+                        let level = group_max_levels[p_idx] as f64;
                         if level > 0.0 {
                             max_x = max_x.max(pos_c_vals[p_idx] + level * ACTIVATION_BAR_EXPLICIT_OFFSET);
                             min_x = min_x.min(pos_c_vals[p_idx] - ACTIVATION_BAR_EXPLICIT_OFFSET);
@@ -1255,18 +1279,17 @@ pub fn render_sequence_svg(
             let fh = body_height + GROUP_MARGIN_Y_MAGIC / 2.0;
             (fy, fh)
         } else {
-            // Frame Y: subtract GROUP_HEADER_OFFSET for each nesting level from this group
-            // to the innermost group at the same msg_start.
-            // E.g., opt (nesting=0) with alt (nesting=1) at same msg_start:
-            //   opt subtracts 2 headers, alt subtracts 1 header.
+            // Frame Y: the group's chaining point (firstY) is at
+            // arrowY - contactPointRelative, and the frame top is at
+            // firstY + EXTERNAL_MARGINY. So:
+            //   fy = arrowY - contactPointRelative + EXTERNAL_MARGINY - GROUP_HEADER_OFFSET * n
+            // where contactPointRelative = text_h - 7 (text_h = getTextHeight + 11,
+            // contactPointRelative = getTextHeight + 4) and EXTERNAL_MARGINY = 4.
+            // Simplified: fy = arrowY - (GROUP_HEADER_OFFSET * n + text_h - 11)
             let innermost = *msg_start_innermost.get(&group.msg_start).unwrap_or(&group.nesting_level);
             let headers_to_subtract = (innermost + 1) - group.nesting_level;
-            // For wrapped text, subtract the extra text height so the frame Y
-            // stays at the group's chaining point (independent of text wrapping).
-            // Single-line text_h = 26; extra = text_h - 26.
             let first_text_h = msg_text_heights[group.msg_start];
-            let extra_text_h = (first_text_h - 26.0).max(0.0);
-            let fy = arrow_ys[group.msg_start] - extra_text_h - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - GROUP_HEADER_HEIGHT - p_extra;
+            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - first_text_h + 11.0 - p_extra;
             let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
             (fy, fh)
         };
@@ -1539,8 +1562,8 @@ pub fn render_sequence_svg(
     let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
     // Flush remaining pending activations (autoactivate without explicit deactivate)
     for (pi, stack) in pending_activations.iter().enumerate() {
-        for &start_y in stack {
-            activations.push((pi, start_y, lifeline_bottom));
+        for &(start_y, level) in stack {
+            activations.push((pi, start_y, lifeline_bottom, level));
         }
     }
 
@@ -1789,6 +1812,15 @@ pub fn render_sequence_svg(
             svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
             svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
         } else {
+            // Draw background fill rect first (if group has a backcolor)
+            if let Some(ref backcolor) = groups[gi].backcolor {
+                svg.set_fill_color(backcolor);
+                svg.set_stroke_color(Some(backcolor));
+                svg.set_stroke_width(1.0, None);
+                svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+            }
+            // Draw border rect on top
+            svg.set_fill_color("none");
             svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
             svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
             svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
@@ -1833,18 +1865,22 @@ pub fn render_sequence_svg(
 
         svg.close_group();
 
-        // Draw activation bars for this participant
-        for &(pi, start_y, end_y) in &activations {
-            if pi != i {
-                continue;
-            }
+        // Draw activation bars for this participant, sorted by level (ascending)
+        // Java renders LifeEventTiles in ascending level order (outermost first).
+        let mut participant_acts: Vec<(usize, f64, f64, i32)> = activations.iter()
+            .filter(|(pi, _, _, _)| *pi == i)
+            .copied()
+            .collect();
+        participant_acts.sort_by_key(|(_, _, _, level)| *level);
+        for &(_pi, start_y, end_y, level) in &participant_acts {
             svg.open_group(None);
             svg.title("");
             svg.set_fill_color("#FFF");
             svg.set_stroke_color(Some(COLOR_LIFELINE));
             svg.set_stroke_width(1.0, None);
+            let level_dx = (level as f64 - 1.0) * ACTIVATION_BAR_EXPLICIT_OFFSET;
             svg.svg_rectangle(
-                cx - ACTIVATION_BAR_EXPLICIT_OFFSET,
+                cx - ACTIVATION_BAR_EXPLICIT_OFFSET + level_dx,
                 start_y,
                 ACTIVATION_BAR_EXPLICIT_WIDTH,
                 end_y - start_y,
@@ -2822,6 +2858,7 @@ pub struct GroupInfo {
     /// "partition", "ref", or "else".
     pub group_type: String,
     /// Label/condition after the keyword (e.g., "successful case" for `alt successful case`).
+    /// For `group #color Title`, the `#color` is stripped and stored in `backcolor`.
     pub comment: String,
     /// Index of the first message in this group.
     pub msg_start: usize,
@@ -2831,6 +2868,9 @@ pub struct GroupInfo {
     pub nesting_level: usize,
     /// Whether this group starts in parallel with the previous tile (`&` prefix).
     pub parallel: bool,
+    /// Background color from `#color` in the group comment (e.g., "#FFA" from `group #ffa Title`).
+    /// None if no color specified.
+    pub backcolor: Option<String>,
 }
 
 /// Type of exo (external) arrow, when `?` is used as a message endpoint.
@@ -2890,7 +2930,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut groups: Vec<GroupInfo> = Vec::new();
     let mut msg_count = 0usize;
     // Group parsing state: stack of (msg_start, group_type, comment, nesting_level)
-    let mut group_stack: Vec<(usize, String, String, usize, bool)> = Vec::new();
+    let mut group_stack: Vec<(usize, String, String, usize, bool, Option<String>)> = Vec::new();
     // skinparam { } block depth: when > 0, skip lines until closing }
     let mut skinparam_depth: u32 = 0;
     let mut msg_activates: Vec<Vec<String>> = Vec::new();
@@ -2981,7 +3021,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
 
         // Handle "end" — close the current group (pop from stack)
         if trimmed == "end" {
-            if let Some((start, gtype, comment, level, parallel)) = group_stack.pop() {
+            if let Some((start, gtype, comment, level, parallel, backcolor)) = group_stack.pop() {
                 groups.push(GroupInfo {
                     group_type: gtype,
                     comment,
@@ -2989,6 +3029,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     msg_end: msg_count,
                     nesting_level: level,
                     parallel,
+                    backcolor,
                 });
             }
             continue;
@@ -3001,7 +3042,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             } else {
                 trimmed[5..].trim().to_string()
             };
-            if let Some((start, gtype, comment, level, parallel)) = group_stack.pop() {
+            if let Some((start, gtype, comment, level, parallel, backcolor)) = group_stack.pop() {
                 groups.push(GroupInfo {
                     group_type: gtype,
                     comment,
@@ -3009,9 +3050,10 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     msg_end: msg_count,
                     nesting_level: level,
                     parallel,
+                    backcolor,
                 });
                 // Start new else section at the same nesting level (inherit parallel flag)
-                group_stack.push((msg_count, "else".to_string(), else_comment, level, parallel));
+                group_stack.push((msg_count, "else".to_string(), else_comment, level, parallel, None));
             }
             continue;
         }
@@ -3028,14 +3070,26 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         );
         if is_group_keyword {
             let nesting_level = group_stack.len();
-            let comment = if trimmed.len() > group_keyword.len() {
+            let raw_comment = if trimmed.len() > group_keyword.len() {
                 trimmed[group_keyword.len()..].trim().to_string()
             } else {
                 String::new()
             };
+            // Parse leading `#color` from the comment (e.g., `group #ffa Title`).
+            // Java's CommandGrouping regex captures `#color` as COLORS[0] separately.
+            // The color becomes the group's background; the rest is the title.
+            let (comment, backcolor) = if raw_comment.starts_with('#') {
+                let rest = &raw_comment[1..];
+                let color_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+                let color = &raw_comment[..1 + color_end]; // includes '#'
+                let title = rest[color_end..].trim().to_string();
+                (title, Some(color.to_ascii_uppercase()))
+            } else {
+                (raw_comment, None)
+            };
             let is_parallel = next_msg_parallel;
             next_msg_parallel = false;
-            group_stack.push((msg_count, group_keyword.to_string(), comment, nesting_level, is_parallel));
+            group_stack.push((msg_count, group_keyword.to_string(), comment, nesting_level, is_parallel, backcolor));
             continue;
         }
 
@@ -3226,7 +3280,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
-        if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate)) = parse_arrow_line(trimmed) {
+        if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate, inline_destroy)) = parse_arrow_line(trimmed) {
             // Detect exo arrows: ? as p1 (FROM_LEFT) or p2 (TO_RIGHT)
             let exo = if p2_code == "?" {
                 Some(ExoType::ToRight)
@@ -3254,7 +3308,11 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     last_p2 = Some(p2_code.clone());
                     let p1 = diagram.get_or_create_participant(&p1_code);
                     let p2 = diagram.get_or_create_participant(&p2_code);
-                    (p1, p2)
+                    // Java's CommandArrow swaps p1/p2 for reverseDefine arrows:
+                    // p1 = PART2 (right), p2 = PART1 (left).
+                    // We must swap to match Java's Message(p1, p2) ordering.
+                    let is_rev = arrow.starts_with('<') || arrow.starts_with('\\');
+                    if is_rev { (p2, p1) } else { (p1, p2) }
                 }
             };
             let msg_num = diagram.get_next_message_number();
@@ -3277,14 +3335,24 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             };
             let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
-            // Apply inline activation/deactivation and autoactivate
+            // Apply inline activation/deactivation and autoactivate.
+            // Java's CommandArrow swaps p1/p2 for reverseDefine arrows (<-, <--, etc.):
+            //   p1 = PART2 (right), p2 = PART1 (left)
+            // So ++ activates p2 (left), -- deactivates p1 (right), !! destroys p2 (left).
+            // In our code, p1_code is always left, p2_code is always right.
+            // For reverse arrows, swap: ++ → activate p1_code, -- → deactivate p2_code, !! → destroy p1_code.
+            let is_reverse_arrow = arrow.starts_with('<') || arrow.starts_with('\\');
             let mut acts = Vec::new();
             let mut deacts = Vec::new();
+            let mut dests = Vec::new();
             if inline_deactivate {
-                deacts.push(p1_code.clone());
+                if is_reverse_arrow { deacts.push(p2_code.clone()); } else { deacts.push(p1_code.clone()); }
             }
             if inline_activate {
-                acts.push(p2_code.clone());
+                if is_reverse_arrow { acts.push(p1_code.clone()); } else { acts.push(p2_code.clone()); }
+            }
+            if inline_destroy {
+                if is_reverse_arrow { dests.push(p1_code.clone()); } else { dests.push(p2_code.clone()); }
             }
             // Autoactivate: solid arrow activates receiver, dotted deactivates sender
             if autoactivate && exo.is_none() {
@@ -3323,9 +3391,20 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     diagram.activate_inline(&p, LifeEventType::Deactivate, msg_count);
                 }
             }
+            // Create LifeEvents for inline destroy (!!)
+            for code in &dests {
+                let p = diagram.participants().iter()
+                    .find(|p| p.code() == code)
+                    .cloned();
+                if let Some(p) = p {
+                    diagram.activate_inline(&p, LifeEventType::Destroy, msg_count);
+                }
+            }
             msg_activates.push(acts);
-            msg_deactivates.push(deacts);
-            let in_parallel_group = group_stack.iter().any(|(_, _, _, _, is_par)| *is_par);
+            let mut all_deacts = deacts.clone();
+            all_deacts.extend(dests.iter().cloned());
+            msg_deactivates.push(all_deacts);
+            let in_parallel_group = group_stack.iter().any(|(_, _, _, _, is_par, _)| *is_par);
             msg_parallel.push(next_msg_parallel || in_parallel_group);
             msg_exo.push(exo);
             msg_hidden.push(trimmed.contains("[hidden]"));
@@ -3359,8 +3438,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
 /// Parses an arrow line like "Alice -> Bob : hello" or "Test --> Test: Text".
 /// Handles common arrow types: ->, -->, <-, <--, ->>, <<-, \\--, \\-.
 /// Extracts inline activation markers (++/--/--++) from the p2 part.
-/// Returns (p1_code, p2_code, label, arrow_string, inline_activate, inline_deactivate).
-fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str, bool, bool)> {
+/// Returns (p1_code, p2_code, label, arrow_string, inline_activate, inline_deactivate, inline_destroy).
+fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str, bool, bool, bool)> {
     // Strip [hidden] and other [style] modifiers from arrow notation
     // e.g., "B -[hidden]-> C" becomes "B -> C"
     let line = if let Some(bracket_start) = line.find("-[") {
@@ -3400,8 +3479,10 @@ fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str,
             if p1_code.is_empty() || p2_part_raw.is_empty() {
                 continue;
             }
-            // Extract inline activation markers from p2_part
-            // Markers: --++ (deactivate source, activate target), ++ (activate), -- (deactivate)
+            // Extract inline activation markers from p2_part.
+            // Java's ACTIVATION regex captures: ++, **, !!, --, --++, ++--
+            // Markers: --++ (deactivate p1, activate p2), ++-- (activate p2, deactivate p1),
+            //          ++ (activate p2), -- (deactivate p1), !! (destroy p2)
             // Also strip #color modifiers
             let mut p2_part = p2_part_raw.clone();
             // Strip #color modifier (e.g., "#red")
@@ -3410,11 +3491,19 @@ fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str,
             }
             let mut inline_activate = false;
             let mut inline_deactivate = false;
-            // Check for --++ first (longest match)
+            let mut inline_destroy = false;
+            // Check 4-char markers first (longest match)
             if p2_part.ends_with("--++") {
                 inline_deactivate = true;
                 inline_activate = true;
                 p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
+            } else if p2_part.ends_with("++--") {
+                inline_activate = true;
+                inline_deactivate = true;
+                p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
+            } else if p2_part.ends_with("!!") {
+                inline_destroy = true;
+                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
             } else if p2_part.ends_with("++") {
                 inline_activate = true;
                 p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
@@ -3425,7 +3514,7 @@ fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str,
             if p2_part.is_empty() {
                 continue;
             }
-            return Some((p1_code, p2_part, label, ret, inline_activate, inline_deactivate));
+            return Some((p1_code, p2_part, label, ret, inline_activate, inline_deactivate, inline_destroy));
         }
     }
     None
