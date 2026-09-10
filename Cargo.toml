@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/plantuml-core",
+    "crates/plantuml-klimt",
+    "crates/plantuml-regex",
+    "crates/plantuml-preproc",
+    "crates/plantuml-command",
+    "crates/plantuml-model",
+    "crates/plantuml-engine",
+    "crates/plantuml-svg",
+    "crates/plantuml-skin",
+    "crates/plantuml-real",
+    "crates/plantuml-sequence",
+]
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "GPL-3.0-only"
+authors = ["PlantUML.rs contributors"]
+publish = false
+
+[workspace.dependencies]
+thiserror = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = "0.36"
+log = "0.4"
+env_logger = "0.11"
+phf = { version = "0.11", features = ["macros"] }
+indexmap = "2"
+regex = "1"
+parking_lot = "0.12"
+plantuml-core = { path = "crates/plantuml-core" }
+plantuml-klimt = { path = "crates/plantuml-klimt" }
+plantuml-regex = { path = "crates/plantuml-regex" }
+plantuml-preproc = { path = "crates/plantuml-preproc" }
+plantuml-command = { path = "crates/plantuml-command" }
+plantuml-model = { path = "crates/plantuml-model" }
+plantuml-real = { path = "crates/plantuml-real" }
+plantuml-sequence = { path = "crates/plantuml-sequence" }
+plantuml-svg = { path = "crates/plantuml-svg" }
+plantuml-skin = { path = "crates/plantuml-skin" }
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Allow common patterns that are noisy in ports.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+return_self_not_must_use = "allow"
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+needless_pass_by_value = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+cast_precision_loss = "allow"

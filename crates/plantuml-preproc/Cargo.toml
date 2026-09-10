@@ -1,0 +1,19 @@
+[package]
+name = "plantuml-preproc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+plantuml-core.workspace = true
+plantuml-regex.workspace = true
+thiserror.workspace = true
+regex.workspace = true
+parking_lot.workspace = true
+serde_json.workspace = true
+log.workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "plantuml-skin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+plantuml-core = { workspace = true }
+plantuml-klimt = { workspace = true }
+plantuml-model = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+log = { workspace = true }

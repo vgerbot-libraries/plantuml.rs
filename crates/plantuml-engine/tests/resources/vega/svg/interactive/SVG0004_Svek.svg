@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" data-diagram-type="CLASS" height="210px" preserveAspectRatio="none" style="width:795px;height:210px;background:#FFFFFF;" version="1.1" viewBox="0 0 795 210" width="795px" zoomAndPan="magnify">
+  <defs>
+    <style type="text/css">/* Source (unminified): https://github.com/plantuml/plantuml/blob/master/src/main/resources/svg/default.css */
+svg .entity{cursor:pointer}svg.mouseover-active&gt;g&gt;*{opacity:0.2 !important}svg.mouseover-active&gt;g&gt;g.mouseover-highlighted{opacity:1.0 !important}svg.click-active&gt;g&gt;*{opacity:0.3}svg.click-active&gt;g&gt;g.click-highlighted{opacity:1.0}
+</style>
+    <script>/* Source (unminified): https://github.com/plantuml/plantuml/blob/master/src/main/resources/svg/default.js */
+!function(){function e(e){return e?.replaceAll("\\","\\\\")?.replaceAll('"','\\"')}function t(){a.classList.contains("click-active")&amp;&amp;this.classList.contains("click-selected")?d("click"):s(this,"click")}function c(){var t,c;a.classList.contains("click-active")&amp;&amp;this.classList.contains("click-selected")?d("click"):(t=this,c="click",a.querySelectorAll(`.${c}-selected, .${c}-highlighted`).forEach(e=&gt;{e.classList.remove(`${c}-selected`,`${c}-highlighted`)}),a.classList.add(`${c}-active`),t.classList.add(`${c}-selected`,`${c}-highlighted`),function(t){function c(t,i,n=new Set){n.add(t);const s=e(t.id),d=i?2:1,l=i?1:2;return a.querySelectorAll(`.link[data-entity-${l}="${s}"]`).forEach(t=&gt;{if(!n.has(t)){n.add(t);const s=t.getAttribute(`data-entity-${d}`),l=a.querySelector(`[id="${e(s)}"]`);n.has(l)||(n.add(l),c(l,i,n))}}),n}const i=c(t,!1),n=c(t,!0);return i.union(n)}(t).forEach(e=&gt;{e.classList.add(`${c}-highlighted`)}))}function i(){s(this,"mouseover")}function n(){d("mouseover")}function s(t,c){a.querySelectorAll(`.${c}-selected, .${c}-highlighted`).forEach(e=&gt;{e.classList.remove(`${c}-selected`,`${c}-highlighted`)}),a.classList.add(`${c}-active`),t.classList.add(`${c}-selected`,`${c}-highlighted`),function(t){const c=t.id,i=e(c);let n=new Set;return a.querySelectorAll(`.link[data-entity-1="${i}"], .link[data-entity-2="${i}"]`).forEach(t=&gt;{const i=t.getAttribute("data-entity-1"),s=t.getAttribute("data-entity-2");i===c?(n.add(a.querySelector(`[id="${e(s)}"]`)),n.add(t)):s===c&amp;&amp;(n.add(a.querySelector(`[id="${e(i)}"]`)),n.add(t))}),n}(t).forEach(e=&gt;{e.classList.add(`${c}-highlighted`)})}function d(e){a.classList.remove(`${e}-active`)}const a=function(e,t){for(;e&amp;&amp;e.nodeName.toLowerCase()!==t;)e=e.parentElement;return e}(document.currentScript,"svg");document.addEventListener("DOMContentLoaded",()=&gt;{a.querySelectorAll("g.entity").forEach(e=&gt;{e.addEventListener("mouseover",i),e.addEventListener("mouseout",n),e.addEventListener("click",t),e.addEventListener("dblclick",c)}),a.addEventListener("keydown",e=&gt;{"Escape"===e.code&amp;&amp;d("click")})})}();
+</script>
+  </defs>
+  <g font-family="sans-serif" lengthAdjust="spacing">
+    <!--cluster pkg1-->
+    <g class="cluster" data-qualified-name="pkg1" data-source-line="3" id="ent0002">
+      <path d="M16.5,4 L47.863,4 A3.75,3.75 0 0 1 50.363,6.5 L57.363,24 L784.5,24 A2.5,2.5 0 0 1 787,26.5 L787,183.5 A2.5,2.5 0 0 1 784.5,186 L16.5,186 A2.5,2.5 0 0 1 14,183.5 L14,6.5 A2.5,2.5 0 0 1 16.5,4" fill="none" style="stroke:#000;stroke-width:1.5;"/>
+      <line style="stroke:#000;stroke-width:1.5;" x1="14" x2="57.363" y1="24" y2="24"/>
+      <text fill="#000" font-size="14" font-weight="700" textLength="30.362" x="18" y="16.889">pkg1</text>
+    </g>
+    <!--cluster pkg2-->
+    <g class="cluster" data-qualified-name="pkg1.pkg2" data-source-line="3" id="ent0003">
+      <path d="M32.5,45 L63.863,45 A3.75,3.75 0 0 1 66.363,47.5 L73.363,65 L768.5,65 A2.5,2.5 0 0 1 771,67.5 L771,167.5 A2.5,2.5 0 0 1 768.5,170 L32.5,170 A2.5,2.5 0 0 1 30,167.5 L30,47.5 A2.5,2.5 0 0 1 32.5,45" fill="none" style="stroke:#000;stroke-width:1.5;"/>
+      <line style="stroke:#000;stroke-width:1.5;" x1="30" x2="73.363" y1="65" y2="65"/>
+      <text fill="#000" font-size="14" font-weight="700" textLength="30.362" x="34" y="57.889">pkg2</text>
+    </g>
+    <!--class Class 1 with ASCII special chars\r\n\t!#$%&'()*+,-/:;<=>?@[\\]^_`{|}~¡™£€∞§¶•ªºæ≤≥π¥ƒ©ç®¬÷≠åø´¨ˆ∂˙†˜ß-«œ∆˚≈♭µ∑√Ωìñ😀☕️-->
+    <g class="entity" data-qualified-name="pkg1.pkg2.Class 1 with ASCII special chars.r.n.t...........-............._.....................................-..............." data-source-line="3" id="ent0001">
+      <rect fill="#F1F1F1" height="68" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="657.012" x="46.5" y="86"/>
+      <ellipse cx="61.5" cy="112" fill="#ADD1B2" rx="11" ry="11" style="stroke:#181818;stroke-width:1;"/>
+      <text fill="#000" font-family="monospace" font-size="14" x="56.5" y="117">C</text>
+      <text fill="#000" font-size="14" textLength="182.263" x="518.25" y="101.889">Class 1 with ASCII special chars</text>
+      <text fill="#000" font-size="14" x="700.512" y="115.889"> </text>
+      <text fill="#000" font-size="14" textLength="569.012" x="131.5" y="129.889">!#$%&amp;'()*+,-/:;&lt;=&gt;?@[\]^_`{|}~¡™£€∞§¶•ªºæ≤≥π¥ƒ©ç®¬÷≠åø´¨ˆ∂˙†˜ß-«œ∆˚≈♭µ∑√Ωìñ&#128512;☕️</text>
+      <line style="stroke:#181818;stroke-width:0.5;" x1="47.5" x2="702.512" y1="138" y2="138"/>
+      <line style="stroke:#181818;stroke-width:0.5;" x1="47.5" x2="702.512" y1="146" y2="146"/>
+    </g>
+    <g class="link" data-entity-1="ent0001" data-entity-2="ent0001" data-link-type="dependency" id="lnk4">
+      <polygon fill="#181818" points="703.59,127.128,713.125,129.596,708.522,126.307,711.811,121.704,703.59,127.128" style="stroke:#181818;stroke-width:1;stroke-linejoin:miter;stroke-miterlimit:10;"/>
+      <path d="M703.59,112.872 C714.983,114.769 721.5,117.145 721.5,120 C721.5,122.855 719.915,124.41 708.522,126.307" fill="none" style="stroke:#181818;stroke-width:1;"/>
+      <text fill="#000" font-size="13" textLength="29.738" x="723.5" y="123.611">Hello</text>
+    </g>
+  </g>
+</svg>

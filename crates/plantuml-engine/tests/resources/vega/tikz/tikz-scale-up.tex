@@ -1,0 +1,60 @@
+\definecolor{plantucolor0000}{RGB}{0,0,0}%
+\definecolor{plantucolor0001}{RGB}{255,255,255}%
+\definecolor{plantucolor0002}{RGB}{24,24,24}%
+\definecolor{plantucolor0003}{RGB}{226,226,240}%
+\definecolor{plantucolor0004}{RGB}{254,255,221}%
+\begin{tikzpicture}[yscale=-1
+,pstyle0/.style={color=plantucolor0001,line width=0.0pt}
+,pstyle1/.style={color=plantucolor0002,line width=0.5pt,dash pattern=on 5.0pt off 5.0pt}
+,pstyle2/.style={color=plantucolor0002,fill=plantucolor0003,line width=0.5pt}
+,pstyle3/.style={color=plantucolor0002,fill=plantucolor0002,line width=1.0pt}
+,pstyle4/.style={color=plantucolor0002,line width=1.0pt}
+,pstyle5/.style={color=plantucolor0002,fill=plantucolor0004,line width=0.5pt}
+]
+\node at (27.8781pt,15pt)[below right,color=black,inner sep=0]{\textbf{Embedded with scale 2}};
+\draw[pstyle0] (25.9688pt,74pt) rectangle (33.9688pt,181pt);
+\draw[pstyle1] (29.4688pt,74pt) -- (29.4688pt,181pt);
+\draw[pstyle0] (103.4313pt,74pt) rectangle (111.4313pt,181pt);
+\draw[pstyle1] (106.9313pt,74pt) -- (106.9313pt,181pt);
+\draw[pstyle2] (10pt,50pt) arc (180:270:5pt) -- (15pt,45pt) -- (43.9375pt,45pt) arc (270:360:5pt) -- (48.9375pt,50pt) -- (48.9375pt,68pt) arc (0:90:5pt) -- (43.9375pt,73pt) -- (15pt,73pt) arc (90:180:5pt) -- (10pt,68pt) -- cycle;
+\node at (17pt,52pt)[below right,color=black,inner sep=0]{Bob};
+\draw[pstyle2] (84.7063pt,50pt) arc (180:270:5pt) -- (89.7063pt,45pt) -- (124.1563pt,45pt) arc (270:360:5pt) -- (129.1563pt,50pt) -- (129.1563pt,68pt) arc (0:90:5pt) -- (124.1563pt,73pt) -- (89.7063pt,73pt) arc (90:180:5pt) -- (84.7063pt,68pt) -- cycle;
+\node at (91.7063pt,52pt)[below right,color=black,inner sep=0]{Alice};
+\draw[pstyle2] (10pt,186pt) arc (180:270:5pt) -- (15pt,181pt) -- (43.9375pt,181pt) arc (270:360:5pt) -- (48.9375pt,186pt) -- (48.9375pt,204pt) arc (0:90:5pt) -- (43.9375pt,209pt) -- (15pt,209pt) arc (90:180:5pt) -- (10pt,204pt) -- cycle;
+\node at (17pt,188pt)[below right,color=black,inner sep=0]{Bob};
+\draw[pstyle2] (84.7063pt,186pt) arc (180:270:5pt) -- (89.7063pt,181pt) -- (124.1563pt,181pt) arc (270:360:5pt) -- (129.1563pt,186pt) -- (129.1563pt,204pt) arc (0:90:5pt) -- (124.1563pt,209pt) -- (89.7063pt,209pt) arc (90:180:5pt) -- (84.7063pt,204pt) -- cycle;
+\node at (91.7063pt,188pt)[below right,color=black,inner sep=0]{Alice};
+\draw[pstyle3] (94.9313pt,97pt) -- (104.9313pt,101pt) -- (94.9313pt,105pt) -- (98.9313pt,101pt) -- cycle;
+\draw[pstyle4] (29.4688pt,101pt) -- (100.9313pt,101pt);
+\node at (36.4688pt,86pt)[below right,color=black,inner sep=0]{request};
+\draw[pstyle5] (111.9313pt,87pt) -- (111.9313pt,139pt) -- (174.9313pt,139pt) -- (174.9313pt,97pt) -- (164.9313pt,87pt) -- (111.9313pt,87pt);
+\draw[pstyle5] (164.9313pt,87pt) -- (164.9313pt,97pt) -- (174.9313pt,97pt) -- (164.9313pt,87pt);
+\node[inner sep=0pt,outer sep=0pt,anchor=north west] at (117.9313pt,92pt) {%
+\definecolor{plantucolor0000}{RGB}{241,241,241}%
+\definecolor{plantucolor0001}{RGB}{24,24,24}%
+\definecolor{plantucolor0002}{RGB}{0,0,0}%
+\scalebox{2}{%
+\begin{tikzpicture}[yscale=-1
+,pstyle0/.style={color=plantucolor0001,fill=plantucolor0000,line width=0.5pt}
+,pstyle2/.style={color=plantucolor0001,fill=plantucolor0001,line width=1.0pt}
+,pstyle3/.style={color=plantucolor0001,line width=1.0pt}
+]
+\draw[pstyle0] (72.2875pt,20.5pt) ellipse (8pt and 8pt);
+\draw[color=plantucolor0001,line width=0.5pt] (72.2875pt,28.5pt) -- (72.2875pt,55.5pt)(59.2875pt,36.5pt) -- (85.2875pt,36.5pt)(72.2875pt,55.5pt) -- (59.2875pt,70.5pt)(72.2875pt,55.5pt) -- (85.2875pt,70.5pt);
+\node at (57.5pt,72pt)[below right,color=black,inner sep=0]{User};
+\draw[pstyle0] (33.2538pt,134.8995pt) ellipse (27.2538pt and 12.8995pt);
+\node at (16.1038pt,127.5106pt)[below right,color=black,inner sep=0]{Login};
+\draw[pstyle0] (112.2553pt,134.8995pt) ellipse (33.2553pt and 12.8995pt);
+\node at (90.8616pt,127.5106pt)[below right,color=black,inner sep=0]{Logout};
+\draw[pstyle2] (39.2572pt,121.5999pt) -- (46.6752pt,115.1212pt) -- (41.3628pt,117.0648pt) -- (39.4192pt,111.7523pt) -- (39.2572pt,121.5999pt) -- cycle;
+\draw[pstyle3] (57.3099pt,82.7171pt) ..controls (50.9791pt,96.3527pt) and (46.1159pt,106.8273pt) .. (41.3628pt,117.0648pt);
+\draw[pstyle2] (106.6502pt,121.7154pt) -- (106.3922pt,111.8699pt) -- (104.5005pt,117.2011pt) -- (99.1694pt,115.3094pt) -- (106.6502pt,121.7154pt) -- cycle;
+\draw[pstyle3] (87.6223pt,81.7568pt) ..controls (94.2594pt,95.6947pt) and (99.51pt,106.7211pt) .. (104.5005pt,117.2011pt);
+\end{tikzpicture}%
+}%
+
+};
+\draw[pstyle3] (40.4688pt,159pt) -- (30.4688pt,163pt) -- (40.4688pt,167pt) -- (36.4688pt,163pt) -- cycle;
+\draw[pstyle4] (34.4688pt,163pt) -- (105.9313pt,163pt);
+\node at (46.4688pt,148pt)[below right,color=black,inner sep=0]{response};
+\end{tikzpicture}%

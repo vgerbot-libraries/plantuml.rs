@@ -1,0 +1,30 @@
+//! Ported from `net.sourceforge.plantuml.tim.builtin.Now`.
+
+use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::tim::expression::TValue;
+use crate::tim::t_function_signature::TFunctionSignature;
+
+use super::SimpleReturnFunction;
+
+static SIGNATURE: LazyLock<TFunctionSignature> =
+    LazyLock::new(|| TFunctionSignature::new("%now", 0));
+
+/// `%now()` — returns the current Unix timestamp in seconds.
+pub struct Now;
+
+impl SimpleReturnFunction for Now {}
+
+crate::impl_simple_return_function!(
+    Now,
+    &*SIGNATURE,
+    can_cover = |nb_arg, _named| nb_arg == 0,
+    execute = |_self, _context, _memory, _location, _values, _named| {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i32)
+            .unwrap_or(0);
+        Ok(TValue::from_int(now))
+    },
+);

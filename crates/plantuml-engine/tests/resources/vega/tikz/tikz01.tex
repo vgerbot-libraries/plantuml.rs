@@ -1,0 +1,25 @@
+\definecolor{plantucolor0000}{RGB}{255,255,255}%
+\definecolor{plantucolor0001}{RGB}{24,24,24}%
+\definecolor{plantucolor0002}{RGB}{226,226,240}%
+\definecolor{plantucolor0003}{RGB}{0,0,0}%
+\begin{tikzpicture}[yscale=-1
+,pstyle0/.style={color=plantucolor0000,line width=0.0pt}
+,pstyle1/.style={color=plantucolor0001,line width=0.5pt,dash pattern=on 5.0pt off 5.0pt}
+,pstyle2/.style={color=plantucolor0001,fill=plantucolor0002,line width=0.5pt}
+]
+\draw[pstyle0] (27.9375pt,39pt) rectangle (35.9375pt,84pt);
+\draw[pstyle1] (31.4375pt,39pt) -- (31.4375pt,84pt);
+\draw[pstyle0] (79.4813pt,39pt) rectangle (87.4813pt,84pt);
+\draw[pstyle1] (82.9813pt,39pt) -- (82.9813pt,84pt);
+\draw[pstyle2] (10pt,15pt) arc (180:270:5pt) -- (15pt,10pt) -- (47.875pt,10pt) arc (270:360:5pt) -- (52.875pt,15pt) -- (52.875pt,33pt) arc (0:90:5pt) -- (47.875pt,38pt) -- (15pt,38pt) arc (90:180:5pt) -- (10pt,33pt) -- cycle;
+\node at (17pt,17pt)[below right,color=black,inner sep=0]{alice};
+\draw[pstyle2] (64.3pt,15pt) arc (180:270:5pt) -- (69.3pt,10pt) -- (96.6625pt,10pt) arc (270:360:5pt) -- (101.6625pt,15pt) -- (101.6625pt,33pt) arc (0:90:5pt) -- (96.6625pt,38pt) -- (69.3pt,38pt) arc (90:180:5pt) -- (64.3pt,33pt) -- cycle;
+\node at (71.3pt,17pt)[below right,color=black,inner sep=0]{bob};
+\draw[pstyle2] (10pt,89pt) arc (180:270:5pt) -- (15pt,84pt) -- (47.875pt,84pt) arc (270:360:5pt) -- (52.875pt,89pt) -- (52.875pt,107pt) arc (0:90:5pt) -- (47.875pt,112pt) -- (15pt,112pt) arc (90:180:5pt) -- (10pt,107pt) -- cycle;
+\node at (17pt,91pt)[below right,color=black,inner sep=0]{alice};
+\draw[pstyle2] (64.3pt,89pt) arc (180:270:5pt) -- (69.3pt,84pt) -- (96.6625pt,84pt) arc (270:360:5pt) -- (101.6625pt,89pt) -- (101.6625pt,107pt) arc (0:90:5pt) -- (96.6625pt,112pt) -- (69.3pt,112pt) arc (90:180:5pt) -- (64.3pt,107pt) -- cycle;
+\node at (71.3pt,91pt)[below right,color=black,inner sep=0]{bob};
+\draw[color=plantucolor0001,fill=plantucolor0001,line width=1.0pt] (70.9813pt,62pt) -- (80.9813pt,66pt) -- (70.9813pt,70pt) -- (74.9813pt,66pt) -- cycle;
+\draw[color=plantucolor0001,line width=1.0pt] (31.4375pt,66pt) -- (76.9813pt,66pt);
+\node at (38.4375pt,51pt)[below right,color=black,inner sep=0]{hello};
+\end{tikzpicture}%

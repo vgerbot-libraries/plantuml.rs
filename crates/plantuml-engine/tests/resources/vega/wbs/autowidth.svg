@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" data-diagram-type="WBS" height="286px" preserveAspectRatio="none" style="width:609px;height:286px;background:#FFFFFF;" version="1.1" viewBox="0 0 609 286" width="609px" zoomAndPan="magnify">
+  <defs/>
+  <g font-family="sans-serif" lengthAdjust="spacing">
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="70.988" y1="72" y2="92"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="101.975" x="20" y="92"/>
+    <text fill="#000" font-size="12" textLength="46.8" x="30" y="111.333">Planning</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="80.988" y1="155" y2="155"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="115.4" x="80.988" y="139"/>
+    <text fill="#000" font-size="12" textLength="66.75" x="90.988" y="158.333">Define scope</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="80.988" y1="202" y2="202"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="115.4" x="80.988" y="186"/>
+    <text fill="#000" font-size="12" textLength="75.375" x="90.988" y="205.333">Set milestones</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="80.988" y1="249" y2="249"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="115.4" x="80.988" y="233"/>
+    <text fill="#000" font-size="12" textLength="95.4" x="90.988" y="252.333">Allocate resources</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="70.988" y1="124" y2="249"/>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="267.375" x2="267.375" y1="72" y2="92"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="101.975" x="216.388" y="92"/>
+    <text fill="#000" font-size="12" textLength="81.975" x="226.388" y="111.333">Implementation</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="267.375" x2="277.375" y1="155" y2="155"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="189.425" x="277.375" y="139"/>
+    <text fill="#000" font-size="12" textLength="28.725" x="287.375" y="158.333">Code</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="267.375" x2="277.375" y1="202" y2="202"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="189.425" x="277.375" y="186"/>
+    <text fill="#000" font-size="12" textLength="23.325" x="287.375" y="205.333">Test</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="267.375" x2="277.375" y1="249" y2="249"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="189.425" x="277.375" y="233"/>
+    <text fill="#000" font-size="12" textLength="169.425" x="287.375" y="252.333">Deploy to production environment</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="267.375" x2="267.375" y1="124" y2="249"/>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="537.788" x2="537.788" y1="72" y2="92"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="101.975" x="486.8" y="92"/>
+    <text fill="#000" font-size="12" textLength="39.45" x="496.8" y="111.333">Review</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="70.988" x2="537.788" y1="72" y2="72"/>
+    <rect fill="#F1F1F1" height="32" style="stroke:#181818;stroke-width:1.5;" width="57.35" x="275.713" y="20"/>
+    <text fill="#000" font-size="12" textLength="37.35" x="285.713" y="39.333">Project</text>
+    <line style="stroke:#181818;stroke-width:1.5;" x1="304.388" x2="304.388" y1="52" y2="72"/>
+  </g>
+</svg>

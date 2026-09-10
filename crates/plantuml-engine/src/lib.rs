@@ -1,0 +1,21 @@
+//! plantuml-engine — the main PlantUML engine.
+//!
+//! Ported from `net.sourceforge.plantuml` package.
+//!
+//! This crate provides the entry point for parsing and rendering PlantUML
+//! diagrams. For Phase 4, only PREPROC format is supported.
+
+pub mod block_uml;
+pub mod block_uml_builder;
+pub mod definitions_container;
+pub mod error_uml;
+pub mod source_string_reader;
+pub mod start_utils;
+pub mod sequence_renderer;
+
+pub use block_uml::BlockUml;
+pub use block_uml_builder::BlockUmlBuilder;
+pub use definitions_container::DefinitionsContainer;
+pub use error_uml::{ErrorUml, ErrorUmlType};
+pub use source_string_reader::SourceStringReader;
+pub use start_utils::StartUtils;

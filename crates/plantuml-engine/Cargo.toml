@@ -1,0 +1,25 @@
+[package]
+name = "plantuml-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+plantuml-core.workspace = true
+plantuml-preproc.workspace = true
+plantuml-klimt.workspace = true
+plantuml-svg.workspace = true
+plantuml-sequence.workspace = true
+plantuml-real.workspace = true
+plantuml-skin.workspace = true
+thiserror.workspace = true
+indexmap = { workspace = true }
+log.workspace = true
+
+[dev-dependencies]
+quick-xml = { workspace = true }
