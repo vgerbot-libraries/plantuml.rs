@@ -10,7 +10,7 @@ use plantuml_core::string_bounder::StringBounder;
 use plantuml_core::u_font::{FontStyle, UFont};
 use plantuml_klimt::string_bounder_from_width_table::StringBounderFromWidthTable;
 use plantuml_sequence::sequence_diagram::SequenceEvent;
-use plantuml_sequence::{Message, SequenceDiagram};
+use plantuml_sequence::{LifeEventType, Message, SequenceDiagram};
 use plantuml_svg::{SvgGraphics, SvgOption};
 
 // ── Layout constants (from Java Teoz/Rose defaults) ───────────────────────
@@ -49,6 +49,16 @@ const SELF_ARROW_HEIGHT: f64 = 13.0;
 const ACTIVATION_BAR_WIDTH: f64 = 8.0;
 /// Activation bar offset from center (posC - 3.5).
 const ACTIVATION_BAR_OFFSET: f64 = 3.5;
+/// Activation bar width for explicit activate/deactivate (wider than transparent bar).
+const ACTIVATION_BAR_EXPLICIT_WIDTH: f64 = 10.0;
+/// Activation bar offset from center for explicit activate (posC - 5).
+const ACTIVATION_BAR_EXPLICIT_OFFSET: f64 = 5.0;
+/// Destroy X mark half-size (extends ±9px from center).
+const DESTROY_X_HALF_SIZE: f64 = 9.0;
+/// Destroy X color.
+const COLOR_DESTROY: &str = "#A80036";
+/// Destroy X stroke width.
+const DESTROY_X_STROKE_WIDTH: f64 = 2.0;
 /// Arrowhead size (width).
 const ARROWHEAD_SIZE: f64 = 10.0;
 /// Arrowhead tip offset from target center.
@@ -136,6 +146,8 @@ pub fn render_sequence_svg(
     hide_footbox: bool,
     notes: &[NoteInfo],
     groups: &[GroupInfo],
+    msg_activates: &[Vec<String>],
+    msg_deactivates: &[Vec<String>],
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -169,18 +181,55 @@ pub fn render_sequence_svg(
     // Compute required spacing between consecutive participants from message text.
     // Constraint: posC[hi] - posC[lo] >= text_width + 2*arrowDeltaX (24)
     // Since posB[hi] >= posD[lo] + spacing, this translates to:
-    // spacing >= text_width + 24 - head_width[lo]/2 - head_width[hi]/2
+    // Pre-pass: compute activation levels per message for spacing and frame dimensions
+    let mut pre_participant_levels: Vec<i32> = vec![0; participants.len()];
+    let mut max_participant_levels: Vec<i32> = vec![0; participants.len()];
+    let mut pre_msg_self_levels: Vec<(i32, i32)> = Vec::new();
+    {
+        let mut mi = 0usize;
+        for event in diagram.events() {
+            if let SequenceEvent::Message(msg) = event {
+                let is_self = msg.p1().code() == msg.p2().code();
+                if is_self {
+                    let p_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let level_ignore = pre_participant_levels.get(p_idx).copied().unwrap_or(0);
+                    let future_acts = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
+                    let future_deacts = msg_deactivates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
+                    let level_considere = (level_ignore + future_acts - future_deacts).max(0);
+                    pre_msg_self_levels.push((level_ignore, level_considere));
+                } else {
+                    pre_msg_self_levels.push((0, 0));
+                }
+                mi += 1;
+            } else if let SequenceEvent::LifeEvent(le) = event {
+                let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                if p_idx < pre_participant_levels.len() {
+                    if le.is_activate() {
+                        pre_participant_levels[p_idx] += 1;
+                        max_participant_levels[p_idx] = max_participant_levels[p_idx].max(pre_participant_levels[p_idx]);
+                    } else if le.is_deactivate() || le.is_destroy() {
+                        pre_participant_levels[p_idx] = (pre_participant_levels[p_idx] - 1).max(0);
+                    }
+                }
+            }
+        }
+    }
+    let msg_self_levels = pre_msg_self_levels;
     let mut min_spacing = vec![PARTICIPANT_SPACING; participants.len().max(1)];
+
+    let mut spacing_msg_idx = 0usize;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
             let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
             let label = msg.label();
             if p1_idx == p2_idx {
-                // Self-message: next participant's posC must be >= self.posC + compWidth
-                // where compWidth = max(text_width + 2*padding, arrowWidth + 5) = max(text_width + 14, 50)
+                // Self-message: posC2 = posC + getMaxPosition() (global max activation level)
+                // getMaxX() = posC2 + compWidth where compWidth = max(text_w + 2*padding, arrowWidth + 5)
+                // Ported from: CommunicationTileSelf.getMaxX() + LivingSpace.getPosC2()
                 let text_w = max_line_width(&bounder, &font_m, label);
-                let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+                let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
                 if p1_idx + 1 < participants.len() {
                     let next_idx = p1_idx + 1;
                     let required = comp_width - head_widths[p1_idx] / 2.0 - head_widths[next_idx] / 2.0;
@@ -201,6 +250,7 @@ pub fn render_sequence_svg(
                     }
                 }
             }
+            spacing_msg_idx += 1;
         }
     }
 
@@ -267,11 +317,20 @@ pub fn render_sequence_svg(
     let mut is_self_flags: Vec<bool> = Vec::new();
     let mut msg_text_heights: Vec<f64> = Vec::new();
     let mut current_y = lifeline_y;
+    let mut prev_is_self = false;
     let mut prev_had_note = false;
     let mut prev_group: Option<usize> = None;
     let mut prev_frame_bottom: Option<f64> = None;
     let mut msg_idx = 0usize;
-
+    let mut current_position = lifeline_y;
+    // Activation tracking: (participant_idx, start_y, end_y)
+    let mut activations: Vec<(usize, f64, f64)> = Vec::new();
+    // Destroy tracking: (participant_idx, destroy_y)
+    let mut destroys: Vec<(usize, f64)> = Vec::new();
+    // Pending activation: (participant_idx, start_y)
+    let mut pending_activations: Vec<(usize, f64)> = Vec::new();
+    // Per-participant activation level (running count of activates minus deactivates)
+    let mut participant_levels: Vec<i32> = vec![0; participants.len()];
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let has_text = !msg.label().is_empty();
@@ -300,22 +359,26 @@ pub fn render_sequence_svg(
                 }
             } else if is_first_in_group {
                 // First message in a subsequent group
-                // Y = prev_frame_bottom + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT
                 if let Some(fb) = prev_frame_bottom {
                     current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
                 } else {
                     // First group after non-grouped messages
-                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h };
+                    let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h + prev_self_extra };
                     current_y += inc + GROUP_HEADER_OFFSET + header_extra;
                 }
             } else if prev_had_note {
                 current_y += ARROW_Y_BASE + text_h;
             } else {
-                current_y += 1.0 + text_h;
+                let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                current_y += 1.0 + text_h + prev_self_extra;
             }
 
             arrow_ys.push(current_y);
             prev_had_note = notes.iter().any(|n| n.msg_index == msg_idx);
+            prev_is_self = is_self;
+            // Update current_position for LifeEvent Y tracking
+            current_position = current_y + if is_self { SELF_ARROW_HEIGHT } else { 0.0 };
 
             // If this is the last message in a group, compute frame bottom
             if let Some(gi) = curr_group {
@@ -351,7 +414,31 @@ pub fn render_sequence_svg(
             }
 
             prev_group = curr_group;
+
             msg_idx += 1;
+        } else if let SequenceEvent::LifeEvent(le) = event {
+            let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+            if le.is_activate() {
+                pending_activations.push((p_idx, current_position));
+                if p_idx < participant_levels.len() {
+                    participant_levels[p_idx] += 1;
+                }
+            } else if le.is_deactivate() {
+                if let Some((pi, start_y)) = pending_activations.pop() {
+                    activations.push((pi, start_y, current_position));
+                }
+                if p_idx < participant_levels.len() {
+                    participant_levels[p_idx] = (participant_levels[p_idx] - 1).max(0);
+                }
+            } else if le.is_destroy() {
+                if let Some((pi, start_y)) = pending_activations.pop() {
+                    activations.push((pi, start_y, current_position));
+                }
+                destroys.push((p_idx, current_position));
+                if p_idx < participant_levels.len() {
+                    participant_levels[p_idx] = (participant_levels[p_idx] - 1).max(0);
+                }
+            }
         }
     }
 
@@ -399,7 +486,8 @@ pub fn render_sequence_svg(
                     let p2_c = pos_c_vals[p2_idx];
                     let (mut d_min, mut d_max) = if is_self {
                         let label_w = max_line_width(&bounder, &font_m, msg.label());
-                        let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
+                        let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                        let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
                         if is_reverse {
                             (p1_c - drawn_w, p1_c)
                         } else {
@@ -815,9 +903,18 @@ pub fn render_sequence_svg(
     }
 
     // ── Draw lifelines (background) ───────────────────────────────────────
+    // ── Draw lifelines + activation bars + destroy marks (per participant) ──
     for (i, p) in participants.iter().enumerate() {
         let cx = pos_c_vals[i] + x_offset;
         let ly = lifeline_y;
+
+        // Check if this participant is destroyed
+        let destroy_y = destroys.iter().find(|(pi, _)| *pi == i).map(|(_, y)| *y);
+        let ll_height = if let Some(dy) = destroy_y {
+            dy + DESTROY_X_HALF_SIZE - 1.0 - ly
+        } else {
+            lifeline_height
+        };
 
         svg.open_group(None);
         svg.title(p.display());
@@ -830,7 +927,7 @@ pub fn render_sequence_svg(
             cx - ACTIVATION_BAR_OFFSET,
             ly,
             ACTIVATION_BAR_WIDTH,
-            lifeline_height,
+            ll_height,
             0.0,
             0.0,
             0.0,
@@ -839,9 +936,43 @@ pub fn render_sequence_svg(
         // Lifeline (dashed)
         svg.set_stroke_color(Some(COLOR_LIFELINE));
         svg.set_stroke_width(STROKE_WIDTH_LIFELINE, Some([5.0, 5.0]));
-        svg.svg_line(cx, ly, cx, ly + lifeline_height, 0.0);
+        svg.svg_line(cx, ly, cx, ly + ll_height, 0.0);
 
         svg.close_group();
+
+        // Draw activation bars for this participant
+        for &(pi, start_y, end_y) in &activations {
+            if pi != i {
+                continue;
+            }
+            svg.open_group(None);
+            svg.title("");
+            svg.set_fill_color("#FFF");
+            svg.set_stroke_color(Some(COLOR_LIFELINE));
+            svg.set_stroke_width(1.0, None);
+            svg.svg_rectangle(
+                cx - ACTIVATION_BAR_EXPLICIT_OFFSET,
+                start_y,
+                ACTIVATION_BAR_EXPLICIT_WIDTH,
+                end_y - start_y,
+                0.0,
+                0.0,
+                0.0,
+            );
+            svg.close_group();
+        }
+
+        // Draw destroy X marks for this participant
+        for &(pi, dy) in &destroys {
+            if pi != i {
+                continue;
+            }
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some(COLOR_DESTROY));
+            svg.set_stroke_width(DESTROY_X_STROKE_WIDTH, None);
+            svg.svg_line(cx - DESTROY_X_HALF_SIZE, dy - DESTROY_X_HALF_SIZE, cx + DESTROY_X_HALF_SIZE, dy + DESTROY_X_HALF_SIZE, 0.0);
+            svg.svg_line(cx - DESTROY_X_HALF_SIZE, dy + DESTROY_X_HALF_SIZE, cx + DESTROY_X_HALF_SIZE, dy - DESTROY_X_HALF_SIZE, 0.0);
+        }
     }
 
     // ── Draw participant heads ───────────────────────────────────────────
@@ -1077,6 +1208,8 @@ pub fn render_sequence_svg(
             draw_message(
                 &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
                 p1_idx, p2_idx,
+                msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
+                msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
             );
             for note in notes {
                 if note.msg_index != msg_idx {
@@ -1230,6 +1363,8 @@ fn draw_message(
     y: f64,
     p1_idx: usize,
     p2_idx: usize,
+    level_ignore: i32,
+    level_considere: i32,
 ) {
     let x1 = pos_c[p1_idx] + x_offset;
     let x2 = pos_c[p2_idx] + x_offset;
@@ -1237,24 +1372,40 @@ fn draw_message(
     let is_return = p1_idx > p2_idx;
     let is_reverse = msg.arrow_config().is_reverse_define();
     let is_dashed = msg.arrow_config().is_dotted();
+    let ld = ACTIVATION_BAR_EXPLICIT_OFFSET; // LIVE_DELTA_SIZE = 5
+    let max_level = level_ignore.max(level_considere) as f64;
 
     if is_self {
         // Self-message: draw a loop to the right (--> ) or left (<--) of the participant
-        let cx = x1; // participant center
+        // Activation levels adjust X positions (from CommunicationTileSelf.drawU + ComponentRoseSelfArrow.drawRightSide)
+        let cx = x1; // participant center (posC)
+        let delta_x1 = (level_ignore - level_considere) as f64 * ld;
+
         let (loop_x, tip_dir) = if is_reverse {
             // <-- : loop to the left, arrowhead points right
-            (cx - SELF_XRIGHT, -1.0)
+            (cx - ld * max_level - SELF_XRIGHT, -1.0)
         } else {
             // --> : loop to the right, arrowhead points left
-            (cx + SELF_XRIGHT, 1.0)
+            (cx + ld * max_level + SELF_XRIGHT, 1.0)
         };
         let y_bottom = y + SELF_ARROW_HEIGHT;
 
-        // Lines: top, vertical, bottom (dashed for -->/<--)
-        // For --> : top at cx, bottom at cx+1
-        // For <-- : top at cx-1, bottom at cx-2
-        let top_near = cx + (is_reverse as i32 as f64) * tip_dir;
-        let bottom_near = cx + (if is_reverse { 2.0 } else { 1.0 }) * tip_dir;
+        // Compute top and bottom near points based on activation levels
+        // For --> (non-reverse):
+        //   top_start = posC + LD * levelIgnore
+        //   bottom_start = posC + LD * levelConsidere + (1 if deltaX1 <= 0 else 0)
+        // For <-- (reverse): mirror with -tip_dir
+        let top_near = if is_reverse {
+            cx - ld * level_ignore as f64 - 1.0
+        } else {
+            cx + ld * level_ignore as f64
+        };
+        let bottom_near = if is_reverse {
+            cx - ld * level_considere as f64 - (if delta_x1 >= 0.0 { 2.0 } else { 1.0 })
+        } else {
+            cx + ld * level_considere as f64 + (if delta_x1 <= 0.0 { 1.0 } else { 0.0 })
+        };
+
         svg.set_stroke_color(Some(COLOR_ARROW));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         if is_reverse {
@@ -1325,10 +1476,10 @@ fn draw_message(
                 // When comp_width == SELF_XRIGHT (loop wider than text), text is 1px left of loop
                 let label_w = max_line_width(bounder, font, label);
                 let comp_width = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
-                x1 - comp_width.max(SELF_XRIGHT + 1.0)
+                x1 - ld * max_level - comp_width.max(SELF_XRIGHT + 1.0)
             } else {
-                // --> : text at right side of participant
-                x1 + MESSAGE_TEXT_X_OFFSET
+                // --> : text at right side of participant, offset by activation level
+                x1 + ld * max_level + MESSAGE_TEXT_X_OFFSET
             }
         } else if is_return {
             // Text starts after the arrowhead: target + 17
@@ -1506,8 +1657,11 @@ pub struct ParsedSequence {
     pub notes: Vec<NoteInfo>,
     /// Group blocks (group ... end).
     pub groups: Vec<GroupInfo>,
+    /// Participants activated per message (future activate attached to message).
+    pub msg_activates: Vec<Vec<String>>,
+    /// Participants deactivated/destroyed per message (future deactivate/destroy attached to message).
+    pub msg_deactivates: Vec<Vec<String>>,
 }
-
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
 pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
@@ -1528,6 +1682,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut group_stack: Vec<(usize, String, String, usize)> = Vec::new();
     // skinparam { } block depth: when > 0, skip lines until closing }
     let mut skinparam_depth: u32 = 0;
+    let mut msg_activates: Vec<Vec<String>> = Vec::new();
+    let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
 
     for (line_num, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -1648,6 +1804,65 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
+        // Handle activate/deactivate/destroy commands
+        // In Java, these are attached to the previous message if it deals with the participant
+        if let Some(name) = trimmed.strip_prefix("activate ") {
+            let pname = name.trim();
+            let p = diagram.get_or_create_participant(pname);
+            diagram.activate(&p, LifeEventType::Activate);
+            // Attach to previous message if it deals with this participant
+            if msg_count > 0 {
+                let prev_idx = msg_count - 1;
+                if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
+                    if p1 == pname || p2 == pname {
+                        while msg_activates.len() <= prev_idx {
+                            msg_activates.push(Vec::new());
+                        }
+                        msg_activates[prev_idx].push(pname.to_string());
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("deactivate ") {
+            let pname = name.trim();
+            let p = diagram.get_or_create_participant(pname);
+            diagram.activate(&p, LifeEventType::Deactivate);
+            if msg_count > 0 {
+                let prev_idx = msg_count - 1;
+                if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
+                    if p1 == pname || p2 == pname {
+                        while msg_deactivates.len() <= prev_idx {
+                            msg_deactivates.push(Vec::new());
+                        }
+                        msg_deactivates[prev_idx].push(pname.to_string());
+                    }
+                }
+            }
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("destroy ") {
+            let pname = name.trim();
+            let p = diagram.get_or_create_participant(pname);
+            diagram.activate(&p, LifeEventType::Destroy);
+            if msg_count > 0 {
+                let prev_idx = msg_count - 1;
+                if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
+                    if p1 == pname || p2 == pname {
+                        while msg_deactivates.len() <= prev_idx {
+                            msg_deactivates.push(Vec::new());
+                        }
+                        msg_deactivates[prev_idx].push(pname.to_string());
+                    }
+                }
+            }
+            continue;
+        }
+        // Handle "autoactivate on" (ignored for now — inline ++/-- not yet supported)
+        if trimmed == "autoactivate on" || trimmed == "autoactivate off" {
+            continue;
+        }
+
         // Handle "title" command
         if let Some(val) = trimmed.strip_prefix("title ") {
             title = Some(val.trim().to_string());
@@ -1751,6 +1966,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             };
             let msg = Message::new(p1, p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
+            msg_activates.push(Vec::new());
+            msg_deactivates.push(Vec::new());
             msg_count += 1;
         }
     }
@@ -1767,6 +1984,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             hide_footbox,
             notes,
             groups,
+            msg_activates,
+            msg_deactivates,
         })
     }
 }
