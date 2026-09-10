@@ -457,6 +457,75 @@ pub fn render_sequence_svg(
         let constraint = plantuml_real::add_fixed(&xorigin, arrow_w);
         plantuml_real::ensure_bigger_than(&pos_c[p_idx], &constraint);
     }
+    // Apply parallel sibling disjoint constraints (like Java's addParallelSiblingDisjointConstraints)
+    // For each parallel group pair, ensure the right group's minX >= left group's maxX
+    for (gi, group) in groups.iter().enumerate() {
+        if group.parallel && gi > 0 {
+            // Find the left sibling: skip else groups, find the first non-else group before this one
+            let mut left_gi = gi - 1;
+            while left_gi > 0 && groups[left_gi].group_type == "else" {
+                left_gi -= 1;
+            }
+            if groups[left_gi].group_type == "else" {
+                continue; // No non-else sibling found
+            }
+            let left_group = &groups[left_gi];
+            // The left group's content includes its own messages AND any else sections
+            // that follow it (at the same nesting level) up to the current group.
+            let left_content_start = left_group.msg_start;
+            let left_content_end = group.msg_start; // Everything before the right group
+            // Find the rightmost participant in the left content and leftmost in the right group
+            let mut left_rightmost_idx: Option<usize> = None;
+            let mut right_leftmost_idx: Option<usize> = None;
+            for (mi, event) in diagram.events().iter().enumerate() {
+                if let SequenceEvent::Message(msg) = event {
+                    if mi >= left_content_start && mi < left_content_end {
+                        let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                        let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                        let exo = msg_exo.get(mi).copied().flatten();
+                        if exo.is_none() {
+                            left_rightmost_idx = Some(left_rightmost_idx.map_or(p2_idx.max(p1_idx), |r| r.max(p1_idx).max(p2_idx)));
+                        }
+                    }
+                    if mi >= group.msg_start && mi < group.msg_end {
+                        let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                        let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                        let exo = msg_exo.get(mi).copied().flatten();
+                        if exo.is_none() {
+                            right_leftmost_idx = Some(right_leftmost_idx.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
+                        }
+                    }
+                }
+            }
+            if let (Some(lo_idx), Some(hi_idx)) = (left_rightmost_idx, right_leftmost_idx) {
+                if lo_idx < hi_idx {
+                    // Add disjoint constraints from all messages in the left content
+                    // (including else sections)
+                    for (mi, event) in diagram.events().iter().enumerate() {
+                        if let SequenceEvent::Message(msg) = event {
+                            if mi >= left_content_start && mi < left_content_end {
+                                let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                                let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                                let is_self = p1_idx == p2_idx;
+                                let text_w = pre_wrapped_widths.get(mi).copied().unwrap_or(0.0);
+                                let disjoint_base = 2.0 * GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1 + GROUP_EXTERNAL_MARGIN_X2;
+                                if is_self {
+                                    let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
+                                    let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
+                                    plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &constraint);
+                                } else {
+                                    let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
+                                    plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &c1);
+                                    let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
+                                    plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &c2);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     plantuml_real::compile_now(xorigin.get_line());
 
     let mut pos_b_vals: Vec<f64> = pos_b.iter().map(|r| r.get_current_value()).collect();
@@ -518,6 +587,8 @@ pub fn render_sequence_svg(
     let mut prev_group: Option<usize> = None;
     let mut prev_frame_bottom: Option<f64> = None;
     let mut prev_frame_bottom_level: usize = 0;
+    // Track the start Y of the current group cluster (for parallel siblings)
+    let mut cluster_start_y: f64 = 0.0;
     let mut msg_idx = 0usize;
     let mut current_position = lifeline_y;
     // Activation tracking: (participant_idx, start_y, end_y)
@@ -575,13 +646,8 @@ pub fn render_sequence_svg(
                 let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                 current_y += inc + ELSE_TILE_HEIGHT;
             } else if is_first_in_group && curr_group.map(|gi| groups[gi].parallel).unwrap_or(false) {
-                // Parallel group: top-aligned with the previous tile's chaining point.
-                // Same Y as the first group's first message (not stacked below).
-                let curr_level = curr_group
-                    .and_then(|gi| groups.get(gi))
-                    .map(|g| g.nesting_level)
-                    .unwrap_or(0);
-                current_y = lifeline_y + 1.0 + text_h + GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
+                // Parallel group: top-aligned with the cluster's chaining point.
+                current_y = cluster_start_y;
             } else if is_first_in_group {
                 // First message in a subsequent group (non-else)
                 let curr_level = curr_group
@@ -611,6 +677,11 @@ pub fn render_sequence_svg(
             } else {
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                 current_y += 1.0 + text_h + prev_self_extra;
+            }
+
+            // Update cluster_start_y when a new non-parallel group starts
+            if is_first_in_group && !is_parallel && !is_else {
+                cluster_start_y = current_y;
             }
 
 
@@ -2890,7 +2961,20 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
 /// Extracts inline activation markers (++/--/--++) from the p2 part.
 /// Returns (p1_code, p2_code, label, arrow_string, inline_activate, inline_deactivate).
 fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str, bool, bool)> {
-    // Try each arrow pattern, longest first to avoid partial matches
+    // Strip [hidden] and other [style] modifiers from arrow notation
+    // e.g., "B -[hidden]-> C" becomes "B -> C"
+    let line = if let Some(bracket_start) = line.find("-[") {
+        if let Some(bracket_end) = line[bracket_start..].find(']') {
+            let before = &line[..bracket_start + 1]; // includes the first '-'
+            let after = &line[bracket_start + bracket_end + 1..];
+            format!("{before}{after}")
+        } else {
+            line.to_string()
+        }
+    } else {
+        line.to_string()
+    };
+    let line = line.as_str();
     let arrows: [(&str, &str); 8] = [
         ("-->", "-->"),
         ("<--", "<--"),
