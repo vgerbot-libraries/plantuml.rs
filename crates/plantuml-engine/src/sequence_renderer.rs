@@ -401,7 +401,7 @@ pub fn render_sequence_svg(
                         nonadjacent_constraints.push((lo, hi, 0.0, 0.0, text_w + 24.0));
                     }
                 } else {
-                    // With activation: use posC constraint matching Java's exact addFixed chain
+                    // With activation: use posC constraint matching Java's addConstraints()
                     let point1_offset = if is_reverse {
                         if level_p1 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 }
                     } else {
@@ -412,6 +412,20 @@ pub fn render_sequence_svg(
                     } else {
                         0.0
                     };
+                    // When the source participant is activated (level_p1 > 0 for forward,
+                    // level_p2 > 0 for reverse), the arrow starts from the activation bar
+                    // edge (posC + LIVE_DELTA_SIZE * level). The posC constraint alone
+                    // doesn't account for this source offset. A posB constraint with
+                    // min_spacing = arrow_w ensures the full arrow width fits between
+                    // posD[lo] and posB[hi], which accounts for both head widths and
+                    // gives the correct spacing when the source is activated.
+                    let source_activated = if is_reverse { level_p2 > 0 } else { level_p1 > 0 };
+                    if source_activated && hi - lo == 1 {
+                        let required = text_w + 24.0;
+                        if required > min_spacing[hi] {
+                            min_spacing[hi] = required;
+                        }
+                    }
                     nonadjacent_constraints.push((lo, hi, point1_offset, point2_pre_offset, text_w + 24.0));
                 }
             }
@@ -453,6 +467,90 @@ pub fn render_sequence_svg(
         let constraint = plantuml_real::add_fixed(&point2, arrow_w);
         plantuml_real::ensure_bigger_than(&point1, &constraint);
     }
+    // Group frame constraints (matching Java GroupingTile.ensureFollowingParticipantClearsFrame
+    // and ensurePrecedingParticipantClearsFrame).
+    // For each group, ensure the next participant after the group clears the frame,
+    // and the leftmost participant clears the previous participant's frame.
+    let frame_margin = GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X2;
+    let font_bold = UFont::sans_serif(FONT_SIZE_MESSAGE).with_style(FontStyle::bold());
+    for group in groups.iter() {
+        if group.group_type == "else" { continue; }
+        // Find touched participants (from messages within the group's range)
+        let mut touched: Vec<usize> = Vec::new();
+        let mut mi = 0usize;
+        for event in diagram.events() {
+            if let SequenceEvent::Message(msg) = event {
+                if mi >= group.msg_start && mi < group.msg_end {
+                    let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                    let exo = msg_exo.get(mi).copied().flatten();
+                    if exo.is_none() {
+                        if !touched.contains(&p1_idx) { touched.push(p1_idx); }
+                        if !touched.contains(&p2_idx) { touched.push(p2_idx); }
+                    }
+                }
+                mi += 1;
+            }
+        }
+        if touched.is_empty() { continue; }
+        touched.sort();
+        let leftmost = *touched.first().unwrap();
+        let rightmost = *touched.last().unwrap();
+
+        // Compute group header title width (matching Java getPreferredDimensionIfEmpty)
+        // For regular groups: ComponentRoseGroupingHeader.getPreferredWidth = pureText + 45
+        // For partitions: PartitionTile.getComponent returns titleBlock width directly
+        let title_text = if group.group_type == "group" {
+            if group.comment.is_empty() { "group".to_string() } else { group.comment.clone() }
+        } else {
+            group.group_type.clone()
+        };
+        let title_pure_w = bounder.calculate_dimension(&font_bold, &title_text).width();
+        let is_partition = group.group_type == "partition";
+        let title_w = if is_partition {
+            title_pure_w
+        } else {
+            // getTextWidth = pureText + getOldPaddingX1(15) + getOldPaddingX2(30) = pureText + 45
+            let mut w = title_pure_w + 45.0;
+            // sup: when there's a comment (condition text like "[1 to n]"),
+            // Java adds getOldPaddingX1() + commentMargin(0) + comment_width
+            // For "group" type, the comment IS the title (no separate condition),
+            // so sup is not added. For other types (loop/alt/opt/etc.) with a
+            // comment, the condition "[comment]" is a separate text block.
+            if group.group_type != "group" && !group.comment.is_empty() {
+                let cond_label = format!("[{}]", group.comment);
+                let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
+                let cond_w = max_line_width(&bounder, &font_small, &cond_label);
+                w += 15.0 + cond_w; // getOldPaddingX1() + commentMargin(0) + cond_w
+            }
+            w
+        };
+
+        // ensureFollowingParticipantClearsFrame: next participant after rightmost clears frame
+        if rightmost + 1 < participants.len() {
+            let next = rightmost + 1;
+            // Baseline: posB[next] >= posC[rightmost] + frameMargin
+            let constraint = plantuml_real::add_fixed(&pos_c[rightmost], frame_margin);
+            plantuml_real::ensure_bigger_than(&pos_b[next], &constraint);
+            // LifeEvent constraint: posB[next] >= posC[rightmost] + max_level * LIVE_DELTA_SIZE + frameMargin
+            let max_level = *max_participant_levels.get(rightmost).unwrap_or(&0) as f64;
+            if max_level > 0.0 {
+                let life_constraint = plantuml_real::add_fixed(&pos_c[rightmost], max_level * ACTIVATION_BAR_EXPLICIT_OFFSET + frame_margin);
+                plantuml_real::ensure_bigger_than(&pos_b[next], &life_constraint);
+            }
+            // Title constraint: posB[next] >= posC[leftmost] + titleW + 16 - MARGINX - MARGINX + frameMargin
+            let title_constraint = plantuml_real::add_fixed(&pos_c[leftmost], title_w + 16.0 - GROUP_MARGIN_X - GROUP_MARGIN_X + frame_margin);
+            plantuml_real::ensure_bigger_than(&pos_b[next], &title_constraint);
+        }
+
+        // ensurePrecedingParticipantClearsFrame: leftmost clears previous participant's frame
+        if leftmost > 0 {
+            let prev = leftmost - 1;
+            // Baseline: posC[leftmost] >= posC[prev] + frameMargin
+            let constraint = plantuml_real::add_fixed(&pos_c[prev], frame_margin);
+            plantuml_real::ensure_bigger_than(&pos_c[leftmost], &constraint);
+        }
+    }
     // Apply exo arrow constraints: posC[p] >= xOrigin + width (for FROM_LEFT exo arrows)
     for &(p_idx, arrow_w) in &exo_constraints {
         let constraint = plantuml_real::add_fixed(&xorigin, arrow_w);
@@ -478,49 +576,56 @@ pub fn render_sequence_svg(
             // Find the rightmost participant in the left content and leftmost in the right group
             let mut left_rightmost_idx: Option<usize> = None;
             let mut right_leftmost_idx: Option<usize> = None;
-            for (mi, event) in diagram.events().iter().enumerate() {
+            let mut msg_idx = 0usize;
+            for event in diagram.events() {
                 if let SequenceEvent::Message(msg) = event {
-                    if mi >= left_content_start && mi < left_content_end {
+                    if msg_idx >= left_content_start && msg_idx < left_content_end {
                         let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                         let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
-                        let exo = msg_exo.get(mi).copied().flatten();
+                        let exo = msg_exo.get(msg_idx).copied().flatten();
                         if exo.is_none() {
                             left_rightmost_idx = Some(left_rightmost_idx.map_or(p2_idx.max(p1_idx), |r| r.max(p1_idx).max(p2_idx)));
                         }
                     }
-                    if mi >= group.msg_start && mi < group.msg_end {
+                    if msg_idx >= group.msg_start && msg_idx < group.msg_end {
                         let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                         let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
-                        let exo = msg_exo.get(mi).copied().flatten();
+                        let exo = msg_exo.get(msg_idx).copied().flatten();
                         if exo.is_none() {
                             right_leftmost_idx = Some(right_leftmost_idx.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
                         }
                     }
+                    msg_idx += 1;
                 }
             }
             if let (Some(lo_idx), Some(hi_idx)) = (left_rightmost_idx, right_leftmost_idx) {
                 if lo_idx < hi_idx {
                     // Add disjoint constraints from all messages in the left content
                     // (including else sections)
-                    for (mi, event) in diagram.events().iter().enumerate() {
+                    let mut msg_idx2 = 0usize;
+                    for event in diagram.events() {
                         if let SequenceEvent::Message(msg) = event {
-                            if mi >= left_content_start && mi < left_content_end {
+                            if msg_idx2 >= left_content_start && msg_idx2 < left_content_end {
                                 let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                                 let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
                                 let is_self = p1_idx == p2_idx;
-                                let text_w = pre_wrapped_widths.get(mi).copied().unwrap_or(0.0);
+                                let text_w = pre_wrapped_widths.get(msg_idx2).copied().unwrap_or(0.0);
                                 let disjoint_base = 2.0 * GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1 + GROUP_EXTERNAL_MARGIN_X2;
                                 if is_self {
                                     let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
-                                    let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
+                                    let act_level = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                                    let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base + act_level * ACTIVATION_BAR_EXPLICIT_OFFSET);
                                     plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &constraint);
                                 } else {
-                                    let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
+                                    let act_level_p2 = *max_participant_levels.get(p2_idx).unwrap_or(&0) as f64;
+                                    let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base + act_level_p2 * ACTIVATION_BAR_EXPLICIT_OFFSET);
                                     plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &c1);
-                                    let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
+                                    let act_level_p1 = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                                    let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base + act_level_p1 * ACTIVATION_BAR_EXPLICIT_OFFSET);
                                     plantuml_real::ensure_bigger_than(&pos_c[hi_idx], &c2);
                                 }
                             }
+                            msg_idx2 += 1;
                         }
                     }
                 }
@@ -1104,6 +1209,32 @@ pub fn render_sequence_svg(
                 msg_iter_idx += 1;
             }
         }
+        // Also account for LifeEvent tiles (activation bars) inside the group.
+        // Java GroupingTile constructor uses tile.getDrawnMinX()/getDrawnMaxX()
+        // for each tile, including LifeEventTiles. LifeEventTile.getMaxX() =
+        // posC + levelAt * LIVE_DELTA_SIZE, getMinX() = posC - LIVE_DELTA_SIZE
+        // (if level > 0). These extend the frame beyond the message endpoints.
+        let mut mi_check = 0usize;
+        for event in diagram.events() {
+            if let SequenceEvent::Message(msg) = event {
+                mi_check += 1;
+            } else if let SequenceEvent::LifeEvent(le) = event {
+                // LifeEvents inside the group's message range extend the frame.
+                // mi_check is the index of the next message, so a LifeEvent after
+                // the mi-th message has mi_check = mi + 1. It's inside the group
+                // if mi >= msg_start && mi < msg_end, i.e., mi_check > msg_start && mi_check <= msg_end.
+                if mi_check > group.msg_start && mi_check <= group.msg_end {
+                    let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                    if p_idx < pos_c_vals.len() {
+                        let level = *max_participant_levels.get(p_idx).unwrap_or(&0) as f64;
+                        if level > 0.0 {
+                            max_x = max_x.max(pos_c_vals[p_idx] + level * ACTIVATION_BAR_EXPLICIT_OFFSET);
+                            min_x = min_x.min(pos_c_vals[p_idx] - ACTIVATION_BAR_EXPLICIT_OFFSET);
+                        }
+                    }
+                }
+            }
+        }
 
 
         let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
@@ -1398,6 +1529,10 @@ pub fn render_sequence_svg(
         normal_lifeline_bottom
     };
     let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
+    // Flush remaining pending activations (autoactivate without explicit deactivate)
+    for (pi, start_y) in &pending_activations {
+        activations.push((*pi, *start_y, lifeline_bottom));
+    }
 
     let lifeline_height = if arrow_ys.is_empty() {
         LIFELINE_HEIGHT_BASE
@@ -2734,6 +2869,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut msg_exo: Vec<Option<ExoType>> = Vec::new();
     let mut msg_hidden: Vec<bool> = Vec::new();
     let mut next_msg_parallel = false;
+    let mut autoactivate = false;
     let mut in_note_block: Option<(NotePosition, Vec<String>)> = None;
     let mut max_message_size: Option<f64> = None;
     let lines: Vec<&str> = text.lines().collect();
@@ -2933,8 +3069,13 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             }
             continue;
         }
-        // Handle "autoactivate on" (ignored for now — inline ++/-- not yet supported)
-        if trimmed == "autoactivate on" || trimmed == "autoactivate off" {
+        // Handle "autoactivate on/off"
+        if trimmed == "autoactivate on" {
+            autoactivate = true;
+            continue;
+        }
+        if trimmed == "autoactivate off" {
+            autoactivate = false;
             continue;
         }
 
@@ -3101,7 +3242,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             };
             let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
-            // Apply inline activation/deactivation
+            // Apply inline activation/deactivation and autoactivate
             let mut acts = Vec::new();
             let mut deacts = Vec::new();
             if inline_deactivate {
@@ -3109,6 +3250,43 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             }
             if inline_activate {
                 acts.push(p2_code.clone());
+            }
+            // Autoactivate: solid arrow activates receiver, dotted deactivates sender
+            if autoactivate && exo.is_none() {
+                let is_dotted = arrow.contains("--");
+                let is_reverse = arrow.starts_with('<');
+                if is_dotted {
+                    // Dotted: deactivate sender
+                    if is_reverse {
+                        deacts.push(p2_code.clone());
+                    } else {
+                        deacts.push(p1_code.clone());
+                    }
+                } else {
+                    // Solid: activate receiver
+                    if is_reverse {
+                        acts.push(p1_code.clone());
+                    } else {
+                        acts.push(p2_code.clone());
+                    }
+                }
+            }
+            // Create LifeEvents for inline and autoactivate activations/deactivations
+            for code in &acts {
+                let p = diagram.participants().iter()
+                    .find(|p| p.code() == code)
+                    .cloned();
+                if let Some(p) = p {
+                    diagram.activate(&p, LifeEventType::Activate);
+                }
+            }
+            for code in &deacts {
+                let p = diagram.participants().iter()
+                    .find(|p| p.code() == code)
+                    .cloned();
+                if let Some(p) = p {
+                    diagram.activate(&p, LifeEventType::Deactivate);
+                }
             }
             msg_activates.push(acts);
             msg_deactivates.push(deacts);

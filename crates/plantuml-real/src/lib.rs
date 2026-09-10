@@ -140,6 +140,16 @@ pub trait Real: std::fmt::Debug {
 
     /// Returns the RealLine this real belongs to.
     fn get_line(&self) -> &Rc<RefCell<RealLine>>;
+
+    /// If this is a `RealDelta`, returns the delegated real and the diff.
+    /// Used by `ensure_bigger_than` to mirror Java's
+    /// `RealDelta.ensureBiggerThan()` delegation, which preserves f64
+    /// cancellation: constraining `delegated + diff >= other` as
+    /// `delegated >= other - diff` avoids accumulating separate rounding
+    /// errors on both sides of the inequality.
+    fn as_delta(&self) -> Option<(&Rc<dyn Real>, f64)> {
+        None
+    }
 }
 
 // ── RealImpl ──────────────────────────────────────────────────────────────
@@ -225,6 +235,10 @@ impl Real for RealDelta {
 
     fn get_line(&self) -> &Rc<RefCell<RealLine>> {
         &self.line
+    }
+
+    fn as_delta(&self) -> Option<(&Rc<dyn Real>, f64)> {
+        Some((&self.delegated, self.diff))
     }
 }
 
@@ -429,6 +443,18 @@ pub fn add_at_least(real: &Rc<dyn Real>, delta: f64) -> Rc<dyn Real> {
 ///
 /// Ported from: `RealImpl.ensureBiggerThan(Real)`.
 pub fn ensure_bigger_than(real: &Rc<dyn Real>, other: &Rc<dyn Real>) {
+    // Mirror Java's RealDelta.ensureBiggerThan(): when `real` is a RealDelta
+    // (delegated + diff), delegate to `delegated.ensureBiggerThan(other - diff)`.
+    // This preserves f64 cancellation: constraining `delegated + diff >= other`
+    // as `delegated >= other - diff` avoids accumulating separate rounding
+    // errors on both sides of the inequality, which would otherwise shift
+    // the solver's fixed point by a few ULPs and flip the last digit of
+    // formatted SVG coordinates.
+    if let Some((delegated, diff)) = real.as_delta() {
+        let adjusted_other = add_fixed(other, -diff);
+        ensure_bigger_than(delegated, &adjusted_other);
+        return;
+    }
     let line = real.get_line().clone();
     line.borrow_mut()
         .add_force(PositiveForce::new(other.clone(), real.clone(), 0.0));
