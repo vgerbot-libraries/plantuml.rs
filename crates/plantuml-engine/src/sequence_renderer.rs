@@ -175,6 +175,32 @@ fn wrap_message_text(
     }
     result
 }
+/// Adds a disjoint constraint: pos_c[target] >= pos_c[source] + extra + offset.
+/// If the source participant is to the right of the target (making the constraint
+/// impossible with live values), uses a cached/fixed value instead to match Java's
+/// RealMax caching behavior in getMaxX().
+fn add_disjoint_constraint(
+    pos_c: &[std::rc::Rc<dyn plantuml_real::Real>],
+    pos_b: &[std::rc::Rc<dyn plantuml_real::Real>],
+    xorigin: &std::rc::Rc<dyn plantuml_real::Real>,
+    target_idx: usize,
+    source_idx: usize,
+    extra: f64,
+    offset: f64,
+) {
+    let total_offset = extra + offset;
+    if pos_b[source_idx].get_current_value() > pos_b[target_idx].get_current_value() {
+        // Source is to the right of target: constraint would be impossible with
+        // live values. Use cached value (current pos_c[source] + offset) as a
+        // fixed Real, matching Java's RealMax caching on first read.
+        let cached = pos_c[source_idx].get_current_value() + total_offset;
+        let fixed = plantuml_real::add_at_least(xorigin, cached);
+        plantuml_real::ensure_bigger_than(&pos_c[target_idx], &fixed);
+    } else {
+        let constraint = plantuml_real::add_fixed(&pos_c[source_idx], total_offset);
+        plantuml_real::ensure_bigger_than(&pos_c[target_idx], &constraint);
+    }
+}
 /// Renders a sequence diagram to an SVG string.
 #[must_use]
 pub fn render_sequence_svg(
@@ -361,7 +387,7 @@ pub fn render_sequence_svg(
                 // Exo arrows: skip regular constraint handling
                 // TO_RIGHT: no constraint (arrow extends right from participant)
                 // FROM_LEFT: posC[p] >= xOrigin + width (participant far enough from left border)
-                if exo_type == ExoType::FromLeft {
+                if exo_type == ExoType::FromLeft || exo_type == ExoType::ToLeft {
                     exo_constraints.push((p2_idx, text_w + 24.0));
                 }
                 spacing_msg_idx += 1;
@@ -438,6 +464,34 @@ pub fn render_sequence_svg(
     for i in 1..participants.len() {
         let constraint = plantuml_real::add_fixed(&pos_d[i - 1], min_spacing[i]);
         plantuml_real::ensure_bigger_than(&pos_b[i], &constraint);
+    }
+    // CommunicationTileSelf.addConstraints(): next.getPosC() >= getMaxX()
+    // For each self-message, the next participant's posC must clear the self-message's
+    // getMaxX() = posC + getCompWidth(). This is separate from the disjoint constraint
+    // and applies to ALL self-messages (parallel or not).
+    let mut max_self_comp_width: Vec<f64> = vec![0.0; participants.len()];
+    let mut spacing_msg_idx2 = 0usize;
+    for event in diagram.events() {
+        if let SequenceEvent::Message(msg) = event {
+            let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+            let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+            let exo = msg_exo.get(spacing_msg_idx2).copied().flatten();
+            if exo.is_none() && p1_idx == p2_idx && p1_idx < participants.len() {
+                let text_w = pre_wrapped_widths[spacing_msg_idx2];
+                let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+                if comp_width > max_self_comp_width[p1_idx] {
+                    max_self_comp_width[p1_idx] = comp_width;
+                }
+            }
+            spacing_msg_idx2 += 1;
+        }
+    }
+    for p in 0..participants.len() {
+        let comp_width = max_self_comp_width[p];
+        if comp_width > 0.0 && p + 1 < participants.len() {
+            let constraint = plantuml_real::add_fixed(&pos_c[p], comp_width);
+            plantuml_real::ensure_bigger_than(&pos_c[p + 1], &constraint);
+        }
     }
     // Message constraints matching Java CommunicationTile.addConstraints() exactly.
     // Java creates point1/point2 Real objects with addFixed, then ensureBiggerThan.
@@ -542,6 +596,13 @@ pub fn render_sequence_svg(
             plantuml_real::ensure_bigger_than(&pos_c[leftmost], &constraint);
         }
     }
+    // Run solver once to resolve spacing and message constraints before adding
+    // disjoint constraints. Java's RealMax caches getMaxX() on first read during
+    // the solver iteration, which happens after spacing forces are applied but
+    // BEFORE the exo constraint's push propagates to other participants.
+    // We replicate this by solving without exo constraints first, then adding
+    // exo and disjoint constraints after.
+    plantuml_real::compile_now(xorigin.get_line());
     // Apply exo arrow constraints: posC[p] >= xOrigin + width (for FROM_LEFT exo arrows)
     for &(p_idx, arrow_w) in &exo_constraints {
         let constraint = plantuml_real::add_fixed(&xorigin, arrow_w);
@@ -599,6 +660,7 @@ pub fn render_sequence_svg(
                             if msg_idx2 >= left_content_start && msg_idx2 < left_content_end {
                                 let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                                 let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                                if p1_idx == hi_idx || p2_idx == hi_idx { msg_idx2 += 1; continue; }
                                 let is_self = p1_idx == p2_idx;
                                 let text_w = pre_wrapped_widths.get(msg_idx2).copied().unwrap_or(0.0);
                                 let disjoint_base = 2.0 * GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1 + GROUP_EXTERNAL_MARGIN_X2;
@@ -639,7 +701,7 @@ pub fn render_sequence_svg(
             if let Some(gi) = groups.iter().position(|g| g.msg_start == mi && g.nesting_level == 0 && g.group_type != "else") {
                 let g = &groups[gi];
                 // Groups are treated as non-parallel anchors (their constraints are handled above)
-                tiles.push((g.msg_start, g.msg_end, false));
+                tiles.push((g.msg_start, g.msg_end, g.parallel));
                 mi = g.msg_end;
             } else {
                 // Standalone message (not in any top-level group)
@@ -648,39 +710,91 @@ pub fn render_sequence_svg(
                 mi += 1;
             }
         }
-        // Build clusters and add disjoint constraints
-        // +1 pixel for ASCII_FRAME_MARGIN (2 char columns ≈ 1 pixel) on the group side
-        let disjoint_base = 2.0 * GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1 + GROUP_EXTERNAL_MARGIN_X2 + 1.0;
-        let mut cluster: Vec<(usize, usize)> = Vec::new(); // (msg_start, msg_end) of tiles in current cluster
+        // Build clusters and add disjoint constraints.
+        // Java's PlayingSpace.ensureDisjoint uses tile.getMinX()/getMaxX() which
+        // include MARGINX + EXTERNAL_MARGINX1/X2 offsets for group tiles.
+        // The offset per group side depends on which side (min/max):
+        //   minX side: MARGINX + EXTERNAL_MARGINX1 = 16 + 3 = 19
+        //   maxX side: MARGINX + EXTERNAL_MARGINX2 = 16 + 9 = 25
+        let grp_min_x = GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1;
+        let grp_max_x = GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X2;
+        let mut cluster: Vec<(usize, usize)> = Vec::new();
         for &(t_start, t_end, t_par) in &tiles {
             if t_par {
-                // Parallel tile: add disjoint constraints with all previous tiles in cluster
+                let curr_is_group = groups.iter().any(|g| g.msg_start == t_start && g.msg_end == t_end);
                 for &(prev_start, prev_end) in &cluster {
-                    // Find rightmost participant in prev tile and leftmost in current tile
-                    let mut prev_rightmost: Option<usize> = None;
+                    let prev_is_group = groups.iter().any(|g| g.msg_start == prev_start && g.msg_end == prev_end);
+                    // Compute anchor (first p1 of first message), leftmost, and rightmost.
+                    // Java's findAnchorLivingSpace returns the first participant of the
+                    // first message in the tile. The anchor is used for direction check
+                    // and same-anchor skip. The leftmost is the constraint target (minX).
+                    let mut prev_anchor: Option<usize> = None;
+                    let mut prev_leftmost: Option<usize> = None;
+                    let mut curr_anchor: Option<usize> = None;
                     let mut curr_leftmost: Option<usize> = None;
                     for (mi2, event) in diagram.events().iter().enumerate() {
                         if let SequenceEvent::Message(msg) = event {
                             let exo = msg_exo.get(mi2).copied().flatten();
-                            if exo.is_none() {
+                            let (p1_idx, p2_idx) = if exo.is_some() {
+                                let pidx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                                (pidx, pidx)
+                            } else {
                                 let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                                 let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
-                                if mi2 >= prev_start && mi2 < prev_end {
-                                    prev_rightmost = Some(prev_rightmost.map_or(p1_idx.max(p2_idx), |r| r.max(p1_idx).max(p2_idx)));
-                                }
-                                if mi2 >= t_start && mi2 < t_end {
-                                    curr_leftmost = Some(curr_leftmost.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
-                                }
+                                (p1_idx, p2_idx)
+                            };
+                            if mi2 >= prev_start && mi2 < prev_end {
+                                if prev_anchor.is_none() { prev_anchor = Some(p1_idx); }
+                                prev_leftmost = Some(prev_leftmost.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
+                            }
+                            if mi2 >= t_start && mi2 < t_end {
+                                if curr_anchor.is_none() { curr_anchor = Some(p1_idx); }
+                                curr_leftmost = Some(curr_leftmost.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
                             }
                         }
                     }
-                    if let (Some(prev_idx), Some(curr_idx)) = (prev_rightmost, curr_leftmost) {
-                        if prev_idx == curr_idx { continue; } // Same anchor, skip
-                        // Determine direction from posB values
-                        let prev_posb = pos_b[prev_idx].get_current_value();
-                        let curr_posb = pos_b[curr_idx].get_current_value();
+                    if let (Some(prev_a), Some(curr_a)) = (prev_anchor, curr_anchor) {
+                        if prev_a == curr_a { continue; }
+                        // Skip group-vs-group pairs: the group-based parallel disjoint code
+                        // (above) already handles these with else-section awareness.
+                        if prev_is_group && curr_is_group { continue; }
+                        let curr_left = curr_leftmost.unwrap_or(curr_a);
+                        let prev_left = prev_leftmost.unwrap_or(prev_a);
+                        let prev_posb = pos_b[prev_a].get_current_value();
+                        let curr_posb = pos_b[curr_a].get_current_value();
                         if prev_posb <= curr_posb {
-                            // Current tile is to the right: curr_min >= prev_max
+                            // "if" branch: curr_min >= prev_max
+                            // Java: group.getMinX() >= msg.getMaxX() (when curr is group)
+                            //   or: msg.getMinX() >= group.getMaxX() (when prev is group)
+                            // group.getMinX() = posC - nesting_depth * grp_min_x
+                            // group.getMaxX() = posC + nesting_depth * grp_max_x
+                            let nesting_depth_prev = if prev_is_group {
+                                groups.iter()
+                                    .find(|g| g.msg_start == prev_start && g.msg_end == prev_end)
+                                    .map(|prev_g| {
+                                        let max_nesting = groups.iter()
+                                            .filter(|g| g.msg_start >= prev_g.msg_start && g.msg_end <= prev_g.msg_end)
+                                            .map(|g| g.nesting_level)
+                                            .max()
+                                            .unwrap_or(prev_g.nesting_level);
+                                        (max_nesting - prev_g.nesting_level + 1) as f64
+                                    })
+                                    .unwrap_or(1.0)
+                            } else { 0.0 };
+                            let nesting_depth_curr = if curr_is_group {
+                                groups.iter()
+                                    .find(|g| g.msg_start == t_start && g.msg_end == t_end)
+                                    .map(|curr_g| {
+                                        let max_nesting = groups.iter()
+                                            .filter(|g| g.msg_start >= curr_g.msg_start && g.msg_end <= curr_g.msg_end)
+                                            .map(|g| g.nesting_level)
+                                            .max()
+                                            .unwrap_or(curr_g.nesting_level);
+                                        (max_nesting - curr_g.nesting_level + 1) as f64
+                                    })
+                                    .unwrap_or(1.0)
+                            } else { 0.0 };
+                            let offset = nesting_depth_prev * grp_max_x + nesting_depth_curr * grp_min_x;
                             for (mi2, event) in diagram.events().iter().enumerate() {
                                 if let SequenceEvent::Message(msg) = event {
                                     if mi2 >= prev_start && mi2 < prev_end {
@@ -688,21 +802,49 @@ pub fn render_sequence_svg(
                                         let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
                                         let is_self = p1_idx == p2_idx;
                                         let text_w = pre_wrapped_widths.get(mi2).copied().unwrap_or(0.0);
-                                        if is_self {
-                                            let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
-                                            let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &constraint);
+                                        // Determine left/right by posB (not p1/p2, which may be swapped for reverse)
+                                        let (left_idx, right_idx) = if pos_b[p1_idx].get_current_value() <= pos_b[p2_idx].get_current_value() {
+                                            (p1_idx, p2_idx)
                                         } else {
-                                            let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &c1);
-                                            let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &c2);
+                                            (p2_idx, p1_idx)
+                                        };
+                                        if is_self {
+                                            if p1_idx == curr_left { continue; }
+                                            let comp_w = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+                                            add_disjoint_constraint(&pos_c, &pos_b, &xorigin, curr_left, p1_idx, comp_w, offset);
+                                        } else {
+                                            // c1: pos_c[curr_left] >= pos_c[right_idx] + offset (from max's first arg)
+                                            if right_idx != curr_left {
+                                                add_disjoint_constraint(&pos_c, &pos_b, &xorigin, curr_left, right_idx, 0.0, offset);
+                                            }
+                                            // c2: pos_c[curr_left] >= pos_c[left_idx] + text_w + 24 + offset (from max's second arg)
+                                            if left_idx != curr_left {
+                                                add_disjoint_constraint(&pos_c, &pos_b, &xorigin, curr_left, left_idx, text_w + 24.0, offset);
+                                            }
                                         }
                                     }
                                 }
                             }
                         } else {
-                            // Current tile is to the left: prev_min >= curr_max
+                            // "else" branch: prev_min >= curr_max
+                            // Java: group.getMinX() >= msg.getMaxX()
+                            // group.getMinX() = posC[participant] - nesting_depth * (MARGINX + EXTERNAL_MARGINX1)
+                            // msg.getMaxX() = posC[foo] + getCompWidth()
+                            // So: posC[participant] >= posC[foo] + getCompWidth() + nesting_depth * grp_min_x
+                            let nesting_depth = if prev_is_group {
+                                groups.iter()
+                                    .find(|g| g.msg_start == prev_start && g.msg_end == prev_end)
+                                    .map(|prev_g| {
+                                        let max_nesting = groups.iter()
+                                            .filter(|g| g.msg_start >= prev_g.msg_start && g.msg_end <= prev_g.msg_end)
+                                            .map(|g| g.nesting_level)
+                                            .max()
+                                            .unwrap_or(prev_g.nesting_level);
+                                        (max_nesting - prev_g.nesting_level + 1) as f64
+                                    })
+                                    .unwrap_or(1.0)
+                            } else { 0.0 };
+                            let offset = nesting_depth * grp_min_x + (if curr_is_group { grp_max_x } else { 0.0 });
                             for (mi2, event) in diagram.events().iter().enumerate() {
                                 if let SequenceEvent::Message(msg) = event {
                                     if mi2 >= t_start && mi2 < t_end {
@@ -710,15 +852,24 @@ pub fn render_sequence_svg(
                                         let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
                                         let is_self = p1_idx == p2_idx;
                                         let text_w = pre_wrapped_widths.get(mi2).copied().unwrap_or(0.0);
-                                        if is_self {
-                                            let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
-                                            let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &constraint);
+                                        let (left_idx, right_idx) = if pos_b[p1_idx].get_current_value() <= pos_b[p2_idx].get_current_value() {
+                                            (p1_idx, p2_idx)
                                         } else {
-                                            let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &c1);
-                                            let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
-                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &c2);
+                                            (p2_idx, p1_idx)
+                                        };
+                                        if is_self {
+                                            if p1_idx == prev_left { continue; }
+                                            let comp_w = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+                                            add_disjoint_constraint(&pos_c, &pos_b, &xorigin, prev_left, p1_idx, comp_w, offset);
+                                        } else {
+                                            // c1: pos_c[prev_left] >= pos_c[right_idx] + offset
+                                            if right_idx != prev_left {
+                                                add_disjoint_constraint(&pos_c, &pos_b, &xorigin, prev_left, right_idx, 0.0, offset);
+                                            }
+                                            // c2: pos_c[prev_left] >= pos_c[left_idx] + text_w + 24 + offset
+                                            if left_idx != prev_left {
+                                                add_disjoint_constraint(&pos_c, &pos_b, &xorigin, prev_left, left_idx, text_w + 24.0, offset);
+                                            }
                                         }
                                     }
                                 }
@@ -818,6 +969,13 @@ pub fn render_sequence_svg(
     let mut pending_activations: Vec<Vec<(f64, i32)>> = vec![Vec::new(); participants.len()];
     // Per-participant activation level (running count of activates minus deactivates)
     let mut participant_levels: Vec<i32> = vec![0; participants.len()];
+    // Track which parallel groups had the Y offset (GROUP_HEADER_HEIGHT - 2) applied.
+    // Used to adjust group_lifeline_bottom correctly.
+    let mut group_parallel_offset: Vec<bool> = vec![false; groups.len()];
+    // Track whether the current cluster has preceding parallel standalone messages.
+    // The +GROUP_HEADER_HEIGHT-2 offset for parallel groups is only needed when
+    // the group follows parallel standalone messages (not when it's the first parallel tile).
+    let mut has_parallel_in_cluster = false;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let has_text = !msg.label().is_empty();
@@ -855,7 +1013,9 @@ pub fn render_sequence_svg(
                         .map(|g| g.nesting_level)
                         .unwrap_or(groups[gi].nesting_level);
                     let headers = (innermost + 1) - par_level;
-                    group_header_offset = last_non_parallel_gho.max((GROUP_HEADER_OFFSET * headers as f64) + header_extra) as f64;
+                    let needs_offset = last_non_parallel_gho == 0.0 && has_parallel_in_cluster;
+                    group_header_offset = last_non_parallel_gho.max((GROUP_HEADER_OFFSET * headers as f64) + if needs_offset { GROUP_HEADER_HEIGHT - 2.0 } else { 0.0 } + header_extra) as f64;
+                    if needs_offset { group_parallel_offset[gi] = true; }
                     current_y = cluster_start_y + group_header_offset;
                 } else if is_first_in_group && is_else {
                     // Else section within a parallel group: normal increment + else tile height
@@ -933,6 +1093,20 @@ pub fn render_sequence_svg(
                     cluster_start_y = current_y;
                     last_non_parallel_gho = 0.0;
                 }
+                // Non-parallel tile starts a new cluster: no preceding parallel tiles.
+                has_parallel_in_cluster = false;
+            }
+            // For parallel group starts, update cluster_start_y to include the group
+            // header height so subsequent parallel messages in the same cluster chain
+            // from below the group header. Only needed when preceded by parallel
+            // standalone messages (has_parallel_in_cluster), not when the group is
+            // the first parallel tile in the cluster.
+            if is_parallel && is_first_in_group && !is_else && last_non_parallel_gho == 0.0 && has_parallel_in_cluster {
+                cluster_start_y = cluster_start_y + GROUP_HEADER_HEIGHT - 2.0;
+            }
+            // Track parallel standalone messages for the next parallel group's offset check.
+            if is_parallel && curr_group.is_none() {
+                has_parallel_in_cluster = true;
             }
 
             // After a group ends, ensure next message/else clears the frame bottom
@@ -1142,6 +1316,8 @@ pub fn render_sequence_svg(
                         match exo_type {
                             ExoType::ToRight => (0.0, p1_c, p1_c + exo_w),
                             ExoType::FromLeft => (0.0, p2_c - exo_w, p2_c),
+                            ExoType::ToLeft => (0.0, p2_c - exo_w, p2_c),
+                            ExoType::FromRight => (0.0, p1_c, p1_c + exo_w),
                         }
                     } else {
                         let self_drawn_w = if is_self {
@@ -1479,12 +1655,13 @@ pub fn render_sequence_svg(
     }
 
     // Use max arrow Y (parallel messages can have Y values out of order)
-    let (last_arrow_y, last_is_self) = arrow_ys
+    let (last_arrow_y, last_is_self, last_arrow_idx) = arrow_ys
         .iter()
+        .enumerate()
         .zip(is_self_flags.iter())
-        .max_by(|(ya, _), (yb, _)| ya.partial_cmp(yb).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(&y, &s)| (y, s))
-        .unwrap_or((lifeline_y + ARROW_Y_BASE, false));
+        .max_by(|((_, ya), _), ((_, yb), _)| ya.partial_cmp(yb).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|((mi, &y), &s)| (y, s, mi))
+        .unwrap_or((lifeline_y + ARROW_Y_BASE, false, 0));
 
     // Compute the max note bottom across all messages
     let mut max_note_bottom = 0.0_f64;
@@ -1534,8 +1711,17 @@ pub fn render_sequence_svg(
                 })
             };
             let val = if g.parallel {
-                // Parallel groups: use frame_bottom directly (nesting ext already included)
-                frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+                // Parallel groups: frame_bottom + margin. When the Y offset
+                // (GROUP_HEADER_HEIGHT - 2) was applied (group follows standalone
+                // parallel messages), subtract GROUP_HEADER_HEIGHT because the frame
+                // already includes the header offset in its Y position.
+                // When no Y offset was applied (group follows non-parallel group),
+                // use the normal margin.
+                if group_parallel_offset[i] {
+                    frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - GROUP_HEADER_HEIGHT
+                } else {
+                    frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+                }
             } else if has_nesting {
                 // -1 correction for text_h=26 vs Java's 25, only when self-messages present
                 frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - if has_self_msgs { 1.0 } else { 0.0 }
@@ -1554,8 +1740,16 @@ pub fn render_sequence_svg(
         .fold(0.0_f64, f64::max);
     // When parallel messages are present, cap normal_lifeline_bottom at msg_ygauge_max + PAGE_MARGIN
     // to avoid 1px overshoot from text_h=26 vs Java's 25 in self-messages.
+    // Also cap at group_lifeline_bottom when the max-arrow-Y message is inside a parallel group,
+    // because its height is already accounted for by the group's own lifeline_bottom.
+    let max_arrow_in_parallel_group = groups.iter().any(|g| g.parallel && last_arrow_idx >= g.msg_start && last_arrow_idx < g.msg_end);
     let normal_lifeline_bottom = if has_parallel {
-        normal_lifeline_bottom.min(msg_ygauge_max + PAGE_MARGIN)
+        let capped = normal_lifeline_bottom.min(msg_ygauge_max + PAGE_MARGIN);
+        if max_arrow_in_parallel_group && group_lifeline_bottom > 0.0 {
+            capped.min(group_lifeline_bottom)
+        } else {
+            capped
+        }
     } else {
         normal_lifeline_bottom
     };
@@ -2695,8 +2889,8 @@ fn draw_exo_message(
     // x1, x2 are the endpoints of the arrow area
     // x1 is the left edge of the arrow area; x2 is the right edge
     let x1 = match exo_type {
-        ExoType::ToRight => pos_c_val,
-        ExoType::FromLeft => pos_c_val - area_w,
+        ExoType::ToRight | ExoType::FromRight => pos_c_val,
+        ExoType::FromLeft | ExoType::ToLeft => pos_c_val - area_w,
     };
 
     // Arrow drawing: the component draws within [x1, x1+area_w]
@@ -2873,13 +3067,18 @@ pub struct GroupInfo {
     pub backcolor: Option<String>,
 }
 
-/// Type of exo (external) arrow, when `?` is used as a message endpoint.
+/// Type of exo (external) arrow, when `?`, `[`, or `]` is used as a message endpoint.
+/// Ported from: net/sourceforge/plantuml/sequencediagram/MessageExoType.java
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExoType {
-    /// `A->?` — arrow goes right from participant A.
+    /// `A->?` or `A->]` — arrow goes right from participant A.
     ToRight,
-    /// `?->E` — arrow comes from the left to participant E.
+    /// `?->E` or `[->E` — arrow comes from the left to participant E.
     FromLeft,
+    /// `E<-?` or `[<-E` — arrow goes left from participant E.
+    ToLeft,
+    /// `?<-,E` or `]<-,E` — arrow comes from the right to participant E.
+    FromRight,
 }
 
 /// Parsed sequence diagram with SVG metadata.
@@ -3281,26 +3480,48 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         }
 
         if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate, inline_destroy)) = parse_arrow_line(trimmed) {
-            // Detect exo arrows: ? as p1 (FROM_LEFT) or p2 (TO_RIGHT)
-            let exo = if p2_code == "?" {
-                Some(ExoType::ToRight)
-            } else if p1_code == "?" {
-                Some(ExoType::FromLeft)
+            // Detect exo arrows: ?, [, or ] as message endpoint.
+            // [-> X or ?-> X : FROM_LEFT (incoming from left)
+            // X ->] or X ->? : TO_RIGHT (outgoing to right)
+            // [<- X or ?<- X : TO_LEFT (outgoing to left)
+            // X <-] or X <-? : FROM_RIGHT (incoming from right)
+            let is_left_exo = p1_code == "?" || p1_code == "[" || p1_code == "]";
+            let is_right_exo = p2_code == "?" || p2_code == "]" || p2_code == "[";
+            let exo = if is_left_exo {
+                let is_reverse = arrow.starts_with('<');
+                if p1_code == "]" {
+                    // ]-> X : FROM_RIGHT, ]<- X : TO_RIGHT
+                    if is_reverse { Some(ExoType::ToRight) } else { Some(ExoType::FromRight) }
+                } else {
+                    // [-> X or ?-> X : FROM_LEFT, [<- X or ?<- X : TO_LEFT
+                    if is_reverse { Some(ExoType::ToLeft) } else { Some(ExoType::FromLeft) }
+                }
+            } else if is_right_exo {
+                let is_reverse = arrow.starts_with('<');
+                if p2_code == "[" {
+                    // X <-[ : FROM_LEFT, X ->[ : TO_LEFT
+                    if is_reverse { Some(ExoType::FromLeft) } else { Some(ExoType::ToLeft) }
+                } else {
+                    // X ->] or X ->? : TO_RIGHT, X <-] or X <-? : FROM_RIGHT
+                    if is_reverse { Some(ExoType::FromRight) } else { Some(ExoType::ToRight) }
+                }
             } else {
                 None
             };
             // For exo arrows, use the real participant as both p1 and p2
             let (real_p1, real_p2) = match exo {
-                Some(ExoType::ToRight) => {
-                    last_p1 = Some(p1_code.clone());
+                Some(ExoType::ToRight) | Some(ExoType::FromRight) => {
+                    let real_code = &p1_code;
+                    last_p1 = Some(real_code.clone());
                     last_p2 = Some(p2_code.clone());
-                    let p1 = diagram.get_or_create_participant(&p1_code);
+                    let p1 = diagram.get_or_create_participant(real_code);
                     (p1.clone(), p1)
                 }
-                Some(ExoType::FromLeft) => {
+                Some(ExoType::FromLeft) | Some(ExoType::ToLeft) => {
+                    let real_code = &p2_code;
                     last_p1 = Some(p1_code.clone());
-                    last_p2 = Some(p2_code.clone());
-                    let p2 = diagram.get_or_create_participant(&p2_code);
+                    last_p2 = Some(real_code.clone());
+                    let p2 = diagram.get_or_create_participant(real_code);
                     (p2.clone(), p2)
                 }
                 None => {
