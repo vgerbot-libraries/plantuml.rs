@@ -23,6 +23,14 @@ See `.agents/rules/java-to-rust-porting.md` for:
 - Error handling (`Result` + `thiserror` for libraries, `anyhow` for CLI; no panics)
 - Collections, null handling, concurrency mappings
 
+## Test Parity
+
+See `.agents/rules/test-parity.md` for:
+- Test sourcing: all tests and test data ported directly from the Java reference
+- Test categories: nonreg, vega, unit/misc — porting strategy for each
+- Parity goal: pass all PlantUML Java test cases
+- Test data location and citation conventions
+
 ## Architecture
 
 See `.agents/architecture.md` for:
@@ -51,7 +59,7 @@ The following skills are installed in `.agents/skills/`:
   /// Ported from: net/sourceforge/plantuml/SourceStringReader.java
   ```
 - **Linting**: clippy clean; workspace-level lint config; deny warnings in CI.
-- **Tests**: unit tests in `#[cfg(test)] mod tests`, integration tests in `tests/`.
+- **Tests**: unit tests in `#[cfg(test)] mod tests`, integration tests in `tests/`. All test cases and data ported directly from the Java reference — see `.agents/rules/test-parity.md`.
 - **No `unwrap()`/`expect()`** in library code except in test modules.
 
 ## Build Commands
