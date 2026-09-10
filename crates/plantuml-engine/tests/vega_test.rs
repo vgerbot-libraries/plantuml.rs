@@ -394,6 +394,7 @@ fn run_sequence_svg_test(name: &str) {
         &parsed.groups,
         &parsed.msg_activates,
         &parsed.msg_deactivates,
+        &parsed.msg_parallel,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);

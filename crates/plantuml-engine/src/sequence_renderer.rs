@@ -151,6 +151,7 @@ pub fn render_sequence_svg(
     groups: &[GroupInfo],
     msg_activates: &[Vec<String>],
     msg_deactivates: &[Vec<String>],
+    msg_parallel: &[bool],
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -373,12 +374,23 @@ pub fn render_sequence_svg(
                 .map(|gi| groups[gi].group_type == "partition")
                 .unwrap_or(false);
             let header_extra = if is_partition { PARTITION_HEADER_EXTRA } else { 0.0 };
+            let is_parallel = msg_parallel.get(msg_idx).copied().unwrap_or(false);
 
-            if msg_idx == 0 {
+            if is_parallel && msg_idx > 0 {
+                // Parallel message: starts at the previous tile's min + contactRelative.
+                // For a group (contact=null), falls back to group's min = initial Y.
+                // In SVG coords: lifeline_y + startingY(8) + contactRelative(19) = lifeline_y + 1 + text_h
+                current_y = lifeline_y + 1.0 + text_h;
+            } else if msg_idx == 0 {
                 // First message overall
                 current_y = lifeline_y + 1.0 + text_h;
                 if is_first_in_group {
-                    current_y += GROUP_HEADER_OFFSET + header_extra;
+                    // Add GROUP_HEADER_OFFSET for each nesting level (outer + inner groups)
+                    let curr_level = curr_group
+                        .and_then(|gi| groups.get(gi))
+                        .map(|g| g.nesting_level)
+                        .unwrap_or(0);
+                    current_y += GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
                 }
             } else if is_first_in_group && is_else {
                 // Else section: normal increment + else tile height (no group gap/header)
@@ -418,27 +430,28 @@ pub fn render_sequence_svg(
 
 
             // After a group ends, ensure next message/else clears the frame bottom
-            if let Some(fb) = prev_frame_bottom {
-                let fb_level = prev_frame_bottom_level;
-                let curr_level = curr_group
-                    .and_then(|gi| groups.get(gi))
-                    .map(|g| g.nesting_level)
-                    .unwrap_or(0);
-                if is_first_in_group && is_else {
-                    // Else after a nested group end (lower nesting): needs clearance
-                    if curr_level < fb_level {
-                        let min_y = fb + GROUP_GAP + ARROW_Y_BASE + ELSE_TILE_HEIGHT + 1.0;
+            if !is_parallel {
+                if let Some(fb) = prev_frame_bottom {
+                    let fb_level = prev_frame_bottom_level;
+                    let curr_level = curr_group
+                        .and_then(|gi| groups.get(gi))
+                        .map(|g| g.nesting_level)
+                        .unwrap_or(0);
+                    if is_first_in_group && is_else {
+                        if curr_level < fb_level {
+                            let min_y = fb + GROUP_GAP + ARROW_Y_BASE + ELSE_TILE_HEIGHT + 1.0;
+                            if current_y < min_y {
+                                current_y = min_y;
+                            }
+                        }
+                    } else if !is_first_in_group {
+                        let min_y = fb + GROUP_GAP + ARROW_Y_BASE + 1.0;
                         if current_y < min_y {
                             current_y = min_y;
                         }
                     }
-                } else if !is_first_in_group {
-                    let min_y = fb + GROUP_GAP + ARROW_Y_BASE + 1.0;
-                    if current_y < min_y {
-                        current_y = min_y;
-                    }
+                    prev_frame_bottom = None;
                 }
-                prev_frame_bottom = None;
             }
             arrow_ys.push(current_y);
             prev_had_note = notes.iter().any(|n| n.msg_index == msg_idx);
@@ -516,6 +529,15 @@ pub fn render_sequence_svg(
     }
 
     // ── Compute group frame dimensions ──────────────────────────────────
+    // Precompute innermost nesting level at each msg_start
+    let mut msg_start_innermost: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for group in groups.iter() {
+        if group.group_type == "else" { continue; }
+        let entry = msg_start_innermost.entry(group.msg_start).or_insert(0);
+        if group.nesting_level > *entry {
+            *entry = group.nesting_level;
+        }
+    }
     let mut group_frames: Vec<(f64, f64, f64, f64)> = Vec::new(); // (x, y, w, h)
     for (gi, group) in groups.iter().enumerate() {
         // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
@@ -599,6 +621,7 @@ pub fn render_sequence_svg(
             }
         }
 
+
         let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
         let (frame_y, frame_height) = if group.group_type == "else" {
             // Else divider Y = arrow_y - ELSE_TILE_HEIGHT - 2 - text_h + MARGINY_MAGIC/2
@@ -609,30 +632,82 @@ pub fn render_sequence_svg(
             let fh = body_height + GROUP_MARGIN_Y_MAGIC / 2.0;
             (fy, fh)
         } else {
-            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+            // Frame Y: subtract GROUP_HEADER_OFFSET for each nesting level from this group
+            // to the innermost group at the same msg_start.
+            // E.g., opt (nesting=0) with alt (nesting=1) at same msg_start:
+            //   opt subtracts 2 headers, alt subtracts 1 header.
+            let innermost = *msg_start_innermost.get(&group.msg_start).unwrap_or(&group.nesting_level);
+            let headers_to_subtract = (innermost + 1) - group.nesting_level;
+            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - GROUP_HEADER_HEIGHT - p_extra;
             let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
             (fy, fh)
         };
         let frame_x = min_x - GROUP_MARGIN_X;
-        let frame_width = max_x - min_x + 2.0 * GROUP_MARGIN_X;
+        let content_span = max_x - min_x + 2.0 * GROUP_MARGIN_X;
+        let frame_width = content_span; // Header width added after nesting extension
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
         let _ = gi;
     }
 
+    // Compute header widths for all non-else/non-partition groups
+    let mut header_widths: Vec<f64> = vec![0.0; groups.len()];
+    for (gi, group) in groups.iter().enumerate() {
+        if group.group_type == "else" || group.group_type == "partition" {
+            continue;
+        }
+        let tab_label = if group.group_type == "group" {
+            if group.comment.is_empty() { "group".to_string() } else { group.comment.clone() }
+        } else {
+            group.group_type.clone()
+        };
+        let tab_label_w = max_line_width(&bounder, &font_m, &tab_label);
+        let tab_width = tab_label_w + 3.0 * GROUP_TEXT_PADDING;
+        header_widths[gi] = if group.group_type != "group" && !group.comment.is_empty() {
+            let cond_label = format!("[{}]", group.comment);
+            let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
+            let cond_w = max_line_width(&bounder, &font_small, &cond_label);
+            tab_width + GROUP_TEXT_PADDING + cond_w
+        } else {
+            tab_width
+        };
+    }
+    // Track nesting Y extension for each group (to adjust lifeline bottom)
+    let mut nesting_y_ext: Vec<f64> = vec![0.0; groups.len()];
+    // Else extension: extend parent (non-else) groups to cover else sections' content bounds.
+    // Must run BEFORE nesting extension so nesting sees the extended parent frames.
+    for gi in 0..groups.len() {
+        if groups[gi].group_type != "else" {
+            continue;
+        }
+        let level = groups[gi].nesting_level;
+        let mut parent_gi: Option<usize> = None;
+        for pj in (0..gi).rev() {
+            if groups[pj].nesting_level == level && groups[pj].group_type != "else" {
+                parent_gi = Some(pj);
+                break;
+            }
+        }
+        if let Some(pgi) = parent_gi {
+            let (pfx, pfy, pfw, pfh) = group_frames[pgi];
+            let (efx, efy, efw, efh) = group_frames[gi];
+            let new_left = pfx.min(efx);
+            let new_right = (pfx + pfw).max(efx + efw);
+            let new_width = new_right - new_left;
+            let else_bottom = efy + efh + GROUP_MARGIN_Y_MAGIC / 2.0 - GROUP_MARGIN_Y;
+            let new_height = pfh.max(else_bottom - pfy);
+            group_frames[pgi] = (new_left, pfy, new_width, new_height);
+        }
+    }
     // Nesting extension pass: process groups from innermost (highest nesting) to outermost.
     // Each parent's frame must include its children's drawn bounds plus MARGINX.
-    // child drawn_min = child_frame_min - EXTERNAL_MARGIN_X1
-    // child drawn_max = child_frame_max + EXTERNAL_MARGIN_X2
-    // parent_frame_min = min(parent_frame_min, child_drawn_min - MARGINX)
-    // parent_frame_max = max(parent_frame_max, child_drawn_max + MARGINX)
+    // Also extends parent's height to cover child's frame bottom.
     let mut nesting_order: Vec<usize> = (0..groups.len()).collect();
     nesting_order.sort_by_key(|&i| std::cmp::Reverse(groups[i].nesting_level));
     for &ci in &nesting_order {
         let child_level = groups[ci].nesting_level;
         if child_level == 0 {
-            continue; // Top-level groups have no parent
+            continue;
         }
-        // Find parent: group at nesting_level - 1 whose msg range contains this group
         let cs = groups[ci].msg_start;
         let ce = groups[ci].msg_end;
         let mut parent_gi: Option<usize> = None;
@@ -644,7 +719,6 @@ pub fn render_sequence_svg(
                 && groups[pj].msg_start <= cs
                 && groups[pj].msg_end >= ce
             {
-                // Prefer the tightest containing group
                 if parent_gi.is_none()
                     || (groups[pj].msg_end - groups[pj].msg_start)
                         < (groups[parent_gi.unwrap()].msg_end - groups[parent_gi.unwrap()].msg_start)
@@ -654,27 +728,49 @@ pub fn render_sequence_svg(
             }
         }
         if let Some(pgi) = parent_gi {
-            let (cfx, _, cfw, _) = group_frames[ci];
+            let (cfx, cfy, cfw, cfh) = group_frames[ci];
             let cframe_min = cfx;
             let cframe_max = cfx + cfw;
+            let header_max = cfx + header_widths[ci] + GROUP_MARGIN_X;
             let cdrawn_min = cframe_min - GROUP_EXTERNAL_MARGIN_X1;
-            let cdrawn_max = cframe_max + GROUP_EXTERNAL_MARGIN_X2;
+            let cdrawn_max = cframe_max.max(header_max) + GROUP_EXTERNAL_MARGIN_X2;
             let (pfx, pfy, pfw, pfh) = group_frames[pgi];
             let pframe_min = pfx;
             let pframe_max = pfx + pfw;
             let new_min = pframe_min.min(cdrawn_min - GROUP_MARGIN_X);
             let new_max = pframe_max.max(cdrawn_max + GROUP_MARGIN_X);
-            group_frames[pgi] = (new_min, pfy, new_max - new_min, pfh);
+            // Extend parent height to cover child frame bottom.
+            // Parent frame bottom = child frame bottom + (GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT)
+            // for each nesting level difference.
+            let cframe_bottom = cfy + cfh;
+            let pframe_bottom = pfy + pfh;
+            let level_diff = child_level - groups[pgi].nesting_level;
+            let new_bottom = pframe_bottom.max(cframe_bottom + (GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT) * level_diff as f64);
+            let new_height = new_bottom - pfy;
+            // Track how much the parent's bottom was extended by nesting
+            if new_bottom > pframe_bottom {
+                nesting_y_ext[pgi] += new_bottom - pframe_bottom;
+            }
+            group_frames[pgi] = (new_min, pfy, new_max - new_min, new_height);
         }
     }
-
-    // Second pass: fix else groups' frame X/width to match parent, and extend parent
-    // For each else group, find the parent non-else group at the same nesting level
+    // Apply header width after nesting extension: frame_max >= frame_min + header_width + MARGIN_X
+    for (gi, group) in groups.iter().enumerate() {
+        if group.group_type == "else" || group.group_type == "partition" {
+            continue;
+        }
+        let (fx, fy, fw, fh) = group_frames[gi];
+        let frame_max = fx + fw;
+        let header_max = fx + header_widths[gi] + GROUP_MARGIN_X;
+        if header_max > frame_max {
+            group_frames[gi] = (fx, fy, header_max - fx, fh);
+        }
+    }
+    // Second else extension: re-extend parents to cover else groups' nesting-extended frames
     for gi in 0..groups.len() {
         if groups[gi].group_type != "else" {
             continue;
         }
-        // Find the parent: the nearest preceding non-else group at the same nesting level
         let level = groups[gi].nesting_level;
         let mut parent_gi: Option<usize> = None;
         for pj in (0..gi).rev() {
@@ -684,7 +780,6 @@ pub fn render_sequence_svg(
             }
         }
         if let Some(pgi) = parent_gi {
-            // Extend parent frame to cover this else section's content bounds
             let (pfx, pfy, pfw, pfh) = group_frames[pgi];
             let (efx, efy, efw, efh) = group_frames[gi];
             let new_left = pfx.min(efx);
@@ -693,12 +788,28 @@ pub fn render_sequence_svg(
             let else_bottom = efy + efh + GROUP_MARGIN_Y_MAGIC / 2.0 - GROUP_MARGIN_Y;
             let new_height = pfh.max(else_bottom - pfy);
             group_frames[pgi] = (new_left, pfy, new_width, new_height);
-
-            // Set else frame X and width to match the (now extended) parent
-            let (pfx2, _, pfw2, _) = group_frames[pgi];
-            let (_, _, _, efh2) = group_frames[gi];
-            group_frames[gi] = (pfx2, efy, pfw2, efh2);
         }
+    }
+    // Match else groups' X/width to their parent's final X/width
+    for gi in 0..groups.len() {
+        if groups[gi].group_type != "else" {
+            continue;
+        }
+        let level = groups[gi].nesting_level;
+        let mut parent_gi: Option<usize> = None;
+        for pj in (0..gi).rev() {
+            if groups[pj].nesting_level == level && groups[pj].group_type != "else" {
+                parent_gi = Some(pj);
+                break;
+            }
+        }
+        if let Some(pgi) = parent_gi {
+            let (pfx, _, pfw, _) = group_frames[pgi];
+            let (_, efy, _, efh) = group_frames[gi];
+            group_frames[gi] = (pfx, efy, pfw, efh);
+        }
+    }
+    for (gi, gf) in group_frames.iter().enumerate() {
     }
 
     // Compute note heights for each message
@@ -739,8 +850,9 @@ pub fn render_sequence_svg(
     };
     let group_lifeline_bottom = group_frames
         .iter()
-        .map(|&(_, fy, _, fh)| fy + fh + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y)
- .fold(0.0_f64, f64::max);
+        .enumerate()
+        .map(|(i, &(_, fy, _, fh))| fy + fh - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y)
+        .fold(0.0_f64, f64::max);
     let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
 
     let lifeline_height = if arrow_ys.is_empty() {
@@ -938,7 +1050,7 @@ pub fn render_sequence_svg(
 
     // ── Draw group frame backgrounds (sorted by msg_start for correct nesting order) ──
     let mut bg_order: Vec<usize> = (0..groups.len()).collect();
-    bg_order.sort_by_key(|&i| groups[i].msg_start);
+    bg_order.sort_by_key(|&i| (groups[i].msg_start, groups[i].nesting_level));
     for &gi in &bg_order {
         // Skip else sections — they don't have their own frame
         if groups[gi].group_type == "else" {
@@ -1135,44 +1247,19 @@ pub fn render_sequence_svg(
     let mut msg_idx = 0;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
-            // If this is the first message in a group, draw the group header
-            if let Some(gi) = msg_group.get(msg_idx).copied().flatten() {
-                if msg_idx == groups[gi].msg_start {
-                    let (fx, fy, fw, fh) = group_frames[gi];
-                    let fx_off = fx + x_offset;
-                    let group = &groups[gi];
+            // Draw ALL group headers that start at this message index,
+            // from outermost (lowest nesting) to innermost (highest nesting).
+            let mut groups_at_msg: Vec<usize> = (0..groups.len())
+                .filter(|&gi| groups[gi].msg_start == msg_idx && groups[gi].group_type != "else")
+                .collect();
+            groups_at_msg.sort_by_key(|&gi| groups[gi].nesting_level);
+            for gi in groups_at_msg {
+                let (fx, fy, fw, fh) = group_frames[gi];
+                let fx_off = fx + x_offset;
+                let group = &groups[gi];
 
-                    // For "else" sections: draw a dashed divider + label, no tab/frame
-                    if group.group_type == "else" {
-                        // Dashed divider line across the parent frame
-                        svg.set_fill_color("none");
-                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-                        svg.set_stroke_width(1.0, Some([2.0, 2.0]));
-                        svg.svg_line(fx_off, fy, fx_off + fw, fy, 0.0);
-
-                        // Else label text (11px bold, in brackets)
-                        if !group.comment.is_empty() {
-                            let else_label = format!("[{}]", group.comment);
-                            let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
-                            let else_label_w = max_line_width(&bounder, &font_small, &else_label);
-                            svg.set_fill_color(COLOR_TEXT);
-                            svg.set_stroke_color(None);
-                            svg.set_stroke_width(0.0, None);
-                            svg.text(
-                                &else_label,
-                                fx_off + 5.0,
-                                fy + 10.556,
-                                None,
-                                11,
-                                Some("700"),
-                                None,
-                                None,
-                                else_label_w,
-                                &indexmap::IndexMap::new(),
-                                None,
-                            );
-                        }
-                    } else if group.group_type == "partition" {
+                // For non-else, non-partition groups: draw header tab + label + condition
+                if group.group_type == "partition" {
                         // Partition: centered label + separate border rect
                         let tab_label = if group.comment.is_empty() {
                             "partition".to_string()
@@ -1282,6 +1369,41 @@ pub fn render_sequence_svg(
                             );
                         }
                     }
+            }
+            // Draw else dividers for else groups starting at this message
+            for gi in 0..groups.len() {
+                if groups[gi].group_type != "else" || groups[gi].msg_start != msg_idx {
+                    continue;
+                }
+                let (fx, fy, fw, _fh) = group_frames[gi];
+                let fx_off = fx + x_offset;
+                let group = &groups[gi];
+                // Dashed divider line across the parent frame
+                svg.set_fill_color("none");
+                svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                svg.set_stroke_width(1.0, Some([2.0, 2.0]));
+                svg.svg_line(fx_off, fy, fx_off + fw, fy, 0.0);
+                // Else label text (11px bold, in brackets)
+                if !group.comment.is_empty() {
+                    let else_label = format!("[{}]", group.comment);
+                    let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
+                    let label_w = max_line_width(&bounder, &font_small, &else_label);
+                    svg.set_fill_color(COLOR_TEXT);
+                    svg.set_stroke_color(None);
+                    svg.set_stroke_width(0.0, None);
+                    svg.text(
+                        &else_label,
+                        fx_off + 5.0,
+                        fy + 10.556,
+                        None,
+                        11,
+                        Some("700"),
+                        None,
+                        None,
+                        label_w,
+                        &indexmap::IndexMap::new(),
+                        None,
+                    );
                 }
             }
 
@@ -1746,6 +1868,8 @@ pub struct ParsedSequence {
     pub msg_activates: Vec<Vec<String>>,
     /// Participants deactivated/destroyed per message (future deactivate/destroy attached to message).
     pub msg_deactivates: Vec<Vec<String>>,
+    /// Whether each message is parallel (drawn at same Y as previous, from `&` prefix).
+    pub msg_parallel: Vec<bool>,
 }
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
@@ -1769,7 +1893,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut skinparam_depth: u32 = 0;
     let mut msg_activates: Vec<Vec<String>> = Vec::new();
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
-
+    let mut msg_parallel: Vec<bool> = Vec::new();
+    let mut next_msg_parallel = false;
     for (line_num, line) in text.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("@startuml") {
@@ -1784,6 +1909,13 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
+        // Detect & prefix for parallel messages/blocks
+        let trimmed = if let Some(rest) = trimmed.strip_prefix('&') {
+            next_msg_parallel = true;
+            rest.trim()
+        } else {
+            trimmed
+        };
         // Handle !option svgDesc / svgTitle
         if let Some(val) = trimmed.strip_prefix("!option svgDesc ") {
             svg_desc = Some(val.trim().trim_matches('"').to_string());
@@ -2054,6 +2186,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             diagram.add_message(msg);
             msg_activates.push(Vec::new());
             msg_deactivates.push(Vec::new());
+            msg_parallel.push(next_msg_parallel);
+            next_msg_parallel = false;
             msg_count += 1;
         }
     }
@@ -2072,6 +2206,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             groups,
             msg_activates,
             msg_deactivates,
+            msg_parallel,
         })
     }
 }
