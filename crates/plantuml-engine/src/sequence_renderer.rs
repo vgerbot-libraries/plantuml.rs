@@ -576,10 +576,20 @@ pub fn render_sequence_svg(
             }
         }
     }
+    // Precompute innermost nesting level at each msg_start (for parallel group Y)
+    let mut msg_start_innermost: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for group in groups.iter() {
+        if group.group_type == "else" { continue; }
+        let entry = msg_start_innermost.entry(group.msg_start).or_insert(0);
+        if group.nesting_level > *entry {
+            *entry = group.nesting_level;
+        }
+    }
 
     let mut arrow_ys: Vec<f64> = Vec::new();
     let mut is_self_flags: Vec<bool> = Vec::new();
     let mut msg_text_heights: Vec<f64> = Vec::new();
+    let mut last_non_parallel_gho: f64 = 0.0; // last non-parallel group_header_offset
     let mut msg_wrapped_lines: Vec<Vec<String>> = Vec::new();
     let mut current_y = lifeline_y;
     let mut prev_is_self = false;
@@ -623,31 +633,46 @@ pub fn render_sequence_svg(
             let header_extra = if is_partition { PARTITION_HEADER_EXTRA } else { 0.0 };
             let is_parallel = msg_parallel.get(msg_idx).copied().unwrap_or(false);
 
+            let mut group_header_offset = 0.0;
             if is_parallel && msg_idx > 0 {
                 // Parallel message: starts at the previous tile's min + contactRelative.
-                // For a group (contact=null), falls back to group's min = initial Y.
-                // In SVG coords: lifeline_y + startingY(8) + contactRelative(19) = lifeline_y + 1 + text_h
-                current_y = lifeline_y + 1.0 + text_h;
+                if is_first_in_group && !is_else {
+                    // Parallel group: top-aligned with the cluster's chaining point,
+                    // plus group header offset for each nesting level.
+                    let gi = curr_group.unwrap();
+                    let g_msg_start = groups[gi].msg_start;
+                    let innermost = *msg_start_innermost.get(&g_msg_start).unwrap_or(&groups[gi].nesting_level);
+                    let par_level = groups.iter()
+                        .find(|g| g.msg_start == g_msg_start && g.parallel && g.group_type != "else")
+                        .map(|g| g.nesting_level)
+                        .unwrap_or(groups[gi].nesting_level);
+                    let headers = (innermost + 1) - par_level;
+                    group_header_offset = last_non_parallel_gho.max((GROUP_HEADER_OFFSET * headers as f64) + header_extra) as f64;
+                    current_y = cluster_start_y + group_header_offset;
+                } else if is_first_in_group && is_else {
+                    // Else section within a parallel group: normal increment + else tile height
+                    let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+                    let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
+                    current_y += inc + ELSE_TILE_HEIGHT;
+                } else {
+                    current_y = lifeline_y + 1.0 + text_h;
+                }
             } else if msg_idx == 0 {
                 // First message overall
                 current_y = lifeline_y + 1.0 + text_h;
                 if is_first_in_group {
-                    // Add GROUP_HEADER_OFFSET for each nesting level (outer + inner groups)
                     let curr_level = curr_group
                         .and_then(|gi| groups.get(gi))
                         .map(|g| g.nesting_level)
                         .unwrap_or(0);
-                    current_y += GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
+                    group_header_offset = GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
+                    current_y += group_header_offset;
                 }
             } else if is_first_in_group && is_else {
                 // Else section: normal increment + else tile height (no group gap/header)
-                // Ported from ElseTile YGauge: min = prev_tile_max, height = ELSE_TILE_HEIGHT
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                 let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
                 current_y += inc + ELSE_TILE_HEIGHT;
-            } else if is_first_in_group && curr_group.map(|gi| groups[gi].parallel).unwrap_or(false) {
-                // Parallel group: top-aligned with the cluster's chaining point.
-                current_y = cluster_start_y;
             } else if is_first_in_group {
                 // First message in a subsequent group (non-else)
                 let curr_level = curr_group
@@ -662,14 +687,21 @@ pub fn render_sequence_svg(
                     // Nested group within an else/parent: normal increment + header offset
                     let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                     let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
-                    current_y += inc + GROUP_HEADER_OFFSET + header_extra;
+                    current_y += inc;
+                    group_header_offset = GROUP_HEADER_OFFSET + header_extra;
+                    current_y += group_header_offset;
                 } else if let Some(fb) = prev_frame_bottom {
-                    current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
+                    // After a group ends: chaining point = fb + GROUP_GAP
+                    let base = fb + GROUP_GAP;
+                    group_header_offset = GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT + header_extra;
+                    current_y = base + group_header_offset;
                 } else {
                     // First group after non-grouped messages
                     let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                     let inc = if let Some(nh) = prev_note_h { nh.max(1.0 + text_h + prev_self_extra) } else { 1.0 + text_h + prev_self_extra };
-                    current_y += inc + GROUP_HEADER_OFFSET + header_extra;
+                    current_y += inc;
+                    group_header_offset = GROUP_HEADER_OFFSET + header_extra;
+                    current_y += group_header_offset;
                 }
             } else if let Some(nh) = prev_note_h {
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
@@ -679,11 +711,20 @@ pub fn render_sequence_svg(
                 current_y += 1.0 + text_h + prev_self_extra;
             }
 
-            // Update cluster_start_y when a new non-parallel group starts
-            if is_first_in_group && !is_parallel && !is_else {
-                cluster_start_y = current_y;
+            // Update cluster_start_y for non-parallel group starts and non-grouped messages.
+            // This tracks the chaining point of the previous TILE (not every message),
+            // matching Java's YGauge.createParallel which shares the previous tile's min.
+            if !is_parallel {
+                if is_first_in_group && !is_else {
+                    // Group start: chaining point = arrow_y - group_header_offset
+                    cluster_start_y = current_y - group_header_offset;
+                    last_non_parallel_gho = group_header_offset;
+                } else if curr_group.is_none() {
+                    // Non-grouped message: chaining point = arrow_y (no group header offset)
+                    cluster_start_y = current_y;
+                    last_non_parallel_gho = 0.0;
+                }
             }
-
 
             // After a group ends, ensure next message/else clears the frame bottom
             if !is_parallel {
@@ -755,13 +796,39 @@ pub fn render_sequence_svg(
                     };
                     let fb = frame_y + frame_height;
                     // For parallel groups, take max with existing prev_frame_bottom
-                    // (parallel siblings should not reduce the overall bottom)
                     if group.parallel {
                         prev_frame_bottom = Some(prev_frame_bottom.map(|existing| existing.max(fb)).unwrap_or(fb));
                     } else {
                         prev_frame_bottom = Some(fb);
                     }
                     prev_frame_bottom_level = group.nesting_level;
+
+                    // If this is an else group, also check the parent group
+                    // (which ends at the same message and has a taller frame)
+                    if group.group_type == "else" {
+                        let else_level = group.nesting_level;
+                        for pgi in (0..gi).rev() {
+                            if groups[pgi].nesting_level == else_level && groups[pgi].group_type != "else"
+                                && groups[pgi].msg_end == group.msg_end
+                            {
+                                let pgroup = &groups[pgi];
+                                let p_last_mi = pgroup.msg_end - 1;
+                                let p_body_height = arrow_ys[p_last_mi] - arrow_ys[pgroup.msg_start] + last_msg_h;
+                                let p_fy = arrow_ys[pgroup.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
+                                let p_fh = p_body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
+                                let p_fb = p_fy + p_fh;
+                                if p_fb > fb {
+                                    if pgroup.parallel {
+                                        prev_frame_bottom = Some(prev_frame_bottom.map(|existing| existing.max(p_fb)).unwrap_or(p_fb));
+                                    } else {
+                                        prev_frame_bottom = Some(p_fb);
+                                    }
+                                    prev_frame_bottom_level = pgroup.nesting_level;
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -795,15 +862,6 @@ pub fn render_sequence_svg(
     }
 
     // ── Compute group frame dimensions ──────────────────────────────────
-    // Precompute innermost nesting level at each msg_start
-    let mut msg_start_innermost: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-    for group in groups.iter() {
-        if group.group_type == "else" { continue; }
-        let entry = msg_start_innermost.entry(group.msg_start).or_insert(0);
-        if group.nesting_level > *entry {
-            *entry = group.nesting_level;
-        }
-    }
     let mut group_frames: Vec<(f64, f64, f64, f64)> = Vec::new(); // (x, y, w, h)
     for (gi, group) in groups.iter().enumerate() {
         // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
@@ -1189,8 +1247,8 @@ pub fn render_sequence_svg(
         .enumerate()
         .map(|(i, &(_, fy, _, fh))| {
             let frame_bottom = fy + fh;
-            // Check if this group or any of its else children have nesting Y extension.
             let g = &groups[i];
+            // Check if this group or any of its else children have nesting Y extension.
             let has_nesting = nesting_y_ext[i] > 0.0 || {
                 (0..groups.len()).any(|j| {
                     if groups[j].group_type != "else" || groups[j].nesting_level != g.nesting_level {
@@ -1202,7 +1260,10 @@ pub fn render_sequence_svg(
                     parent == Some(i) && nesting_y_ext[j] > 0.0
                 })
             };
-            let val = if has_nesting {
+            let val = if g.parallel {
+                // Parallel groups: use frame_bottom directly (nesting ext already included)
+                frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+            } else if has_nesting {
                 // -1 correction for text_h=26 vs Java's 25, only when self-messages present
                 frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - if has_self_msgs { 1.0 } else { 0.0 }
             } else if has_parallel {
@@ -2928,7 +2989,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             }
             msg_activates.push(acts);
             msg_deactivates.push(deacts);
-            msg_parallel.push(next_msg_parallel);
+            let in_parallel_group = group_stack.iter().any(|(_, _, _, _, is_par)| *is_par);
+            msg_parallel.push(next_msg_parallel || in_parallel_group);
             msg_exo.push(exo);
             next_msg_parallel = false;
             msg_count += 1;
