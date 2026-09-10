@@ -236,6 +236,11 @@ fn test_selfnote_003() {
 }
 
 #[test]
+fn test_group_001() {
+    run_sequence_svg_test("asciiverse/group_001");
+}
+
+#[test]
 fn test_mvp_hello_both() {
     run_sequence_svg_test("mvp/hello-both");
 }
@@ -261,6 +266,7 @@ fn run_sequence_svg_test(name: &str) {
         parsed.title_line,
         parsed.hide_footbox,
         &parsed.notes,
+        &parsed.groups,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);

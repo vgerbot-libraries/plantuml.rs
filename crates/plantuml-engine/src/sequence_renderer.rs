@@ -89,6 +89,37 @@ const COLOR_LIFELINE: &str = "#181818";
 const COLOR_ACTIVATION_BAR: &str = "#00000000";
 const COLOR_NOTE_BACK: &str = "#FEFFDD";
 
+// ── Group frame constants (from GroupingTile.java) ────────────────────────
+
+/// Horizontal margin inside group frame (MARGINX in GroupingTile).
+const GROUP_MARGIN_X: f64 = 16.0;
+/// Vertical margin around group frame (EXTERNAL_MARGINY in GroupingTile).
+const GROUP_MARGIN_Y: f64 = 4.0;
+/// Magic vertical margin (MARGINY_MAGIC in GroupingTile).
+const GROUP_MARGIN_Y_MAGIC: f64 = 20.0;
+/// Group header tab height (from ComponentGroupingHeaderTeoz preferred height).
+const GROUP_HEADER_HEIGHT: f64 = 15.0;
+/// Group header offset added to first message Y inside a group.
+/// = header_height + MARGINY_MAGIC/2 + EXTERNAL_MARGINY = 15 + 10 + 4.
+const GROUP_HEADER_OFFSET: f64 = 29.0;
+/// Gap between consecutive group frames = 2*EXTERNAL_MARGINY + MARGINY_MAGIC/2.
+const GROUP_GAP: f64 = 18.0;
+/// Group frame stroke width.
+const GROUP_STROKE_WIDTH: f64 = 1.5;
+/// Group header tab corner cut size.
+const GROUP_TAB_CORNER: f64 = 10.0;
+/// External margin X1 (left side of group frame, from GroupingTile.EXTERNAL_MARGINX1).
+const GROUP_EXTERNAL_MARGIN_X1: f64 = 3.0;
+/// External margin X2 (right side of group frame, from GroupingTile.EXTERNAL_MARGINX2).
+const GROUP_EXTERNAL_MARGIN_X2: f64 = 9.0;
+/// Group header text left padding from frame x.
+const GROUP_TEXT_PADDING: f64 = 15.0;
+/// Group header text Y offset from frame y (ascent for 13px bold).
+const GROUP_TEXT_Y_OFFSET: f64 = 11.111;
+/// Group header fill color.
+const COLOR_GROUP_HEADER: &str = "#EEE";
+/// Group frame stroke color.
+const COLOR_GROUP_STROKE: &str = "#000";
 // ── Public API ────────────────────────────────────────────────────────────
 
 /// Renders a sequence diagram to an SVG string.
@@ -101,6 +132,7 @@ pub fn render_sequence_svg(
     title_line: Option<usize>,
     hide_footbox: bool,
     notes: &[NoteInfo],
+    groups: &[GroupInfo],
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -211,12 +243,32 @@ pub fn render_sequence_svg(
     let head_y = y_offset;
     let lifeline_y = head_y + head_layout_height;
 
-    // Compute Y for each message
+    // ── Compute Y positions for each message ─────────────────────────────
+    //
+    // The increment depends on whether the PREVIOUS message had a note
+    // (the note extends below the arrow, pushing the next message down).
+    // Group header offsets are added to the first message in each group.
+
+    // Build msg_index → group index map
+    let n_msgs: usize = diagram.events().iter().filter(|e| matches!(e, SequenceEvent::Message(_))).count();
+    let mut msg_group: Vec<Option<usize>> = vec![None; n_msgs];
+    for (gi, group) in groups.iter().enumerate() {
+        for mi in group.msg_start..group.msg_end {
+            if mi < msg_group.len() {
+                msg_group[mi] = Some(gi);
+            }
+        }
+    }
+
     let mut arrow_ys: Vec<f64> = Vec::new();
     let mut is_self_flags: Vec<bool> = Vec::new();
     let mut msg_text_heights: Vec<f64> = Vec::new();
     let mut current_y = lifeline_y;
-    let mut first = true;
+    let mut prev_had_note = false;
+    let mut prev_group: Option<usize> = None;
+    let mut prev_frame_bottom: Option<f64> = None;
+    let mut msg_idx = 0usize;
+
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let has_text = !msg.label().is_empty();
@@ -225,25 +277,164 @@ pub fn render_sequence_svg(
             } else {
                 0
             };
-            // Text block height: 13px per line + 13px base
             let text_h = (line_count as f64) * 13.0 + 13.0;
             msg_text_heights.push(text_h);
-            // Increment depends on whether the CURRENT message has a note
-            let curr_has_note = notes.iter().any(|n| n.msg_index == arrow_ys.len());
-            if first {
-                // First arrow: arrow_y = lifeline_y + 1 + text_h
+            let is_self = msg.p1().code() == msg.p2().code();
+            is_self_flags.push(is_self);
+
+            let curr_group = msg_group.get(msg_idx).copied().flatten();
+            let is_first_in_group = curr_group.is_some() && curr_group != prev_group;
+
+            if msg_idx == 0 {
+                // First message overall
                 current_y = lifeline_y + 1.0 + text_h;
-                first = false;
-            } else if curr_has_note {
-                // With note: increment = ARROW_Y_BASE + text_h
+                if is_first_in_group {
+                    current_y += GROUP_HEADER_OFFSET;
+                }
+            } else if is_first_in_group {
+                // First message in a subsequent group
+                // Y = prev_frame_bottom + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT
+                if let Some(fb) = prev_frame_bottom {
+                    current_y = fb + GROUP_GAP + GROUP_HEADER_OFFSET + GROUP_HEADER_HEIGHT;
+                } else {
+                    // First group after non-grouped messages
+                    let inc = if prev_had_note { ARROW_Y_BASE + text_h } else { 1.0 + text_h };
+                    current_y += inc + GROUP_HEADER_OFFSET;
+                }
+            } else if prev_had_note {
                 current_y += ARROW_Y_BASE + text_h;
             } else {
-                // Without note: increment = 1 + text_h
                 current_y += 1.0 + text_h;
             }
+
             arrow_ys.push(current_y);
-            is_self_flags.push(msg.p1().code() == msg.p2().code());
+            prev_had_note = notes.iter().any(|n| n.msg_index == msg_idx);
+
+            // If this is the last message in a group, compute frame bottom
+            if let Some(gi) = curr_group {
+                let group = &groups[gi];
+                if msg_idx + 1 >= group.msg_end {
+                    // Compute bodyHeight for this group
+                    let mut body_height = 0.0_f64;
+                    for mi in group.msg_start..group.msg_end {
+                        let mi_text_h = msg_text_heights[mi];
+                        let mi_is_self = is_self_flags[mi];
+                        let mi_note = notes.iter().find(|n| n.msg_index == mi);
+                        let msg_h = if mi_is_self {
+                            1.0 + mi_text_h + SELF_ARROW_HEIGHT
+                        } else {
+                            1.0 + mi_text_h
+                        };
+                        let height = if let Some(note) = mi_note {
+                            let note_lines = note.text.split("\\n").count();
+                            let note_h = (note_lines as f64) * 13.0
+                                + 2.0 * NOTE_MARGIN_Y
+                                + NOTE_CORNERSIZE;
+                            msg_h.max(note_h)
+                        } else {
+                            msg_h
+                        };
+                        body_height += height;
+                    }
+                    let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
+                    let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
+                    prev_frame_bottom = Some(frame_y + frame_height);
+                }
+            }
+
+            prev_group = curr_group;
+            msg_idx += 1;
         }
+    }
+
+    // ── Compute group frame dimensions ──────────────────────────────────
+    let mut group_frames: Vec<(f64, f64, f64, f64)> = Vec::new(); // (x, y, w, h)
+    for (gi, group) in groups.iter().enumerate() {
+        // Compute bodyHeight for this group
+        let mut body_height = 0.0_f64;
+        let mut min_x = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut msg_iter_idx = 0usize;
+        for event in diagram.events() {
+            if let SequenceEvent::Message(msg) = event {
+                if msg_iter_idx >= group.msg_start && msg_iter_idx < group.msg_end {
+                    let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                    let is_self = msg.p1().code() == msg.p2().code();
+                    let is_reverse = if is_self {
+                        msg.arrow_config().is_reverse_define()
+                    } else {
+                        pos_c_vals[p1_idx] > pos_c_vals[p2_idx]
+                    };
+                    let text_h = msg_text_heights[msg_iter_idx];
+
+                    // BodyHeight contribution
+                    let msg_h = if is_self {
+                        1.0 + text_h + SELF_ARROW_HEIGHT
+                    } else {
+                        1.0 + text_h
+                    };
+                    let mi_note = notes.iter().find(|n| n.msg_index == msg_iter_idx);
+                    let height = if let Some(note) = mi_note {
+                        let note_lines = note.text.split("\\n").count();
+                        let note_h = (note_lines as f64) * 13.0
+                            + 2.0 * NOTE_MARGIN_Y
+                            + NOTE_CORNERSIZE;
+                        msg_h.max(note_h)
+                    } else {
+                        msg_h
+                    };
+                    body_height += height;
+
+                    // Drawn X range
+                    let p1_c = pos_c_vals[p1_idx];
+                    let p2_c = pos_c_vals[p2_idx];
+                    let (mut d_min, mut d_max) = if is_self {
+                        let label_w = max_line_width(&bounder, &font_m, msg.label());
+                        let drawn_w = (SELF_XRIGHT + 3.0).max(7.0 + label_w);
+                        if is_reverse {
+                            (p1_c - drawn_w, p1_c)
+                        } else {
+                            (p1_c, p1_c + drawn_w)
+                        }
+                    } else {
+                        (p1_c.min(p2_c), p1_c.max(p2_c))
+                    };
+
+                    // Note X range
+                    if let Some(note) = mi_note {
+                        let note_text_w = max_line_width(&bounder, &font_m, &note.text);
+                        let note_comp_w = note_text_w
+                            + NOTE_OLD_PADDING_X1
+                            + NOTE_OLD_PADDING_X2
+                            + 2.0 * NOTE_PADDING_X;
+                        match note.position {
+                            NotePosition::Right => {
+                                let note_p_idx = if is_reverse { p1_idx } else { p2_idx };
+                                let note_max = pos_c_vals[note_p_idx] + note_comp_w;
+                                d_max = d_max.max(note_max);
+                            }
+                            NotePosition::Left => {
+                                let note_p_idx = if is_reverse { p2_idx } else { p1_idx };
+                                let note_min = pos_c_vals[note_p_idx] - note_comp_w;
+                                d_min = d_min.min(note_min);
+                            }
+                        }
+                    }
+
+                    min_x = min_x.min(d_min);
+                    max_x = max_x.max(d_max);
+                }
+                msg_iter_idx += 1;
+            }
+        }
+
+        let frame_y = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
+        let frame_height = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
+        let frame_x = min_x - GROUP_MARGIN_X;
+        let frame_width = max_x - min_x + 2.0 * GROUP_MARGIN_X;
+        group_frames.push((frame_x, frame_y, frame_width, frame_height));
+        let _ = gi;
     }
 
     // Compute note heights for each message
@@ -282,7 +473,11 @@ pub fn render_sequence_svg(
     } else {
         0.0
     };
-    let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom);
+    let group_lifeline_bottom = group_frames
+        .iter()
+        .map(|&(_, fy, _, fh)| fy + fh + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y)
+ .fold(0.0_f64, f64::max);
+    let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
 
     let lifeline_height = if arrow_ys.is_empty() {
         LIFELINE_HEIGHT_BASE
@@ -311,9 +506,15 @@ pub fn render_sequence_svg(
         for event in diagram.events() {
             if let SequenceEvent::Message(msg) = event {
                 if msg_count2 == msg_idx {
-                    p_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let p1_idx_n = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let p2_idx_n = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
                     is_self_msg = msg.is_self_message();
-                    is_reverse = msg.arrow_config().is_reverse_define();
+                    is_reverse = if is_self_msg {
+                        msg.arrow_config().is_reverse_define()
+                    } else {
+                        pos_c_vals[p1_idx_n] > pos_c_vals[p2_idx_n]
+                    };
+                    p_idx = if is_reverse { p2_idx_n } else { p1_idx_n };
                     msg_label = msg.label().to_string();
                     break;
                 }
@@ -336,7 +537,15 @@ pub fn render_sequence_svg(
             min_layout_left = layout_left;
         }
     }
-    let x_offset = PAGE_MARGIN * 2.0 - min_layout_left.min(0.0);
+    // Also account for group frame left edges (frame_x - EXTERNAL_MARGINX1)
+    let mut min_left = min_layout_left;
+    for &(fx, _, _, _) in &group_frames {
+        let frame_left = fx - GROUP_EXTERNAL_MARGIN_X1;
+        if frame_left < min_left {
+            min_left = frame_left;
+        }
+    }
+    let x_offset = PAGE_MARGIN * 2.0 - min_left.min(0.0);
     let rightmost_x = pos_d_vals.last().copied().unwrap_or(0.0) + x_offset;
     let title_rightmost = if title_width > 0.0 {
         PAGE_MARGIN + title_width + PAGE_MARGIN + x_offset
@@ -362,9 +571,15 @@ pub fn render_sequence_svg(
         for event in diagram.events() {
             if let SequenceEvent::Message(msg) = event {
                 if msg_count2 == msg_idx {
-                    p_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                    let p1_idx_n = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                    let p2_idx_n = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
                     is_self_msg = msg.is_self_message();
-                    is_reverse = msg.arrow_config().is_reverse_define();
+                    is_reverse = if is_self_msg {
+                        msg.arrow_config().is_reverse_define()
+                    } else {
+                        pos_c_vals[p1_idx_n] > pos_c_vals[p2_idx_n]
+                    };
+                    p_idx = if is_reverse { p1_idx_n } else { p2_idx_n };
                     msg_label = msg.label().to_string();
                     break;
                 }
@@ -387,6 +602,10 @@ pub fn render_sequence_svg(
             max_note_right = layout_right;
         }
     }
+    let max_frame_right: f64 = group_frames
+        .iter()
+        .map(|&(fx, _, fw, _)| fx + fw + GROUP_EXTERNAL_MARGIN_X2 + x_offset)
+        .fold(0.0_f64, f64::max);
 
     let footbox_bottom = if hide_footbox {
         footbox_y
@@ -394,9 +613,9 @@ pub fn render_sequence_svg(
         footbox_y + head_rect_height
     };
     let total_width = if title_width > 0.0 {
-        rightmost_x.max(title_rightmost).max(max_note_right) + PAGE_MARGIN * 2.0 + 1.0
+        rightmost_x.max(title_rightmost).max(max_note_right).max(max_frame_right) + PAGE_MARGIN * 2.0 + 1.0
     } else {
-        rightmost_x.max(max_note_right) + PAGE_MARGIN * 2.0
+        rightmost_x.max(max_note_right).max(max_frame_right) + PAGE_MARGIN * 2.0
     };
     let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + HEIGHT_EXTRA;
 
@@ -440,6 +659,14 @@ pub fn render_sequence_svg(
             None,
         );
         svg.close_group();
+    }
+
+    // ── Draw group frame backgrounds ─────────────────────────────────────
+    for &(fx, fy, fw, fh) in &group_frames {
+        svg.set_fill_color("none");
+        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+        svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
     }
 
     // ── Draw lifelines (background) ───────────────────────────────────────
@@ -543,10 +770,60 @@ pub fn render_sequence_svg(
     svg.svg_rectangle(0.0, 0.0, total_width as f64, total_height as f64, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
-    // ── Draw messages and notes (interleaved) ───────────────────────────
+    // ── Draw group headers + messages + notes (interleaved) ──────────────
     let mut msg_idx = 0;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
+            // If this is the first message in a group, draw the group header
+            if let Some(gi) = msg_group.get(msg_idx).copied().flatten() {
+                if msg_idx == groups[gi].msg_start {
+                    let (fx, fy, fw, fh) = group_frames[gi];
+                    let fx_off = fx + x_offset;
+                    let label = &groups[gi].title;
+                    let label_w = max_line_width(&bounder, &font_m, label);
+                    let tab_w = label_w + GROUP_TEXT_PADDING + 2.0 * GROUP_TEXT_PADDING;
+
+                    // Header tab path (folded corner)
+                    svg.set_fill_color(COLOR_GROUP_HEADER);
+                    svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                    svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                    let path = format!(
+                        "M{x},{y} L{x2},{y} L{x2},{y2} L{x3},{y3} L{x},{y3} L{x},{y}",
+                        x = format_number_path(fx_off),
+                        y = format_number_path(fy),
+                        x2 = format_number_path(fx_off + tab_w),
+                        y2 = format_number_path(fy + 5.0),
+                        x3 = format_number_path(fx_off + tab_w - GROUP_TAB_CORNER),
+                        y3 = format_number_path(fy + GROUP_HEADER_HEIGHT),
+                    );
+                    svg.svg_path(&path, 0.0);
+
+                    // Frame rect (foreground, same as background)
+                    svg.set_fill_color("none");
+                    svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                    svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                    svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
+
+                    // Label text
+                    svg.set_fill_color(COLOR_TEXT);
+                    svg.set_stroke_color(None);
+                    svg.set_stroke_width(0.0, None);
+                    svg.text(
+                        label,
+                        fx_off + GROUP_TEXT_PADDING,
+                        fy + GROUP_TEXT_Y_OFFSET,
+                        None,
+                        FONT_SIZE_MESSAGE,
+                        Some("700"),
+                        None,
+                        None,
+                        label_w,
+                        &indexmap::IndexMap::new(),
+                        None,
+                    );
+                }
+            }
+
             let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
             let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(1);
             let y = arrow_ys[msg_idx];
@@ -590,12 +867,22 @@ fn draw_note(
     bounder: &StringBounderFromWidthTable,
     font_m: &UFont,
 ) {
-    let p_idx = match note.position {
-        NotePosition::Right => pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0),
-        NotePosition::Left => pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0),
-    };
     let is_self_msg = msg.is_self_message();
-    let is_reverse = msg.arrow_config().is_reverse_define();
+    let is_reverse_syntax = msg.arrow_config().is_reverse_define();
+    let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+
+    let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+    // For self-messages, use arrow-syntax isReverse (CommunicationTileSelf.isReverseDefine).
+    // For non-self messages, use position-based isReverse (posC[p1] > posC[p2]).
+    let is_reverse = if is_self_msg {
+        is_reverse_syntax
+    } else {
+        pos_c_vals[p1_idx] > pos_c_vals[p2_idx]
+    };
+    let p_idx = match note.position {
+        NotePosition::Right => if is_reverse { p1_idx } else { p2_idx },
+        NotePosition::Left => if is_reverse { p2_idx } else { p1_idx },
+    };
     let msg_label = msg.label().to_string();
 
     let p_center = pos_c_vals[p_idx] + x_offset;
@@ -936,6 +1223,17 @@ pub struct NoteInfo {
     pub msg_index: usize,
 }
 
+/// Parsed group block (group ... end).
+#[derive(Clone)]
+pub struct GroupInfo {
+    /// Group title (label after `group` keyword, or "group" if none).
+    pub title: String,
+    /// Index of the first message in this group.
+    pub msg_start: usize,
+    /// Index one past the last message in this group.
+    pub msg_end: usize,
+}
+
 /// Parsed sequence diagram with SVG metadata.
 pub struct ParsedSequence {
     /// The sequence diagram.
@@ -952,6 +1250,8 @@ pub struct ParsedSequence {
     pub hide_footbox: bool,
     /// Notes attached to messages.
     pub notes: Vec<NoteInfo>,
+    /// Group blocks (group ... end).
+    pub groups: Vec<GroupInfo>,
 }
 
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
@@ -968,7 +1268,13 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut startuml_line: Option<usize> = None;
     let mut hide_footbox = false;
     let mut notes: Vec<NoteInfo> = Vec::new();
+    let mut groups: Vec<GroupInfo> = Vec::new();
     let mut msg_count = 0usize;
+    // Group parsing state
+    let mut group_start_msg: Option<usize> = None;
+    let mut group_title = String::new();
+    // skinparam { } block depth: when > 0, skip lines until closing }
+    let mut skinparam_depth: u32 = 0;
 
     for (line_num, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -993,15 +1299,71 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             svg_title = Some(val.trim().trim_matches('"').to_string());
             continue;
         }
+        // Handle skinparam { } multi-line blocks: when depth > 0, skip until closing }
+        if skinparam_depth > 0 {
+            if trimmed.contains('}') {
+                skinparam_depth = skinparam_depth.saturating_sub(1);
+            } else if trimmed.ends_with('{') {
+                skinparam_depth += 1;
+            }
+            continue;
+        }
 
-        // Handle !pragma, comments, skin, skinparam, !theme (ignore — simplified renderer)
+        // Handle !pragma, comments, skin, !theme (ignore — simplified renderer)
         if trimmed.starts_with("!pragma ")
             || trimmed.starts_with("'")
             || trimmed.starts_with("skin ")
-            || trimmed.starts_with("skinparam ")
             || trimmed.starts_with("!theme ")
             || trimmed.starts_with("!include ")
         {
+            continue;
+        }
+
+        // Handle skinparam: either single-line or multi-line block with {
+        if trimmed.starts_with("skinparam ") {
+            if trimmed.ends_with('{') {
+                skinparam_depth = 1;
+            }
+            continue;
+        }
+
+        // Handle "end" — close the current group
+        if trimmed == "end" {
+            if let Some(start) = group_start_msg.take() {
+                groups.push(GroupInfo {
+                    title: std::mem::take(&mut group_title),
+                    msg_start: start,
+                    msg_end: msg_count,
+                });
+            }
+            continue;
+        }
+
+        // Handle "group <title>" — start a new group
+        if trimmed == "group" {
+            // Close any open group first (shouldn't happen in well-formed input)
+            if let Some(start) = group_start_msg.take() {
+                groups.push(GroupInfo {
+                    title: std::mem::take(&mut group_title),
+                    msg_start: start,
+                    msg_end: msg_count,
+                });
+            }
+            group_start_msg = Some(msg_count);
+            group_title = "group".to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("group ") {
+            // Close any open group first
+            if let Some(start) = group_start_msg.take() {
+                groups.push(GroupInfo {
+                    title: std::mem::take(&mut group_title),
+                    msg_start: start,
+                    msg_end: msg_count,
+                });
+            }
+            group_start_msg = Some(msg_count);
+            group_title = rest.trim().to_string();
             continue;
         }
 
@@ -1129,6 +1491,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             title_line,
             hide_footbox,
             notes,
+            groups,
         })
     }
 }
