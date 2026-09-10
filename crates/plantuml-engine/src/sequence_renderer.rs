@@ -747,9 +747,12 @@ pub fn render_sequence_svg(
             let level_diff = child_level - groups[pgi].nesting_level;
             let new_bottom = pframe_bottom.max(cframe_bottom + (GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT) * level_diff as f64);
             let new_height = new_bottom - pfy;
-            // Track how much the parent's bottom was extended by nesting
-            if new_bottom > pframe_bottom {
-                nesting_y_ext[pgi] += new_bottom - pframe_bottom;
+            // Track how much the parent's bottom was extended by nesting.
+            // Use child_frame_bottom as the baseline (not pframe_bottom) because
+            // the parent's frame may not yet cover the child's else-extended frame.
+            let baseline = pframe_bottom.max(cframe_bottom);
+            if new_bottom > baseline {
+                nesting_y_ext[pgi] += new_bottom - baseline;
             }
             group_frames[pgi] = (new_min, pfy, new_max - new_min, new_height);
         }
@@ -856,8 +859,8 @@ pub fn render_sequence_svg(
     // Compute group_lifeline_bottom based on nesting and parallel messages.
     // - Groups with nesting extension: frame_bottom - nesting_y_ext + MARGINY_MAGIC + MARGINY (24)
     // - Groups without nesting, no parallel msgs: frame_bottom + 24
-    // - Groups without nesting, with parallel msgs: use max(msg Y + Java preferredHeight) + PAGE_MARGIN
     let has_parallel = msg_parallel.iter().any(|&p| p);
+    let has_self_msgs = is_self_flags.iter().any(|&s| s);
     let java_preferred_height = 25.0; // Java's message preferredHeight (textHeight=13 + arrowDeltaY=4 + 2*paddingY=8)
     let msg_ygauge_max = arrow_ys.iter().map(|&y| y + java_preferred_height).fold(0.0_f64, f64::max);
 
@@ -879,13 +882,15 @@ pub fn render_sequence_svg(
                     parent == Some(i) && nesting_y_ext[j] > 0.0
                 })
             };
-            if has_nesting {
-                frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+            let val = if has_nesting {
+                // -1 correction for text_h=26 vs Java's 25, only when self-messages present
+                frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - if has_self_msgs { 1.0 } else { 0.0 }
             } else if has_parallel {
                 msg_ygauge_max + PAGE_MARGIN
             } else {
                 frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
-            }
+            };
+            val
         })
         .fold(0.0_f64, f64::max);
     // When parallel messages are present, cap normal_lifeline_bottom at msg_ygauge_max + PAGE_MARGIN
