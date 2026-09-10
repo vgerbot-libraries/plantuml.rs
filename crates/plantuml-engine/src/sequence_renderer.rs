@@ -824,9 +824,13 @@ pub fn render_sequence_svg(
         }
     }
 
-    let last_arrow_y = arrow_ys.last().copied().unwrap_or(lifeline_y + ARROW_Y_BASE);
-    let last_is_self = is_self_flags.last().copied().unwrap_or(false);
-    let self_extra = if last_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+    // Use max arrow Y (parallel messages can have Y values out of order)
+    let (last_arrow_y, last_is_self) = arrow_ys
+        .iter()
+        .zip(is_self_flags.iter())
+        .max_by(|(ya, _), (yb, _)| ya.partial_cmp(yb).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(&y, &s)| (y, s))
+        .unwrap_or((lifeline_y + ARROW_Y_BASE, false));
 
     // Compute the max note bottom across all messages
     let mut max_note_bottom = 0.0_f64;
@@ -842,17 +846,55 @@ pub fn render_sequence_svg(
     }
 
     // Lifeline extends to max of: normal arrow height, or note bottom + 15
+    let self_extra = if last_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
     let normal_lifeline_bottom = last_arrow_y + self_extra + ARROW_Y_BASE + 4.0; // 4 = getPaddingY
     let note_lifeline_bottom = if max_note_bottom > 0.0 {
         max_note_bottom + 15.0
     } else {
         0.0
     };
+    // Compute group_lifeline_bottom based on nesting and parallel messages.
+    // - Groups with nesting extension: frame_bottom - nesting_y_ext + MARGINY_MAGIC + MARGINY (24)
+    // - Groups without nesting, no parallel msgs: frame_bottom + 24
+    // - Groups without nesting, with parallel msgs: use max(msg Y + Java preferredHeight) + PAGE_MARGIN
+    let has_parallel = msg_parallel.iter().any(|&p| p);
+    let java_preferred_height = 25.0; // Java's message preferredHeight (textHeight=13 + arrowDeltaY=4 + 2*paddingY=8)
+    let msg_ygauge_max = arrow_ys.iter().map(|&y| y + java_preferred_height).fold(0.0_f64, f64::max);
+
     let group_lifeline_bottom = group_frames
         .iter()
         .enumerate()
-        .map(|(i, &(_, fy, _, fh))| fy + fh - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y)
+        .map(|(i, &(_, fy, _, fh))| {
+            let frame_bottom = fy + fh;
+            // Check if this group or any of its else children have nesting Y extension.
+            let g = &groups[i];
+            let has_nesting = nesting_y_ext[i] > 0.0 || {
+                (0..groups.len()).any(|j| {
+                    if groups[j].group_type != "else" || groups[j].nesting_level != g.nesting_level {
+                        return false;
+                    }
+                    let parent = (0..j).rev()
+                        .find(|&pj| groups[pj].nesting_level == groups[j].nesting_level
+                            && groups[pj].group_type != "else");
+                    parent == Some(i) && nesting_y_ext[j] > 0.0
+                })
+            };
+            if has_nesting {
+                frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+            } else if has_parallel {
+                msg_ygauge_max + PAGE_MARGIN
+            } else {
+                frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+            }
+        })
         .fold(0.0_f64, f64::max);
+    // When parallel messages are present, cap normal_lifeline_bottom at msg_ygauge_max + PAGE_MARGIN
+    // to avoid 1px overshoot from text_h=26 vs Java's 25 in self-messages.
+    let normal_lifeline_bottom = if has_parallel {
+        normal_lifeline_bottom.min(msg_ygauge_max + PAGE_MARGIN)
+    } else {
+        normal_lifeline_bottom
+    };
     let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
 
     let lifeline_height = if arrow_ys.is_empty() {
@@ -1004,7 +1046,10 @@ pub fn render_sequence_svg(
             group_frames[gi] = (frame_x, fy, frame_width, fh);
         }
     }
-    let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + HEIGHT_EXTRA;
+    // HEIGHT_EXTRA (1px) is only needed for show_footbox: the +1 from ensure_visible
+    // already provides the extra pixel for hide_footbox.
+    let height_extra = if hide_footbox { 0.0 } else { HEIGHT_EXTRA };
+    let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + height_extra;
 
     // ── Create SvgGraphics ────────────────────────────────────────────────
     let mut option = SvgOption::basic();
