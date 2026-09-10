@@ -654,36 +654,71 @@ pub fn render_sequence_svg(
                     // Drawn X range
                     let p1_c = pos_c_vals[p1_idx];
                     let p2_c = pos_c_vals[p2_idx];
-                    let (mut d_min, mut d_max) = if is_self {
+                    let self_drawn_w = if is_self {
                         let label_w = pre_wrapped_widths[msg_iter_idx];
                         let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
-                        let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
+                        SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act
+                    } else {
+                        0.0
+                    };
+                    let (mut d_min, mut d_max) = if is_self {
                         if is_reverse {
-                            (p1_c - drawn_w, p1_c)
+                            (p1_c - self_drawn_w, p1_c)
                         } else {
-                            (p1_c, p1_c + drawn_w)
+                            (p1_c, p1_c + self_drawn_w)
                         }
                     } else {
                         (p1_c.min(p2_c), p1_c.max(p2_c))
                     };
 
-                    // Note X range
+                    // Note X range — for self-messages, the note is drawn at the
+                    // edge of the self-message's drawn extent (not at posC), so the
+                    // note's drawn extent is ADDED to the self-message's drawn extent.
+                    // Java: CommunicationTileSelfNoteLeft.getDrawnMinX() = tile.getDrawnMinX() - noteWidth
+                    //        CommunicationTileSelfNoteRight.getDrawnMaxX() = tile.getDrawnMaxX() + noteWidth
                     if let Some(note) = mi_note {
                         let note_text_w = max_line_width(&bounder, &font_m, &note.text);
                         let note_comp_w = note_text_w
                             + NOTE_OLD_PADDING_X1
                             + NOTE_OLD_PADDING_X2
                             + 2.0 * NOTE_PADDING_X;
-                        match note.position {
-                            NotePosition::Right => {
-                                let note_p_idx = if is_reverse { p1_idx } else { p2_idx };
-                                let note_max = pos_c_vals[note_p_idx] + note_comp_w;
-                                d_max = d_max.max(note_max);
+                        if is_self {
+                            // For self-messages, the note's drawn extent depends on
+                            // which side of the self-message loop the note is on:
+                            // - LEFT on reverse (<--): note is LEFT of drawn left edge
+                            //   Java: getDrawnMinX() = tile.getDrawnMinX() - noteWidth
+                            // - RIGHT on forward (-->): note is RIGHT of drawn right edge
+                            //   Java: getDrawnMaxX() = tile.getDrawnMaxX() + noteWidth
+                            // - RIGHT on reverse (<--): note is RIGHT of posC (tile.getMaxX = posC)
+                            // - LEFT on forward (-->): note is LEFT of posC (tile.getMinX = posC)
+                            match note.position {
+                                NotePosition::Left if is_reverse => {
+                                    d_min = d_min.min((p1_c - self_drawn_w) - note_comp_w);
+                                }
+                                NotePosition::Right if !is_reverse => {
+                                    d_max = d_max.max((p1_c + self_drawn_w) + note_comp_w);
+                                }
+                                NotePosition::Right => {
+                                    // RIGHT on reverse: note at posC, extends right
+                                    d_max = d_max.max(p1_c + note_comp_w);
+                                }
+                                NotePosition::Left => {
+                                    // LEFT on forward: note at posC, extends left
+                                    d_min = d_min.min(p1_c - note_comp_w);
+                                }
                             }
-                            NotePosition::Left => {
-                                let note_p_idx = if is_reverse { p2_idx } else { p1_idx };
-                                let note_min = pos_c_vals[note_p_idx] - note_comp_w;
-                                d_min = d_min.min(note_min);
+                        } else {
+                            match note.position {
+                                NotePosition::Right => {
+                                    let note_p_idx = if is_reverse { p1_idx } else { p2_idx };
+                                    let note_max = pos_c_vals[note_p_idx] + note_comp_w;
+                                    d_max = d_max.max(note_max);
+                                }
+                                NotePosition::Left => {
+                                    let note_p_idx = if is_reverse { p2_idx } else { p1_idx };
+                                    let note_min = pos_c_vals[note_p_idx] - note_comp_w;
+                                    d_min = d_min.min(note_min);
+                                }
                             }
                         }
                     }
@@ -1028,7 +1063,7 @@ pub fn render_sequence_svg(
         let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X;
         let layout_left = if is_self_msg && is_reverse {
             // LEFT note on <-- self-message: layout_left = posC - comp_width - layout_w
-            let label_w = max_line_width(&bounder, &font_m, &msg_label);
+            let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
             p_center_solver - comp_width - layout_w
         } else {
@@ -1093,7 +1128,7 @@ pub fn render_sequence_svg(
         let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X;
         let layout_right = if is_self_msg && !is_reverse {
             // RIGHT note on --> self-message: layout_right = posC + comp_width + layout_w
-            let label_w = max_line_width(&bounder, &font_m, &msg_label);
+            let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
             p_center + comp_width + layout_w
         } else {
@@ -1555,6 +1590,7 @@ pub fn render_sequence_svg(
                 draw_note(
                     &mut svg, note, msg, &pcode_to_idx, &pos_c_vals, x_offset,
                     y, msg_idx, &msg_text_heights, &bounder, &font_m,
+                    pre_wrapped_widths.get(msg_idx).copied().unwrap_or(0.0),
                 );
             }
             msg_idx += 1;
@@ -1568,7 +1604,6 @@ pub fn render_sequence_svg(
     svg.create_xml()
 }
 
-/// Draws a note attached to a message.
 fn draw_note(
     svg: &mut SvgGraphics,
     note: &NoteInfo,
@@ -1581,6 +1616,7 @@ fn draw_note(
     msg_text_heights: &[f64],
     bounder: &StringBounderFromWidthTable,
     font_m: &UFont,
+    pre_wrapped_width: f64,
 ) {
     let is_self_msg = msg.is_self_message();
     let is_reverse_syntax = msg.arrow_config().is_reverse_define();
@@ -1598,7 +1634,6 @@ fn draw_note(
         NotePosition::Right => if is_reverse { p1_idx } else { p2_idx },
         NotePosition::Left => if is_reverse { p2_idx } else { p1_idx },
     };
-    let msg_label = msg.label().to_string();
 
     let p_center = pos_c_vals[p_idx] + x_offset;
     // Number of message lines for this message (for note Y offset)
@@ -1625,8 +1660,7 @@ fn draw_note(
 
     // Compute self-message comp width if needed
     let comp_width = if is_self_msg {
-        let label_w = max_line_width(bounder, font_m, &msg_label);
-        (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0)
+        (pre_wrapped_width + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0)
     } else {
         0.0
     };
@@ -2054,6 +2088,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
     let mut msg_parallel: Vec<bool> = Vec::new();
     let mut next_msg_parallel = false;
+    let mut in_note_block: Option<(NotePosition, Vec<String>)> = None;
     let mut max_message_size: Option<f64> = None;
     let lines: Vec<&str> = text.lines().collect();
     for (line_num, line) in lines.iter().enumerate() {
@@ -2320,6 +2355,36 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 let msg = Message::new(p1, p2, label, arrow_config, msg_num);
                 diagram.add_message(msg);
             }
+            continue;
+        }
+
+        // Handle multi-line note blocks: "note right ... endnote", "note left ... endnote"
+        if in_note_block.is_some() {
+            if trimmed == "end note" || trimmed == "endnote" {
+                if let Some((position, text_lines)) = in_note_block.take() {
+                    if msg_count > 0 {
+                        notes.push(NoteInfo {
+                            position,
+                            text: text_lines.join("\\n"),
+                            msg_index: msg_count - 1,
+                        });
+                    }
+                }
+            } else {
+                in_note_block.as_mut().expect("checked above").1.push(trimmed.to_string());
+            }
+            continue;
+        }
+        if trimmed == "note right" || trimmed.starts_with("note right ") {
+            in_note_block = Some((NotePosition::Right, Vec::new()));
+            continue;
+        }
+        if trimmed == "note left" || trimmed.starts_with("note left ") {
+            in_note_block = Some((NotePosition::Left, Vec::new()));
+            continue;
+        }
+        if trimmed == "note over" || trimmed.starts_with("note over ") {
+            in_note_block = Some((NotePosition::Right, Vec::new()));
             continue;
         }
 
