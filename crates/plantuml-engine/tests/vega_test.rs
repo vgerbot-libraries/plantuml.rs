@@ -397,6 +397,7 @@ fn run_sequence_svg_test(name: &str) {
         &parsed.msg_parallel,
         parsed.max_message_size,
         &parsed.msg_exo,
+        &parsed.msg_hidden,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);

@@ -189,6 +189,7 @@ pub fn render_sequence_svg(
     msg_parallel: &[bool],
     max_message_size: Option<f64>,
     msg_exo: &[Option<ExoType>],
+    msg_hidden: &[bool],
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
@@ -635,7 +636,6 @@ pub fn render_sequence_svg(
 
             let mut group_header_offset = 0.0;
             if is_parallel && msg_idx > 0 {
-                // Parallel message: starts at the previous tile's min + contactRelative.
                 if is_first_in_group && !is_else {
                     // Parallel group: top-aligned with the cluster's chaining point,
                     // plus group header offset for each nesting level.
@@ -809,10 +809,11 @@ pub fn render_sequence_svg(
                         let else_level = group.nesting_level;
                         for pgi in (0..gi).rev() {
                             if groups[pgi].nesting_level == else_level && groups[pgi].group_type != "else"
-                                && groups[pgi].msg_end == group.msg_end
+                                && groups[pgi].msg_start < group.msg_start
                             {
                                 let pgroup = &groups[pgi];
-                                let p_last_mi = pgroup.msg_end - 1;
+                                // Parent covers from its msg_start to the else's msg_end
+                                let p_last_mi = group.msg_end - 1;
                                 let p_body_height = arrow_ys[p_last_mi] - arrow_ys[pgroup.msg_start] + last_msg_h;
                                 let p_fy = arrow_ys[pgroup.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
                                 let p_fh = p_body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0;
@@ -1267,7 +1268,12 @@ pub fn render_sequence_svg(
                 // -1 correction for text_h=26 vs Java's 25, only when self-messages present
                 frame_bottom - nesting_y_ext[i] + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - if has_self_msgs { 1.0 } else { 0.0 }
             } else if has_parallel {
-                msg_ygauge_max + PAGE_MARGIN
+                // Use per-group msg_ygauge_max to avoid inflation from messages outside the group
+                let group_msg_ygauge_max = arrow_ys.iter().enumerate()
+                    .filter(|&(mi, _)| mi >= g.msg_start && mi < g.msg_end)
+                    .map(|(_, &y)| y + java_preferred_height)
+                    .fold(0.0_f64, f64::max);
+                group_msg_ygauge_max + PAGE_MARGIN
             } else {
                 frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
             };
@@ -1960,23 +1966,27 @@ pub fn render_sequence_svg(
             let y = arrow_ys[msg_idx];
 
             // Draw arrow first, then note(s) for this message
-            let exo = msg_exo.get(msg_idx).copied().flatten();
-            if let Some(exo_type) = exo {
-                draw_exo_message(
-                    &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
-                    p1_idx, exo_type,
-                    msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
-                );
-            } else {
-                draw_message(
-                    &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
-                    p1_idx, p2_idx,
-                    msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
-                    msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
-                    msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
-                    msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
-                    msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
-                );
+            // Skip drawing for hidden messages (they occupy Y space but aren't drawn)
+            let is_hidden = msg_hidden.get(msg_idx).copied().unwrap_or(false);
+            if !is_hidden {
+                let exo = msg_exo.get(msg_idx).copied().flatten();
+                if let Some(exo_type) = exo {
+                    draw_exo_message(
+                        &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
+                        p1_idx, exo_type,
+                        msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                    );
+                } else {
+                    draw_message(
+                        &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
+                        p1_idx, p2_idx,
+                        msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
+                        msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
+                        msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                        msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
+                        msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
+                    );
+                }
             }
             for note in notes {
                 if note.msg_index != msg_idx {
@@ -2585,6 +2595,8 @@ pub struct ParsedSequence {
     pub max_message_size: Option<f64>,
     /// Exo arrow type per message: None for regular, Some(ToRight) for `A->?`, Some(FromLeft) for `?->E`.
     pub msg_exo: Vec<Option<ExoType>>,
+    /// Whether each message is hidden (from `[hidden]` arrow style — not drawn but occupies Y space).
+    pub msg_hidden: Vec<bool>,
 }
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
@@ -2610,6 +2622,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
     let mut msg_parallel: Vec<bool> = Vec::new();
     let mut msg_exo: Vec<Option<ExoType>> = Vec::new();
+    let mut msg_hidden: Vec<bool> = Vec::new();
     let mut next_msg_parallel = false;
     let mut in_note_block: Option<(NotePosition, Vec<String>)> = None;
     let mut max_message_size: Option<f64> = None;
@@ -2679,7 +2692,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 }
             }
             if trimmed.ends_with('{') {
-                skinparam_depth = 1;
+                skinparam_depth += 1;
             }
             continue;
         }
@@ -2992,6 +3005,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             let in_parallel_group = group_stack.iter().any(|(_, _, _, _, is_par)| *is_par);
             msg_parallel.push(next_msg_parallel || in_parallel_group);
             msg_exo.push(exo);
+            msg_hidden.push(trimmed.contains("[hidden]"));
             next_msg_parallel = false;
             msg_count += 1;
         }
@@ -3014,6 +3028,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             msg_parallel,
             max_message_size,
             msg_exo,
+            msg_hidden,
         })
     }
 }
