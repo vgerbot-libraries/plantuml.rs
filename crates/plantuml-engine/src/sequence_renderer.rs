@@ -527,6 +527,116 @@ pub fn render_sequence_svg(
             }
         }
     }
+    // Handle parallel messages that are NOT inside any group (standalone parallel tiles)
+    // Java: addAsciiParallelSiblingDisjointConstraints() iterates over ALL tiles,
+    // not just groups. A standalone & message forms its own tile.
+    {
+        // Build top-level tile list: (msg_start, msg_end, is_standalone_parallel)
+        // Only standalone parallel messages (NOT inside any group) get disjoint constraints here.
+        // Parallel groups are handled by the group-based code above.
+        let mut tiles: Vec<(usize, usize, bool)> = Vec::new();
+        let mut mi = 0usize;
+        let msg_count_total: usize = diagram.events().iter()
+            .filter(|e| matches!(e, SequenceEvent::Message(_))).count();
+        while mi < msg_count_total {
+            // Check if mi is the start of a top-level group (nesting level 0)
+            if let Some(gi) = groups.iter().position(|g| g.msg_start == mi && g.nesting_level == 0 && g.group_type != "else") {
+                let g = &groups[gi];
+                // Groups are treated as non-parallel anchors (their constraints are handled above)
+                tiles.push((g.msg_start, g.msg_end, false));
+                mi = g.msg_end;
+            } else {
+                // Standalone message (not in any top-level group)
+                let is_par = msg_parallel.get(mi).copied().unwrap_or(false);
+                tiles.push((mi, mi + 1, is_par));
+                mi += 1;
+            }
+        }
+        // Build clusters and add disjoint constraints
+        // +1 pixel for ASCII_FRAME_MARGIN (2 char columns ≈ 1 pixel) on the group side
+        let disjoint_base = 2.0 * GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X1 + GROUP_EXTERNAL_MARGIN_X2 + 1.0;
+        let mut cluster: Vec<(usize, usize)> = Vec::new(); // (msg_start, msg_end) of tiles in current cluster
+        for &(t_start, t_end, t_par) in &tiles {
+            if t_par {
+                // Parallel tile: add disjoint constraints with all previous tiles in cluster
+                for &(prev_start, prev_end) in &cluster {
+                    // Find rightmost participant in prev tile and leftmost in current tile
+                    let mut prev_rightmost: Option<usize> = None;
+                    let mut curr_leftmost: Option<usize> = None;
+                    for (mi2, event) in diagram.events().iter().enumerate() {
+                        if let SequenceEvent::Message(msg) = event {
+                            let exo = msg_exo.get(mi2).copied().flatten();
+                            if exo.is_none() {
+                                let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                                let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                                if mi2 >= prev_start && mi2 < prev_end {
+                                    prev_rightmost = Some(prev_rightmost.map_or(p1_idx.max(p2_idx), |r| r.max(p1_idx).max(p2_idx)));
+                                }
+                                if mi2 >= t_start && mi2 < t_end {
+                                    curr_leftmost = Some(curr_leftmost.map_or(p1_idx.min(p2_idx), |r| r.min(p1_idx).min(p2_idx)));
+                                }
+                            }
+                        }
+                    }
+                    if let (Some(prev_idx), Some(curr_idx)) = (prev_rightmost, curr_leftmost) {
+                        if prev_idx == curr_idx { continue; } // Same anchor, skip
+                        // Determine direction from posB values
+                        let prev_posb = pos_b[prev_idx].get_current_value();
+                        let curr_posb = pos_b[curr_idx].get_current_value();
+                        if prev_posb <= curr_posb {
+                            // Current tile is to the right: curr_min >= prev_max
+                            for (mi2, event) in diagram.events().iter().enumerate() {
+                                if let SequenceEvent::Message(msg) = event {
+                                    if mi2 >= prev_start && mi2 < prev_end {
+                                        let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                                        let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                                        let is_self = p1_idx == p2_idx;
+                                        let text_w = pre_wrapped_widths.get(mi2).copied().unwrap_or(0.0);
+                                        if is_self {
+                                            let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
+                                            let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &constraint);
+                                        } else {
+                                            let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &c1);
+                                            let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[curr_idx], &c2);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Current tile is to the left: prev_min >= curr_max
+                            for (mi2, event) in diagram.events().iter().enumerate() {
+                                if let SequenceEvent::Message(msg) = event {
+                                    if mi2 >= t_start && mi2 < t_end {
+                                        let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                                        let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                                        let is_self = p1_idx == p2_idx;
+                                        let text_w = pre_wrapped_widths.get(mi2).copied().unwrap_or(0.0);
+                                        if is_self {
+                                            let drawn_w = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + text_w);
+                                            let constraint = plantuml_real::add_fixed(&pos_c[p1_idx], drawn_w + disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &constraint);
+                                        } else {
+                                            let c1 = plantuml_real::add_fixed(&pos_c[p2_idx], disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &c1);
+                                            let c2 = plantuml_real::add_fixed(&pos_c[p1_idx], text_w + 24.0 + disjoint_base);
+                                            plantuml_real::ensure_bigger_than(&pos_c[prev_idx], &c2);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                cluster.push((t_start, t_end));
+            } else {
+                cluster.clear();
+                cluster.push((t_start, t_end));
+            }
+        }
+    }
     plantuml_real::compile_now(xorigin.get_line());
 
     let mut pos_b_vals: Vec<f64> = pos_b.iter().map(|r| r.get_current_value()).collect();
