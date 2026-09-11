@@ -1,0 +1,86 @@
+# Build the Astro documentation site (including WASM) and deploy to GitHub Pages.
+#
+# Prerequisites (one-time, repository settings):
+#   Settings → Pages → Build and deployment → Source: GitHub Actions
+#
+# Ported from: site/ (Astro + Starlight) + bindings/plantuml-ts + crates/plantuml-wasm
+
+name: Deploy Site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Permissions required for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            site/package-lock.json
+            bindings/plantuml-ts/package-lock.json
+
+      # Build the TypeScript binding package (includes WASM build via `npm run build`)
+      - name: Build @vgerbot/plantuml binding
+        working-directory: bindings/plantuml-ts
+        run: |
+          npm ci
+          npm run build
+
+      # Install site deps, sync WASM into public/, and build the Astro site
+      - name: Build Astro site
+        working-directory: site
+        run: |
+          npm ci
+          npm run sync:wasm
+          npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

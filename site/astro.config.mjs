@@ -5,6 +5,8 @@ import { unified } from '@astrojs/markdown-remark';
 import { remarkPlantuml } from './src/plugins/remark-plantuml.ts';
 
 export default defineConfig({
+  site: 'https://vgerbot.github.io',
+  base: '/plantuml.rs/',
   integrations: [
     starlight({
       title: 'plantuml.rs',
