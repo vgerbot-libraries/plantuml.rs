@@ -38,7 +38,10 @@ Output bytes
 | `SourceStringReader` | Programmatic API entry point | `plantuml-engine` |
 | `BlockUmlBuilder` | Splits source into `@start`/`@end` blocks | `plantuml-engine` |
 | `BlockUml` | One block; lazy preprocessing via `TimLoader` | `plantuml-engine` |
-| `PSystemBuilder` | Diagram-type dispatcher (factory + registry) | `plantuml-engine` |
+| `UmlSource` | Preprocessed source + candidate diagram types | `plantuml-engine` |
+| `PSystemFactory` | Trait for diagram-type factories | `plantuml-engine` |
+| `PSystemCommandFactory` | Generic command-based factory | `plantuml-engine` |
+| `PSystemError` | Factory error type | `plantuml-core` |
 | `FileFormat` | Output format enum | `plantuml-core` |
 
 ## Layer Mapping (Java Package → Rust Crate)
@@ -59,8 +62,8 @@ Output bytes
 | `png` | `plantuml-png` | PNG rendering backend |
 | `openpdf` | `plantuml-pdf` | PDF rendering backend |
 | `tikz` | `plantuml-pdf` | LaTeX/TikZ rendering (combined with PDF) |
-| root (partial) | `plantuml-engine` | `BlockUml`, `BlockUmlBuilder`, `PSystemBuilder`, `SourceStringReader` |
-| root (partial) | `plantuml-core` | `Diagram`, `TextBlock`, `StringBounder`, `FileFormat`, `FileFormatOption` |
+| root (partial) | `plantuml-engine` | `BlockUml`, `BlockUmlBuilder`, `PSystemBuilder`, `UmlSource`, `PSystemFactory`, `PSystemCommandFactory`, `SourceStringReader` |
+| root (partial) | `plantuml-core` | `Diagram`, `DiagramType`, `PSystemError`, `TextBlock`, `StringBounder`, `FileFormat`, `FileFormatOption` |
 | `Run` / `cli` | `plantuml-cli` | CLI binary |
 | — | `plantuml-ffi` | C FFI shared library for language bindings |
 | — | `bindings/plantuml-java` | Java bindings (JNI) |

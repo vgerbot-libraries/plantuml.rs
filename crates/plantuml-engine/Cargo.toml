@@ -15,6 +15,7 @@ plantuml-preproc.workspace = true
 plantuml-klimt.workspace = true
 plantuml-svg.workspace = true
 plantuml-sequence.workspace = true
+plantuml-command.workspace = true
 plantuml-real.workspace = true
 plantuml-skin.workspace = true
 thiserror.workspace = true

@@ -91,13 +91,13 @@ impl<D: 'static> Command<D> for UbrexCommandMultilines2<D> {
         let Some(first) = lines.first() else {
             return CommandControl::NotOk;
         };
-        let text = first.trim();
+        let text = first.get_string().trim();
         let matcher = self.starting.match_str(text, 0);
         if matcher.exact_match() {
             // Check if end pattern matches any subsequent line
             let end = self.end_pattern();
             for line in lines.iter().skip(1) {
-                let trimmed = self.trim_end.trim(line);
+                let trimmed = self.trim_end.trim(line.get_string());
                 let end_matcher = end.match_str(&trimmed, 0);
                 if end_matcher.exact_match() {
                     return CommandControl::Ok;

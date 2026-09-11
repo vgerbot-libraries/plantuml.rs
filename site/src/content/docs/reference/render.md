@@ -31,4 +31,4 @@ Currently supports `FileFormat::Svg` and `FileFormat::Preproc`. All other format
 
 - `RenderError::ParseFailed` — the source could not be parsed as a supported diagram type.
 - `RenderError::UnsupportedFormat(FileFormat)` — the requested format is not yet implemented.
-- `RenderError::Utf8` — the rendered output was not valid UTF-8.
+- `RenderError::Export(String)` — the diagram factory succeeded but export failed.

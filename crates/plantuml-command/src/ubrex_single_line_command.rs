@@ -95,7 +95,7 @@ impl<D: 'static> Command<D> for UbrexSingleLineCommand2<D> {
         let Some(first) = lines.first() else {
             return CommandControl::NotOk;
         };
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         if self.is_forbidden(text) {
             return CommandControl::NotOk;
         }
@@ -116,7 +116,7 @@ impl<D: 'static> Command<D> for UbrexSingleLineCommand2<D> {
         let Some(first) = lines.first() else {
             return Ok(CommandExecutionResult::error("Empty input"));
         };
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         let matcher = self.pattern.match_str(text, 0);
         if matcher.exact_match() {
             let result = RegexResult::from_umatcher(matcher);
@@ -129,7 +129,7 @@ impl<D: 'static> Command<D> for UbrexSingleLineCommand2<D> {
 
     fn explain(&self, lines: &BlocLines) -> Option<String> {
         let first = lines.first()?;
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         let matcher = self.pattern.match_str(text, 0);
         if matcher.exact_match() {
             let result = RegexResult::from_umatcher(matcher);

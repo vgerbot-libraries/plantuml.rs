@@ -13,6 +13,8 @@ use std::io::Write;
 use crate::file_format_option::FileFormatOption;
 
 /// A rendered diagram, produced by a diagram-type factory.
+///
+/// Ported from: net/sourceforge/plantuml/core/Diagram.java
 pub trait Diagram {
     /// Export image `num` (0-indexed) to `os` in the given format.
     fn export_diagram(
@@ -36,4 +38,9 @@ pub trait Diagram {
 
     /// The root cause of any failure, if the diagram is an error diagram.
     fn root_cause(&self) -> Option<String>;
+
+    /// The diagram type (sequence, class, state, etc.).
+    ///
+    /// Ported from: inferred from `Diagram.getSource().getDiagramTypes()`.
+    fn get_diagram_type(&self) -> crate::diagram_type::DiagramType;
 }

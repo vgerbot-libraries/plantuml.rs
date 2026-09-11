@@ -79,6 +79,21 @@ impl BlockUml {
     pub fn get_local_defines(&self) -> &Defines {
         &self.local_defines
     }
+
+    /// Creates a diagram from the preprocessed source via `PSystemBuilder`.
+    ///
+    /// Ported from: `BlockUml.getDiagram()` (which calls
+    /// `PSystemBuilder.createPSystem`).
+    ///
+    /// Returns `Ok(diagram)` on success, or `Err` if no factory can handle
+    /// this source.
+    pub fn get_diagram(
+        &self,
+    ) -> Result<Box<dyn plantuml_core::Diagram>, plantuml_core::PSystemError> {
+        let source = crate::uml_source::UmlSource::new(self.data.clone());
+        let builder = crate::p_system_builder::PSystemBuilder::default_builder();
+        builder.create_p_system(&source)
+    }
 }
 
 impl Clone for BlockUml {

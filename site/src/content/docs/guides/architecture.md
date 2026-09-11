@@ -45,8 +45,8 @@ Output bytes
 | `skin` / `style` / `theme` | `plantuml-skin` | Skin / style / theme system |
 | `real` | `plantuml-real` | 1D constraint solver for layout positioning |
 | `svg` | `plantuml-svg` | SVG rendering backend |
-| root (partial) | `plantuml-engine` | `BlockUml`, `BlockUmlBuilder`, `PSystemBuilder`, `SourceStringReader`, unified render API |
-| root (partial) | `plantuml-core` | `Diagram`, `TextBlock`, `StringBounder`, `FileFormat`, `FileFormatOption` |
+| root (partial) | `plantuml-engine` | `BlockUml`, `BlockUmlBuilder`, `PSystemBuilder`, `UmlSource`, `PSystemFactory`, `PSystemCommandFactory`, `SourceStringReader`, unified render API |
+| root (partial) | `plantuml-core` | `Diagram`, `DiagramType`, `PSystemError`, `TextBlock`, `StringBounder`, `FileFormat`, `FileFormatOption` |
 | — | `plantuml-ffi` | C FFI shared library for language bindings |
 | — | `plantuml-wasm` | WASM module (wasm-bindgen) for TypeScript binding |
 

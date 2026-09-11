@@ -24,7 +24,7 @@ println!("{svg}");
 
 ## Errors
 
-Returns `RenderError::ParseFailed` when the source cannot be parsed as a supported diagram type (currently sequence diagrams only). Returns `RenderError::Utf8` if the rendered output is not valid UTF-8.
+Returns `RenderError::ParseFailed` when the source cannot be parsed as a supported diagram type. The function tries the `PSystemBuilder` pipeline first (preprocess → factory dispatch → `Diagram::export_diagram`), then falls back to the legacy bypass pipeline for sequence diagrams. Returns `RenderError::Utf8` if the rendered output is not valid UTF-8. Returns `RenderError::Export` if the diagram factory succeeds but export fails.
 
 ## TypeScript equivalent
 

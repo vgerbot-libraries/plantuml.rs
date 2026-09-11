@@ -96,7 +96,7 @@ impl<D: 'static> Command<D> for SingleLineCommand2<D> {
         let Some(first) = lines.first() else {
             return CommandControl::NotOk;
         };
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         if self.is_forbidden(text) {
             return CommandControl::NotOk;
         }
@@ -115,7 +115,7 @@ impl<D: 'static> Command<D> for SingleLineCommand2<D> {
         let Some(first) = lines.first() else {
             return Ok(CommandExecutionResult::error("Empty input"));
         };
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         self.pattern.matcher(text).map_or_else(
             || Ok(CommandExecutionResult::error("Pattern does not match")),
             |result| {
@@ -127,7 +127,7 @@ impl<D: 'static> Command<D> for SingleLineCommand2<D> {
 
     fn explain(&self, lines: &BlocLines) -> Option<String> {
         let first = lines.first()?;
-        let text = if self.do_trim { first.trim() } else { first };
+        let text = if self.do_trim { first.get_string().trim() } else { first.get_string() };
         let result = self.pattern.matcher(text)?;
         self.explain_arg(&LineLocation::default(), &result)
     }

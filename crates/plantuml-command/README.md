@@ -21,7 +21,7 @@ Implements the Command pattern used by diagram parsers. Each source line is matc
 | `ubrex_command_multilines` | `UbrexCommandMultilines2` — multi-line command with ubrex patterns |
 | `ubrex_single_line_command` | `UbrexSingleLineCommand2` — single-line command with ubrex patterns |
 | `parser_pass` | `ParserPass` — parsing pass coordination |
-| `trim` | `Trim` — whitespace trimming utilities |
+| `stubs` | `BlocLines`, `StringLocated`, `LineLocation` re-exports + placeholder types |
 
 ## Key Exports
 
@@ -30,7 +30,8 @@ Implements the Command pattern used by diagram parsers. Each source line is matc
 - `CommandControl` — flow control enum
 - `CommandExecutionResult` — execution outcome
 - `MultilinesStrategy` — multi-line command behavior strategy
-
+- `BlocLines` — block of `StringLocated` input lines for command matching
+- `StringLocated` / `LineLocation` — re-exported from `plantuml-preproc`
 ## License
 
 MIT License (per workspace `LICENSE` file).

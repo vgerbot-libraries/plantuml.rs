@@ -339,6 +339,7 @@ dependencies = [
  "log",
  "plantuml-core",
  "plantuml-klimt",
+ "plantuml-preproc",
  "plantuml-regex",
  "thiserror",
 ]
@@ -357,6 +358,7 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "log",
+ "plantuml-command",
  "plantuml-core",
  "plantuml-klimt",
  "plantuml-preproc",

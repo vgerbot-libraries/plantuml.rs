@@ -36,7 +36,7 @@ Documented for future implementation. Not created in the bootstrap phase.
 | `plantuml-klimt` | `klimt` | 2D graphics abstraction: shapes, geometry, fonts, drawing surfaces, `UGraphic`, `TextBlock` |
 | `plantuml-regex` | `com.plantuml.ubrex` | Custom regex engine port |
 | `plantuml-preproc` | `preproc`, `tim` | Preprocessor: `!include`, `!define`, variables, conditionals |
-| `plantuml-command` | `command` | `Command` / `CommandFactory` parsing framework |
+| `plantuml-command` | `command` | `Command` / `CommandFactory` parsing framework; `BlocLines` wraps `StringLocated` from `plantuml-preproc` |
 | `plantuml-model` | `abel`, `cucadiagram` | Entity/relationship model: `Entity`, `Link`, `LeafType` |
 | `plantuml-sequence` | `sequencediagram` | Sequence diagram (first diagram type to implement) |
 | `plantuml-class` | `classdiagram` | Class diagram |

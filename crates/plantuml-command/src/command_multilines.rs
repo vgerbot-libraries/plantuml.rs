@@ -98,13 +98,13 @@ impl<D: 'static> Command<D> for CommandMultilines2<D> {
         let Some(first) = lines.first() else {
             return CommandControl::NotOk;
         };
-        let text = first.trim();
+        let text = first.get_string().trim();
         match self.starting.matcher(text) {
             Some(_) => {
                 // Check if end pattern matches any subsequent line
                 let end = self.end_pattern();
                 for line in lines.iter().skip(1) {
-                    let trimmed = self.trim_end.trim(line);
+                    let trimmed = self.trim_end.trim(line.get_string());
                     if end.matcher(&trimmed, 0).matches() {
                         return CommandControl::Ok;
                     }

@@ -2,7 +2,7 @@
 //!
 //! Ported from: `net/sourceforge/plantuml/command/` package.
 
-mod stubs;
+pub mod stubs;
 
 pub mod command;
 pub mod command_control;
@@ -24,4 +24,4 @@ pub use parser_pass::ParserPass;
 pub use single_line_command::SingleLineCommand2;
 pub use trim::Trim;
 pub use ubrex_command_multilines::UbrexCommandMultilines2;
-pub use ubrex_single_line_command::UbrexSingleLineCommand2;
+pub use stubs::{BlocLines, NoSuchColorException, StringLocated};

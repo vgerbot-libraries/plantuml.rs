@@ -25,6 +25,11 @@
 //! diagrams. For Phase 4, only PREPROC format is supported.
 
 pub mod block_uml;
+pub mod p_system_factory;
+pub mod p_system_builder;
+pub mod p_system_command_factory;
+pub mod sequence_factory;
+pub mod uml_source;
 pub mod block_uml_builder;
 pub mod definitions_container;
 pub mod error_uml;
@@ -38,5 +43,6 @@ pub use block_uml_builder::BlockUmlBuilder;
 pub use definitions_container::DefinitionsContainer;
 pub use error_uml::{ErrorUml, ErrorUmlType};
 pub use source_string_reader::SourceStringReader;
-pub use start_utils::StartUtils;
-pub use render::{render, render_svg, render_preproc, RenderError};
+pub use p_system_factory::PSystemFactory;
+pub use uml_source::UmlSource;
+pub use render::{render, render_preproc, render_svg, RenderError};

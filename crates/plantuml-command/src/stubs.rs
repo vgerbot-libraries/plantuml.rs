@@ -6,20 +6,35 @@
 
 use std::sync::OnceLock;
 
-/// Placeholder for `net.sourceforge.plantuml.utils.BlocLines`.
+/// A block of input lines for command parsing.
 ///
-/// Represents a block of input lines for command parsing.
-/// Will be properly ported from `BlocLines.java` in a later phase.
+/// Ported from: net/sourceforge/plantuml/utils/BlocLines.java
 #[derive(Debug, Clone)]
 pub struct BlocLines {
-    lines: Vec<String>,
+    lines: Vec<StringLocated>,
 }
 
 impl BlocLines {
-    /// Creates a new `BlocLines` from a list of strings.
+    /// Creates an empty `BlocLines`.
     #[must_use]
-    pub const fn new(lines: Vec<String>) -> Self {
+    pub const fn empty() -> Self {
+        Self { lines: Vec::new() }
+    }
+
+    /// Creates a `BlocLines` from a list of `StringLocated`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn new(lines: Vec<StringLocated>) -> Self {
         Self { lines }
+    }
+
+    /// Creates a single-line `BlocLines` from one `StringLocated`.
+    ///
+    /// Ported from: `BlocLines.single(StringLocated)`.
+    #[must_use]
+    pub fn single(line: &StringLocated) -> Self {
+        Self {
+            lines: vec![line.clone()],
+        }
     }
 
     /// Returns the number of lines.
@@ -36,19 +51,35 @@ impl BlocLines {
 
     /// Returns the first line, if any.
     #[must_use]
-    pub fn first(&self) -> Option<&str> {
-        self.lines.first().map(String::as_str)
+    pub fn first(&self) -> Option<&StringLocated> {
+        self.lines.first()
     }
 
     /// Returns an iterator over the lines.
-    pub fn iter(&self) -> impl Iterator<Item = &str> {
-        self.lines.iter().map(String::as_str)
+    pub fn iter(&self) -> impl Iterator<Item = &StringLocated> {
+        self.lines.iter()
     }
 
     /// Returns the lines as a slice.
     #[must_use]
-    pub fn lines(&self) -> &[String] {
+    pub fn lines(&self) -> &[StringLocated] {
         &self.lines
+    }
+
+    /// Returns the string content of each line.
+    #[must_use]
+    pub fn get_strings(&self) -> Vec<&str> {
+        self.lines.iter().map(StringLocated::get_string).collect()
+    }
+
+    /// Adds a line and returns a new `BlocLines`.
+    ///
+    /// Ported from: `BlocLines.add(StringLocated)`.
+    #[allow(clippy::should_implement_trait)]
+    #[must_use]
+    pub fn add(mut self, line: StringLocated) -> Self {
+        self.lines.push(line);
+        self
     }
 }
 
@@ -86,54 +117,12 @@ impl std::fmt::Display for Display {
     }
 }
 
-/// Placeholder for `net.sourceforge.plantuml.utils.LineLocation`.
-///
-/// Tracks source file and line number for error reporting.
-#[derive(Debug, Clone, Default)]
-pub struct LineLocation {
-    pub file: Option<String>,
-    pub line: u32,
-}
+// Re-export `StringLocated` from the preprocessor crate — the canonical
+// implementation with full location tracking.
+pub use plantuml_preproc::StringLocated;
 
-impl LineLocation {
-    /// Creates a new `LineLocation`.
-    #[must_use]
-    pub const fn new(file: Option<String>, line: u32) -> Self {
-        Self { file, line }
-    }
-}
-
-/// Placeholder for `net.sourceforge.plantuml.utils.StringLocated`.
-///
-/// A string with location information.
-#[derive(Debug, Clone)]
-pub struct StringLocated {
-    string: String,
-    location: LineLocation,
-}
-
-impl StringLocated {
-    /// Creates a new `StringLocated`.
-    #[must_use]
-    pub fn new(string: impl Into<String>, location: LineLocation) -> Self {
-        Self {
-            string: string.into(),
-            location,
-        }
-    }
-
-    /// Returns the string content.
-    #[must_use]
-    pub fn get_string(&self) -> &str {
-        &self.string
-    }
-
-    /// Returns the location.
-    #[must_use]
-    pub const fn get_location(&self) -> &LineLocation {
-        &self.location
-    }
-}
+// Re-export `LineLocation` from the preprocessor crate.
+pub use plantuml_preproc::stubs::LineLocation;
 
 /// Placeholder for `net.sourceforge.plantuml.klimt.color.NoSuchColorException`.
 ///
@@ -167,29 +156,8 @@ impl std::fmt::Display for NoSuchColorException {
 
 impl std::error::Error for NoSuchColorException {}
 
-/// Placeholder for `net.sourceforge.plantuml.PSystemError`.
-///
-/// Error diagram that renders error messages.
-#[derive(Debug, Clone)]
-pub struct PSystemError {
-    message: String,
-}
-
-impl PSystemError {
-    /// Creates a new `PSystemError`.
-    #[must_use]
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-
-    /// Returns the error message.
-    #[must_use]
-    pub fn get_message(&self) -> &str {
-        &self.message
-    }
-}
+// Re-export `PSystemError` from plantuml-core — the canonical implementation.
+pub use plantuml_core::PSystemError;
 
 /// Placeholder for `net.sourceforge.plantuml.style.StyleBuilder`.
 ///

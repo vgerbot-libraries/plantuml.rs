@@ -16,21 +16,29 @@ Currently supports SVG (sequence diagrams) and PREPROC (preprocessed text) outpu
 |--------|-------------|
 | `render` | Unified render API: `render`, `render_svg`, `render_preproc`, `RenderError` |
 | `block_uml_builder` | `BlockUmlBuilder` — splits source into `@start`/`@end` blocks |
-| `block_uml` | `BlockUml` — one block; lazy preprocessing |
+| `block_uml` | `BlockUml` — one block; lazy preprocessing; `get_diagram()` dispatch |
 | `source_string_reader` | `SourceStringReader` — programmatic API entry point |
 | `sequence_renderer` | Sequence diagram parsing and SVG rendering |
+| `uml_source` | `UmlSource` — preprocessed source lines + candidate diagram types |
+| `p_system_factory` | `PSystemFactory` trait — interface for diagram-type factories |
+| `p_system_builder` | `PSystemBuilder` — factory registry + dispatch to first matching factory |
+| `p_system_command_factory` | `PSystemCommandFactory<D>` — generic command-based factory |
+| `sequence_factory` | `SequenceDiagramFactory` — wraps bypass pipeline as `PSystemFactory` |
 | `definitions_container` | `DefinitionsContainer` — shared definitions state |
 | `error_uml` | `ErrorUml` / `ErrorUmlType` — error diagram rendering |
-| `start_utils` | `StartUtils` — `@startuml`/`@enduml` block utilities |
 
 ## Key Exports
 
-- `render_svg(source: &str) -> Result<String, RenderError>` — render to SVG
+- `render_svg(source: &str) -> Result<String, RenderError>` — render to SVG (tries `PSystemBuilder` pipeline first, falls back to bypass)
 - `render_preproc(source: &str) -> Result<String, RenderError>` — render to preprocessed text
 - `render(source: &str, format: FileFormat) -> Result<String, RenderError>` — dispatch by format
 - `SourceStringReader` — programmatic API entry point
 - `BlockUmlBuilder` / `BlockUml` — block splitting and lazy preprocessing
-- `RenderError` — error enum (`ParseFailed`, `UnsupportedFormat`, `Utf8`)
+- `UmlSource` — preprocessed source lines + candidate diagram types
+- `PSystemFactory` — trait for diagram-type factories
+- `PSystemBuilder` — factory registry + dispatch
+- `PSystemCommandFactory<D>` — generic command-based factory for `Command<D>`-based diagram types
+- `RenderError` — error enum (`ParseFailed`, `UnsupportedFormat`, `Utf8`, `Export`)
 
 ## Usage
 
