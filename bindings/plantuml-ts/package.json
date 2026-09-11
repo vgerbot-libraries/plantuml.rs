@@ -1,0 +1,23 @@
+{
+  "name": "@vgerbot/plantuml",
+  "version": "0.1.0",
+  "description": "Rust-powered PlantUML renderer for browser and Node.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "wasm"
+  ],
+  "scripts": {
+    "build:wasm:web": "wasm-pack build --target web ../../crates/plantuml-wasm --out-dir ../../bindings/plantuml-ts/wasm/web",
+    "build:wasm:node": "wasm-pack build --target nodejs ../../crates/plantuml-wasm --out-dir ../../bindings/plantuml-ts/wasm/node",
+    "clean:wasm-gitignore": "rm -f wasm/web/.gitignore wasm/node/.gitignore",
+    "build:ts": "tsc",
+    "build": "npm run build:wasm:web && npm run build:wasm:node && npm run clean:wasm-gitignore && npm run build:ts",
+    "test": "node dist/test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5.4"
+  }
+}

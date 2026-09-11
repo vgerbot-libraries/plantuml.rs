@@ -3869,6 +3869,39 @@ pub struct ParsedSequence {
     /// Style rules from `<style>` block: element name → property → value.
     pub style_rules: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
+
+impl ParsedSequence {
+    /// Renders this parsed sequence diagram to an SVG string.
+    #[must_use]
+    pub fn render(&self) -> String {
+        render_sequence_svg(
+            &self.diagram,
+            self.svg_title.as_deref(),
+            self.svg_desc.as_deref(),
+            self.title.as_deref(),
+            self.title_line,
+            self.hide_footbox,
+            &self.notes,
+            &self.groups,
+            &self.msg_activates,
+            &self.msg_deactivates,
+            &self.msg_parallel,
+            self.max_message_size,
+            &self.msg_exo,
+            &self.msg_hidden,
+            self.skin_rose,
+            self.arrow_color.as_deref(),
+            self.header_text.as_deref(),
+            self.header_line,
+            self.footer_text.as_deref(),
+            self.footer_line,
+            self.legend_text.as_deref(),
+            self.caption_text.as_deref(),
+            self.caption_line,
+            &self.style_rules,
+        )
+    }
+}
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
 pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {

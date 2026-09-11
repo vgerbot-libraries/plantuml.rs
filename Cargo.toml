@@ -12,6 +12,9 @@ members = [
     "crates/plantuml-skin",
     "crates/plantuml-real",
     "crates/plantuml-sequence",
+    "crates/plantuml-ffi",
+    "crates/plantuml-wasm",
+    "bindings/plantuml-java/native",
 ]
 [workspace.package]
 edition = "2021"
@@ -37,10 +40,16 @@ plantuml-regex = { path = "crates/plantuml-regex" }
 plantuml-preproc = { path = "crates/plantuml-preproc" }
 plantuml-command = { path = "crates/plantuml-command" }
 plantuml-model = { path = "crates/plantuml-model" }
+plantuml-engine = { path = "crates/plantuml-engine" }
 plantuml-real = { path = "crates/plantuml-real" }
 plantuml-sequence = { path = "crates/plantuml-sequence" }
 plantuml-svg = { path = "crates/plantuml-svg" }
 plantuml-skin = { path = "crates/plantuml-skin" }
+plantuml-ffi = { path = "crates/plantuml-ffi" }
+plantuml-wasm = { path = "crates/plantuml-wasm" }
+cbindgen = "0.29"
+wasm-bindgen = "=0.2.93"
+jni = "0.21"
 
 [workspace.lints.clippy]
 all = "warn"

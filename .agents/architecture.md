@@ -65,7 +65,7 @@ Output bytes
 | — | `plantuml-ffi` | C FFI shared library for language bindings |
 | — | `bindings/plantuml-java` | Java bindings (JNI) |
 | — | `bindings/plantuml-python` | Python bindings (PyO3 + maturin) |
-| — | `bindings/plantuml-ts` | TypeScript bindings (napi-rs) |
+| — | `bindings/plantuml-ts` | TypeScript bindings (WASM via wasm-bindgen) |
 
 ## Key Design Patterns to Preserve
 
@@ -97,9 +97,9 @@ All bindings expose the same core API: given PlantUML source text and an output 
 
 ### Java (JNI)
 
-- `plantuml-ffi` exposes a C ABI (via `cbindgen`).
-- `bindings/plantuml-java` provides a Java JAR that loads the shared library via JNI and wraps the C ABI calls.
-- This allows drop-in replacement for users of the Java PlantUML API.
+- `bindings/plantuml-java/native` (`plantuml-jni` crate) uses the `jni` crate for direct Rust ↔ JVM interop.
+- `bindings/plantuml-java` provides a Java JAR (`com.vgerbot.plantuml:plantuml-java`) that loads the native library from the classpath and declares `native` methods.
+- The Java API currently exposes `PlantUml.renderSvg` / `PlantUml.renderPreproc` static methods; it will expand as more diagram types are ported.
 
 ### Python (PyO3)
 
@@ -107,11 +107,12 @@ All bindings expose the same core API: given PlantUML source text and an output 
 - Built with `maturin develop` / `maturin build`.
 - Direct Rust ↔ Python interop; no C ABI layer needed.
 
-### TypeScript (napi-rs)
+### TypeScript (WASM)
 
-- `bindings/plantuml-ts` uses napi-rs to create a native Node.js addon.
-- Built with `npm run build`.
-- Direct Rust ↔ Node.js interop; no C ABI layer needed.
+- `crates/plantuml-wasm` uses `wasm-bindgen` to compile the Rust engine to WebAssembly.
+- `bindings/plantuml-ts` wraps the WASM module with an environment-detecting TypeScript loader (browser via `--target web`, Node.js via `--target nodejs`).
+- Built with `npm run build` (runs `wasm-pack` for both targets + `tsc`).
+- WASM covers both browser and Node.js, unlike napi-rs which is Node-only.
 
 ## Scale
 

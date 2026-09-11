@@ -76,4 +76,4 @@ The following skills are installed in `.agents/skills/`:
 |---------|-------------|
 | Java | `cd bindings/plantuml-java && ./gradlew build` |
 | Python | `maturin develop` (or `maturin build`) |
-| TypeScript | `npm run build` |
+| TypeScript | `cd bindings/plantuml-ts && npm run build` |

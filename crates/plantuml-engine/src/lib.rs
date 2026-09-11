@@ -12,6 +12,7 @@ pub mod error_uml;
 pub mod source_string_reader;
 pub mod start_utils;
 pub mod sequence_renderer;
+pub mod render;
 
 pub use block_uml::BlockUml;
 pub use block_uml_builder::BlockUmlBuilder;
@@ -19,3 +20,4 @@ pub use definitions_container::DefinitionsContainer;
 pub use error_uml::{ErrorUml, ErrorUmlType};
 pub use source_string_reader::SourceStringReader;
 pub use start_utils::StartUtils;
+pub use render::{render, render_svg, render_preproc, RenderError};

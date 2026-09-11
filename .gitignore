@@ -22,3 +22,16 @@ target
 
 # PlantUML reference repo (read-only clone, not part of this project)
 temp/
+
+# Generated WASM packages and TypeScript build output
+bindings/plantuml-ts/wasm/
+bindings/plantuml-ts/dist/
+bindings/plantuml-ts/node_modules/
+crates/plantuml-wasm/pkg-*/
+
+# Gradle build artifacts
+bindings/plantuml-java/.gradle/
+bindings/plantuml-java/build/
+
+# Root node_modules (dev tooling only)
+node_modules/

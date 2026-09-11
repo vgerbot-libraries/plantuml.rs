@@ -1,0 +1,19 @@
+[package]
+name = "plantuml-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+plantuml-engine.workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]

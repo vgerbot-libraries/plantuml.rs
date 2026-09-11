@@ -1,0 +1,33 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.vgerbot.plantuml'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+task buildNative(type: Exec) {
+    workingDir file('native')
+    commandLine 'cargo', 'build', '--release'
+}
+
+task copyNative(type: Copy, dependsOn: buildNative) {
+    String libName = System.getProperty('os.name').toLowerCase().contains('linux')
+        ? 'libplantuml_jni.so'
+        : System.getProperty('os.name').toLowerCase().contains('mac')
+            ? 'libplantuml_jni.dylib'
+            : 'plantuml_jni.dll'
+    from("${rootProject.projectDir}/../../target/release/${libName}")
+    into("$buildDir/resources/main/native")
+    rename { libName }
+}
+
+processResources.dependsOn copyNative
+
+jar {
+    from sourceSets.main.output
+}
