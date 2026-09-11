@@ -65,7 +65,7 @@ impl LeafType {
     ///
     /// Ported from: `LeafType.isLikeClass()`.
     #[must_use]
-    pub fn is_like_class(&self) -> bool {
+    pub const fn is_like_class(&self) -> bool {
         matches!(
             self,
             Self::AbstractClass
@@ -86,7 +86,7 @@ impl LeafType {
     /// Parses a string to a `LeafType`.
     ///
     /// Ported from: `LeafType.getLeafType(String)`.
-    #[must_use]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "abstract class" => Some(Self::AbstractClass),

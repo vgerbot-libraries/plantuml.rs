@@ -1,8 +1,7 @@
-/// Repetition quantifier: matches `origin` a number of times specified by a
-/// `Repetition` spec (e.g. `{3}`, `{2-5}`, `{3+}`).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeRepetition.java`
-
+//! Repetition quantifier: matches `origin` a number of times specified by a
+//! `Repetition` spec (e.g. `{3}`, `{2-5}`, `{3+}`).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeRepetition.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -19,7 +18,7 @@ pub struct ChallengeRepetition {
 
 impl ChallengeRepetition {
     pub fn new(repetition: Repetition, origin: Rc<dyn Challenge>) -> Self {
-        ChallengeRepetition { origin, repetition }
+        Self { origin, repetition }
     }
 }
 
@@ -37,13 +36,10 @@ impl Challenge for ChallengeRepetition {
                         (current_pos - position) as i32,
                         capture,
                     );
-                } else {
-                    return ChallengeResult::no_match();
                 }
+                return ChallengeResult::no_match();
             }
-            if shall_we_pass.full_capture_length == 0 {
-                panic!("infinite loop in ChallengeRepetition");
-            }
+            assert!(shall_we_pass.full_capture_length != 0, "infinite loop in ChallengeRepetition");
             capture = capture.merge(&shall_we_pass.capture);
             current_pos += shall_we_pass.full_capture_length as usize;
             count += 1;

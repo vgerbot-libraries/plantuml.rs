@@ -134,7 +134,7 @@ impl SkinParam {
         if let Some(v) = self.get_first_value_non_null_with_suffix("fontname", param) {
             return remove_quotes(&v);
         }
-        if param.first().map_or(true, |p| *p != FontParam::CircledCharacter) {
+        if param.first().is_none_or(|p| *p != FontParam::CircledCharacter) {
             if let Some(v) = self.get_value("defaultfontname") {
                 return remove_quotes(&v);
             }
@@ -155,10 +155,10 @@ impl SkinParam {
             }
         }
         let mut value = self.get_first_value_non_null_with_suffix("fontsize", param);
-        if !value.as_deref().map_or(false, is_digits) {
+        if !value.as_deref().is_some_and(is_digits) {
             value = self.get_value("defaultfontsize");
         }
-        if !value.as_deref().map_or(false, is_digits) {
+        if !value.as_deref().is_some_and(is_digits) {
             return param.first().map_or(14, |p| p.default_size());
         }
         value.and_then(|v| v.parse().ok()).unwrap_or(14)
@@ -421,10 +421,10 @@ impl ISkinParam for SkinParam {
             }
         }
         let value = self.get_value("shadowing");
-        if value.as_deref().map_or(false, |v| v.eq_ignore_ascii_case("false")) {
+        if value.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("false")) {
             return false;
         }
-        if value.as_deref().map_or(false, |v| v.eq_ignore_ascii_case("true")) {
+        if value.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("true")) {
             return true;
         }
         if self.strict_uml_style() {
@@ -584,7 +584,7 @@ impl ISkinParam for SkinParam {
     }
     fn swimlane_width(&self) -> i32 {
         let value = self.get_value("swimlanewidth");
-        if value.as_deref().map_or(false, |v| v.eq_ignore_ascii_case("same")) {
+        if value.as_deref().is_some_and(|v| v.eq_ignore_ascii_case("same")) {
             return SWIMLANE_WIDTH_SAME;
         }
         if let Some(ref v) = value {

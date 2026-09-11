@@ -1,8 +1,7 @@
-/// Named group challenge: wraps a list of challenges and captures the matched
-/// text under a named key.
-///
-/// Ported from: `com/plantuml/ubrex/CompositeNamed.java`
-
+//! Named group challenge: wraps a list of challenges and captures the matched
+//! text under a named key.
+//!
+//! Ported from: `com/plantuml/ubrex/CompositeNamed.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,14 +17,14 @@ pub struct CompositeNamed {
 
 impl CompositeNamed {
     pub fn new(name: String, challenge: Rc<dyn Challenge>) -> Self {
-        CompositeNamed {
+        Self {
             name,
             challenges: vec![challenge],
         }
     }
 
     pub fn from_challenges(name: String, challenges: Vec<Rc<dyn Challenge>>) -> Self {
-        CompositeNamed { name, challenges }
+        Self { name, challenges }
     }
 }
 
@@ -62,7 +61,7 @@ impl std::fmt::Display for CompositeNamed {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", c)?;
+            write!(f, "{c}")?;
         }
         write!(f, "]")
     }

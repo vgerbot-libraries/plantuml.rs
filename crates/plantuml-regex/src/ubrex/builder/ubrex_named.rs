@@ -1,7 +1,6 @@
-/// Named group builder: wraps a `UBrexPart` in a named capture group.
-///
-/// Ported from: `com/plantuml/ubrex/builder/UBrexNamed.java`
-
+//! Named group builder: wraps a `UBrexPart` in a named capture group.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/UBrexNamed.java`
 use std::rc::Rc;
 
 use crate::ubrex::composite_list::CompositeList;
@@ -15,12 +14,12 @@ pub struct UBrexNamed {
 impl UBrexNamed {
     pub fn new(name: &str, origin: &UBrexPart) -> Self {
         let challenge = create(name, origin);
-        UBrexNamed {
+        Self {
             part: UBrexPart::new(challenge),
         }
     }
 
-    pub fn as_part(&self) -> &UBrexPart {
+    pub const fn as_part(&self) -> &UBrexPart {
         &self.part
     }
 
@@ -37,7 +36,7 @@ fn create(name: &str, part: &UBrexPart) -> Rc<dyn crate::ubrex::challenge::Chall
         let challenges: Vec<Rc<dyn crate::ubrex::challenge::Challenge>> = composite_list
             .get_internal_challenges_list()
             .iter()
-            .map(|c| Rc::clone(c))
+            .map(Rc::clone)
             .collect();
         return Rc::new(CompositeNamed::from_challenges(name.to_string(), challenges));
     }

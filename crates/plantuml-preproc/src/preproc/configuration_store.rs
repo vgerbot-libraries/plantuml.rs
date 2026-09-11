@@ -50,7 +50,7 @@ impl<K: Eq + Hash + Clone> ConfigurationStore<K> {
     pub fn is_true(&self, key: &K) -> bool {
         self.values
             .get(key)
-            .map_or(false, |v| v.eq_ignore_ascii_case("true"))
+            .is_some_and(|v| v.eq_ignore_ascii_case("true"))
     }
 
     /// Removes a key.

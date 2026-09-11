@@ -26,8 +26,7 @@ crate::impl_simple_return_function!(
         // Rust's str::find returns byte index. We use char-based search to match Java semantics.
         let result = full
             .find(&searched[..])
-            .map(|byte_idx| full[..byte_idx].chars().count() as i32)
-            .unwrap_or(-1);
+            .map_or(-1, |byte_idx| full[..byte_idx].chars().count() as i32);
         Ok(TValue::from_int(result))
     },
 );

@@ -109,7 +109,7 @@ impl<'a> EvalMath<'a> {
             }
             let func = &self.str[start_pos..self.pos - 1];
             let _ = self.parse_factor()?;
-            return Err(format!("Unknown function: {}", func));
+            return Err(format!("Unknown function: {func}"));
         } else {
             return Err(format!("Unexpected: {}", self.ch));
         }

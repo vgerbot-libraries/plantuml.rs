@@ -1,6 +1,6 @@
 //! C FFI shared library for language bindings.
 //!
-//! Exposes stateless C ABI functions that render PlantUML source to SVG or
+//! Exposes stateless C ABI functions that render `PlantUML` source to SVG or
 //! PREPROC text. Each call creates a fresh engine instance, renders, and
 //! returns a newly allocated C string that the caller must free with
 //! [`plantuml_free_string`].
@@ -10,7 +10,7 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
 
-/// Renders PlantUML source to SVG.
+/// Renders `PlantUML` source to SVG.
 ///
 /// Returns `0` on success, storing the SVG string in `*out` (newly allocated;
 /// caller must free with [`plantuml_free_string`]). Returns `-1` on parse
@@ -21,7 +21,7 @@ pub extern "C" fn plantuml_render_svg(source: *const c_char, out: *mut *mut c_ch
     render_to_c(source, out, plantuml_engine::render_svg)
 }
 
-/// Renders PlantUML source to PREPROC text.
+/// Renders `PlantUML` source to PREPROC text.
 ///
 /// Same contract as [`plantuml_render_svg`].
 #[no_mangle]

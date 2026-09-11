@@ -52,6 +52,7 @@ pub enum TLineType {
 // Regex patterns for line type detection
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 static IDENTIFIER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[\p{L}_][\p{L}_0-9]*$").unwrap_or_else(|_| Regex::new(r"^[A-Za-z_][A-Za-z_0-9]*$").unwrap())
 });
@@ -110,11 +111,9 @@ static ONLY_WHITESPACE_NON_EMPTY: LazyLock<Regex> =
 /// Helper: matches a simple keyword pattern at the start of a line.
 fn matches_keyword(s: &str, keyword: &str) -> bool {
     let trimmed = s.trim_start();
-    if let Some(rest) = trimmed.strip_prefix(keyword) {
+    trimmed.strip_prefix(keyword).is_some_and(|rest| {
         rest.is_empty() || rest.starts_with(|c: char| !c.is_alphanumeric())
-    } else {
-        false
-    }
+    })
 }
 
 impl TLineType {

@@ -2,7 +2,6 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
@@ -27,7 +26,7 @@ crate::impl_simple_return_function!(
         if !data.is_json() {
             return Err(EaterException::new("Not JSON data".to_string(), location));
         }
-        let mut json = data.to_json().clone();
+        let mut json = data.to_json();
         match &mut json {
             serde_json::Value::Array(arr) => {
                 let value = values[1].to_json();

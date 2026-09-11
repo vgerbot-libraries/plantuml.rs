@@ -76,10 +76,10 @@ impl Pattern2 {
     /// Compiles a pattern string, expanding macros first.
     ///
     /// Ported from `Pattern2.cmpile(String)`.
-    pub fn cmpile(p: &str) -> Pattern2 {
+    pub fn cmpile(p: &str) -> Self {
         let pattern_string = p.to_string();
         let pattern = Regex::new(&transform(&pattern_string));
-        Pattern2 { pattern_string, pattern }
+        Self { pattern_string, pattern }
     }
 
     /// Returns the raw pattern string (before macro expansion).
@@ -106,7 +106,7 @@ impl Pattern2 {
 
 impl Clone for Pattern2 {
     fn clone(&self) -> Self {
-        Pattern2::cmpile(self.pattern())
+        Self::cmpile(self.pattern())
     }
 }
 
@@ -114,7 +114,7 @@ impl std::fmt::Debug for Pattern2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Pattern2")
             .field("pattern_string", &self.pattern_string)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

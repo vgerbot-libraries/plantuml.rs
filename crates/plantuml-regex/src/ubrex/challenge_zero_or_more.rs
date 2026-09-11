@@ -1,7 +1,6 @@
-/// Zero-or-more quantifier: matches `origin` zero or more times (greedy).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeZeroOrMore.java`
-
+//! Zero-or-more quantifier: matches `origin` zero or more times (greedy).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeZeroOrMore.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -16,7 +15,7 @@ pub struct ChallengeZeroOrMore {
 
 impl ChallengeZeroOrMore {
     pub fn new(origin: Rc<dyn Challenge>) -> Self {
-        ChallengeZeroOrMore { origin }
+        Self { origin }
     }
 }
 
@@ -33,9 +32,7 @@ impl Challenge for ChallengeZeroOrMore {
                     capture,
                 );
             }
-            if tmp.full_capture_length == 0 {
-                panic!("infinite loop in ChallengeZeroOrMore");
-            }
+            assert!(tmp.full_capture_length != 0, "infinite loop in ChallengeZeroOrMore");
             capture = capture.merge(&tmp.capture);
             current_pos += tmp.full_capture_length as usize;
         }

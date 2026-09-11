@@ -49,7 +49,7 @@ impl FontStyle {
 }
 
 /// A font descriptor: family name, size, and style.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UFont {
     family: String,
     style: FontStyle,

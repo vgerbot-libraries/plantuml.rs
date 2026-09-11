@@ -30,7 +30,7 @@ crate::impl_simple_return_function!(
         if values.len() == 3 {
             let len = values[2].to_int() as usize;
             if len < remaining.chars().count() {
-                return Ok(TValue::from_string(&remaining[..remaining.char_indices().nth(len).map(|(i, _)| i).unwrap_or(remaining.len())]));
+                return Ok(TValue::from_string(&remaining[..remaining.char_indices().nth(len).map_or(remaining.len(), |(i, _)| i)]));
             }
         }
         Ok(TValue::from_string(&remaining))

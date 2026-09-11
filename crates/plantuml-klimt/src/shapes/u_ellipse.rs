@@ -1,8 +1,7 @@
-//! UEllipse — ellipse shape.
+//! `UEllipse` — ellipse shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/UEllipse.java`
 
-use crate::ushape::UShape;
 
 /// An ellipse centered at (x, y) with x-radius and y-radius.
 ///

@@ -26,7 +26,7 @@ pub struct FileFormatOption {
 
 impl FileFormatOption {
     #[must_use]
-    pub fn new(file_format: FileFormat) -> Self {
+    pub const fn new(file_format: FileFormat) -> Self {
         Self {
             file_format,
             with_metadata: true,
@@ -41,7 +41,7 @@ impl FileFormatOption {
     }
 
     #[must_use]
-    pub fn new_with_metadata(file_format: FileFormat, with_metadata: bool) -> Self {
+    pub const fn new_with_metadata(file_format: FileFormat, with_metadata: bool) -> Self {
         let mut o = Self::new(file_format);
         o.with_metadata = with_metadata;
         o
@@ -57,7 +57,7 @@ impl FileFormatOption {
         self.with_metadata
     }
 
-    pub fn hide_metadata(&mut self) {
+    pub const fn hide_metadata(&mut self) {
         self.with_metadata = false;
     }
 

@@ -1,7 +1,6 @@
-/// Matcher interface returned by `UnicodeBracketedExpression::match`.
-///
-/// Ported from: `com/plantuml/ubrex/UMatcher.java`
-
+//! Matcher interface returned by `UnicodeBracketedExpression::match`.
+//!
+//! Ported from: `com/plantuml/ubrex/UMatcher.java`
 use super::capture::Capture;
 use super::capture_lookup::CaptureLookup;
 

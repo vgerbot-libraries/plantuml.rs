@@ -6,12 +6,12 @@ use std::collections::HashMap;
 
 use super::trie::Trie;
 
-/// A trie implementation using a HashMap of character → child nodes.
+/// A trie implementation using a `HashMap` of character → child nodes.
 ///
 /// Ported from `net.sourceforge.plantuml.tim.TrieImpl`.
 #[derive(Debug, Clone, Default)]
 pub struct TrieImpl {
-    brothers: HashMap<char, TrieImpl>,
+    brothers: HashMap<char, Self>,
 }
 
 impl TrieImpl {
@@ -36,10 +36,7 @@ impl TrieImpl {
         let mut current = self;
         for i in 0..chars.len() {
             let first = chars[i];
-            let child = match current.brothers.get_mut(&first) {
-                Some(c) => c,
-                None => return false,
-            };
+            let Some(child) = current.brothers.get_mut(&first) else { return false };
             if i == chars.len() - 2 {
                 return child.brothers.remove(&'\0').is_some();
             }
@@ -48,7 +45,7 @@ impl TrieImpl {
         false
     }
 
-    fn get_or_create(&mut self, added: char) -> &mut TrieImpl {
+    fn get_or_create(&mut self, added: char) -> &mut Self {
         self.brothers.entry(added).or_default()
     }
 }
@@ -79,14 +76,11 @@ impl Trie for TrieImpl {
                 return String::new();
             }
             let ch = chars[idx];
-            let child = match current.brothers.get(&ch) {
-                Some(c) => c,
-                None => {
-                    if current.brothers.contains_key(&'\0') {
-                        return result;
-                    }
-                    return String::new();
+            let Some(child) = current.brothers.get(&ch) else {
+                if current.brothers.contains_key(&'\0') {
+                    return result;
                 }
+                return String::new();
             };
             if child.brothers.is_empty() {
                 if current.brothers.contains_key(&'\0') {

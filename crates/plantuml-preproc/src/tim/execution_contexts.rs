@@ -12,6 +12,7 @@ use super::execution_context_while::ExecutionContextWhile;
 ///
 /// Ported from `net.sourceforge.plantuml.tim.ExecutionContexts`.
 #[derive(Debug, Clone, Default)]
+#[allow(clippy::struct_field_names)]
 pub struct ExecutionContexts {
     all_ifs: VecDeque<ExecutionContextIf>,
     all_whiles: VecDeque<ExecutionContextWhile>,
@@ -72,6 +73,6 @@ impl ExecutionContexts {
     /// Ported from `ExecutionContexts.areAllIfOk`.
     #[must_use]
     pub fn are_all_if_ok(&self) -> bool {
-        self.all_ifs.iter().all(|ctx| ctx.condition_is_ok_here())
+        self.all_ifs.iter().all(super::execution_context_if::ExecutionContextIf::condition_is_ok_here)
     }
 }

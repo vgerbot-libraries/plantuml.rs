@@ -39,9 +39,8 @@ impl UncommentReadLine {
 
 impl ReadLine for UncommentReadLine {
     fn read_line(&mut self) -> io::Result<Option<StringLocated>> {
-        let result = match self.raw.read_line()? {
-            Some(r) => r,
-            None => return Ok(None),
+        let Some(result) = self.raw.read_line()? else {
+            return Ok(None);
         };
 
         // Check for text before @startuml

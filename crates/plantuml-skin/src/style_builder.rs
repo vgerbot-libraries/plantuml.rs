@@ -5,12 +5,8 @@
 use std::collections::HashMap;
 
 use crate::merge_strategy::MergeStrategy;
-use crate::p_name::PName;
-use crate::s_name::SName;
-use crate::specificity::Specificity;
 use crate::style::Style;
 use crate::style_query::StyleQuery;
-use crate::value::Value;
 
 /// Trait for automatic counter (used to assign specificity order values).
 ///
@@ -186,6 +182,10 @@ fn style_matches(declaration: &StyleQuery, query: &StyleQuery) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::p_name::PName;
+    use crate::s_name::SName;
+    use crate::specificity::Specificity;
+    use crate::value::Value;
 
     #[test]
     fn empty_builder() {

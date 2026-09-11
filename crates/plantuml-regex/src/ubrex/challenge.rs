@@ -1,10 +1,9 @@
-/// Core matching trait for the ubrex regex engine.
-///
-/// Each `Challenge` tests whether a pattern matches at a given position in a
-/// `TextNavigator`, returning a `ChallengeResult`.
-///
-/// Ported from: `com/plantuml/ubrex/Challenge.java`
-
+//! Core matching trait for the ubrex regex engine.
+//!
+//! Each `Challenge` tests whether a pattern matches at a given position in a
+//! `TextNavigator`, returning a `ChallengeResult`.
+//!
+//! Ported from: `com/plantuml/ubrex/Challenge.java`
 use std::any::Any;
 
 use super::challenge_result::ChallengeResult;

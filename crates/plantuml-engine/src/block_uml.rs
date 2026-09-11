@@ -6,12 +6,12 @@ use plantuml_preproc::preproc::Defines;
 use plantuml_preproc::tim::TimLoader;
 use plantuml_preproc::StringLocated;
 
-/// One `@start`/`@end` block in the PlantUML source.
+/// One `@start`/`@end` block in the `PlantUML` source.
 ///
 /// Ported from `net.sourceforge.plantuml.BlockUml`.
 ///
 /// For Phase 4, only PREPROC format is supported. The block runs the
-/// TimLoader preprocessor on its raw source and stores the result.
+/// `TimLoader` preprocessor on its raw source and stores the result.
 pub struct BlockUml {
     raw_source: Vec<StringLocated>,
     data: Vec<StringLocated>,
@@ -24,7 +24,7 @@ impl BlockUml {
     ///
     /// Ported from `BlockUml(DefinitionsContainer, PathSystem, List<StringLocated>, Defines, Previous, Charset)`.
     ///
-    /// Runs the TimLoader preprocessor on the source lines.
+    /// Runs the `TimLoader` preprocessor on the source lines.
     pub fn new(strings: Vec<StringLocated>, defines: &Defines) -> Self {
         Self::with_current_dir(strings, defines, None)
     }

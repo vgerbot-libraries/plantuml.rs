@@ -1,4 +1,4 @@
-//! TMemory trait — variable storage interface.
+//! `TMemory` trait — variable storage interface.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.TMemory`.
 

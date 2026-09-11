@@ -21,6 +21,6 @@ crate::impl_simple_return_function!(
     can_cover = |nb_arg, _named| nb_arg == 1,
     execute = |_self, _context, _memory, _location, values, _named| {
         let n = values[0].to_int();
-        Ok(TValue::from_string(&format!("{n:x}")))
+        Ok(TValue::from_string(format!("{n:x}")))
     },
 );

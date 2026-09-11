@@ -1,4 +1,4 @@
-//! Color types — HColor and color utilities.
+//! Color types — `HColor` and color utilities.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/color/` package
 

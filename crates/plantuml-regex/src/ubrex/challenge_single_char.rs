@@ -1,7 +1,6 @@
-/// Matches a single character (case-insensitive by default).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeSingleChar.java`
-
+//! Matches a single character (case-insensitive by default).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeSingleChar.java`
 use std::any::Any;
 
 use super::case_mode::CaseMode;
@@ -24,7 +23,7 @@ impl ChallengeSingleChar {
         }
         // Case-insensitive
         let ch = CaseMode::ensure_lowercase(ch);
-        ChallengeSingleChar { ch }
+        Self { ch }
     }
 }
 

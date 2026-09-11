@@ -3,8 +3,9 @@
 //! Ported from `net.sourceforge.plantuml.tim.expression` package.
 //!
 //! This module implements the expression tokenizer, shunting-yard algorithm,
-//! and reverse Polish notation interpreter used by the PlantUML preprocessor.
+//! and reverse Polish notation interpreter used by the `PlantUML` preprocessor.
 
+#[allow(clippy::module_inception)]
 pub mod expression;
 pub mod knowledge;
 pub mod reverse_polish_interpretor;

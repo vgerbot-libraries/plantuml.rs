@@ -17,7 +17,7 @@ pub enum RenderError {
     Utf8(std::string::FromUtf8Error),
 }
 
-/// Renders PlantUML `source` to the requested `format`.
+/// Renders `PlantUML` `source` to the requested `format`.
 ///
 /// Currently supports [`FileFormat::Svg`] and [`FileFormat::Preproc`]; all other
 /// formats return [`RenderError::UnsupportedFormat`].
@@ -29,7 +29,7 @@ pub fn render(source: &str, format: FileFormat) -> Result<String, RenderError> {
     }
 }
 
-/// Renders PlantUML `source` to an SVG string.
+/// Renders `PlantUML` `source` to an SVG string.
 ///
 /// Returns [`RenderError::ParseFailed`] when the source cannot be parsed as a
 /// sequence diagram.
@@ -39,7 +39,7 @@ pub fn render_svg(source: &str) -> Result<String, RenderError> {
     Ok(parsed.render())
 }
 
-/// Renders PlantUML `source` to PREPROC (preprocessed) text.
+/// Renders `PlantUML` `source` to PREPROC (preprocessed) text.
 pub fn render_preproc(source: &str) -> Result<String, RenderError> {
     use plantuml_core::FileFormatOption;
     let reader = crate::source_string_reader::SourceStringReader::new(source);

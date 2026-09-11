@@ -66,13 +66,13 @@ impl<D> CommandMultilines2<D> {
 
     /// Returns the trim mode for the end pattern.
     #[must_use]
-    pub fn trim_end(&self) -> Trim {
+    pub const fn trim_end(&self) -> Trim {
         self.trim_end
     }
 
     /// Returns the multilines strategy.
     #[must_use]
-    pub fn strategy(&self) -> MultilinesStrategy {
+    pub const fn strategy(&self) -> MultilinesStrategy {
         self.strategy
     }
 
@@ -80,7 +80,7 @@ impl<D> CommandMultilines2<D> {
     ///
     /// Ported from: `CommandMultilines2.syntaxWithFinalBracket()`.
     #[must_use]
-    pub fn syntax_with_final_bracket(&self) -> bool {
+    pub const fn syntax_with_final_bracket(&self) -> bool {
         false
     }
 
@@ -88,7 +88,7 @@ impl<D> CommandMultilines2<D> {
     ///
     /// Ported from: `CommandMultilines2.finalVerification(BlocLines)`.
     #[must_use]
-    pub fn final_verification(&self, _lines: &BlocLines) -> CommandExecutionResult {
+    pub const fn final_verification(&self, _lines: &BlocLines) -> CommandExecutionResult {
         CommandExecutionResult::ok()
     }
 }

@@ -1,4 +1,4 @@
-//! RegexOptional — optional regex pattern `(?:p)?`.
+//! `RegexOptional` — optional regex pattern `(?:p)?`.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexOptional` (Java).
 

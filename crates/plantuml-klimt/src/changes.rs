@@ -1,4 +1,4 @@
-//! Concrete UChange implementations — color, stroke, font, translate, clip.
+//! Concrete `UChange` implementations — color, stroke, font, translate, clip.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/drawing/` package
 use crate::HColor;
@@ -15,12 +15,12 @@ pub struct UChangeColor {
 
 impl UChangeColor {
     #[must_use]
-    pub fn new(color: HColor) -> Self {
+    pub const fn new(color: HColor) -> Self {
         Self { color }
     }
 
     #[must_use]
-    pub fn color(&self) -> &HColor {
+    pub const fn color(&self) -> &HColor {
         &self.color
     }
 }
@@ -38,7 +38,7 @@ pub struct UChangeStroke {
 
 impl UChangeStroke {
     #[must_use]
-    pub fn new(stroke_width: f64) -> Self {
+    pub const fn new(stroke_width: f64) -> Self {
         Self {
             stroke_width,
             dash_array: None,
@@ -46,7 +46,7 @@ impl UChangeStroke {
     }
 
     #[must_use]
-    pub fn with_dash(stroke_width: f64, dash: [f64; 2]) -> Self {
+    pub const fn with_dash(stroke_width: f64, dash: [f64; 2]) -> Self {
         Self {
             stroke_width,
             dash_array: Some(dash),
@@ -76,12 +76,12 @@ pub struct UChangeFont {
 
 impl UChangeFont {
     #[must_use]
-    pub fn new(font: UFont) -> Self {
+    pub const fn new(font: UFont) -> Self {
         Self { font }
     }
 
     #[must_use]
-    pub fn font(&self) -> &UFont {
+    pub const fn font(&self) -> &UFont {
         &self.font
     }
 }

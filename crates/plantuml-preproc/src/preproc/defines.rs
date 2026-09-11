@@ -13,6 +13,7 @@ use crate::preproc::truth::Truth;
 use crate::stubs::version_string;
 
 static DATE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    #[allow(clippy::trivial_regex)]
     Regex::new(r"(?i)%date(\[(.+?)\])?%").unwrap_or_else(|_| Regex::new("$").unwrap_or_else(|_| Regex::new("$").unwrap()))
 });
 
@@ -31,7 +32,7 @@ impl Default for Defines {
 }
 
 impl Defines {
-    /// Creates a new `Defines` with the PlantUML version pre-set.
+    /// Creates a new `Defines` with the `PlantUML` version pre-set.
     ///
     /// Ported from `net.sourceforge.plantuml.preproc.Defines.Defines`.
     #[must_use]
@@ -76,7 +77,7 @@ impl Defines {
     ///
     /// Note: `Define` objects cannot be cloned (they contain `OnceLock`),
     /// so only environment variables are imported.
-    pub fn import_from(&mut self, other: &Defines) {
+    pub fn import_from(&mut self, other: &Self) {
         for (k, v) in &other.environment {
             self.environment.insert(k.clone(), v.clone());
         }
@@ -126,26 +127,23 @@ impl Defines {
     fn manage_environment(&self, line: &str) -> String {
         let mut result = line.to_string();
         for (key, value) in &self.environment {
-            let pattern = format!("%{}%", key);
+            let pattern = format!("%{key}%");
             result = result.replace(&pattern, value);
         }
         result
     }
 
     /// Replaces `%date` or `%date[format]%` with the current date.
+    #[allow(clippy::unused_self)]
     fn manage_date(&self, line: &str) -> String {
         if !DATE_PATTERN.is_match(line) {
             return line.to_string();
         }
-        let caps = match DATE_PATTERN.captures(line) {
-            Some(c) => c,
-            None => return line.to_string(),
+        let Some(caps) = DATE_PATTERN.captures(line) else {
+            return line.to_string();
         };
         let format = caps.get(2).map(|m| m.as_str());
-        let replace = match format {
-            None => format!("{}", Self::current_date_string()),
-            Some(fmt) => format!("(BAD DATE PATTERN:{})", fmt),
-        };
+        let replace = format.map_or_else(Self::current_date_string, |fmt| format!("(BAD DATE PATTERN:{fmt})"));
         DATE_PATTERN.replace_all(line, replace.as_str()).to_string()
     }
 
@@ -158,22 +156,18 @@ impl Defines {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        format!("<date {}>", secs)
+        format!("<date {secs}>")
     }
 
     fn name_no_extension(name: &str) -> String {
-        if let Some(idx) = name.rfind('.') {
-            name[..idx].to_string()
-        } else {
-            name.to_string()
-        }
+        name.rfind('.').map_or_else(|| name.to_string(), |idx| name[..idx].to_string())
     }
 }
 
 impl Truth for Defines {
     fn is_true(&self, name: &str) -> bool {
         for key in self.values.keys() {
-            if key == name || key.starts_with(&format!("{}(", name)) {
+            if key == name || key.starts_with(&format!("{name}(")) {
                 return true;
             }
         }

@@ -2,7 +2,6 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
@@ -56,9 +55,6 @@ crate::impl_simple_return_function!(
             }
         }
         // Fall back to default
-        match serde_json::from_str(&default_json) {
-            Ok(json) => Ok(TValue::from_json(json)),
-            Err(_) => Ok(TValue::from_string("")),
-        }
+        serde_json::from_str(&default_json).map_or_else(|_| Ok(TValue::from_string("")), |json| Ok(TValue::from_json(json)))
     },
 );

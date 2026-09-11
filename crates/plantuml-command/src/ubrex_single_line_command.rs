@@ -1,4 +1,4 @@
-//! UBrex single-line command base — uses ubrex regex engine.
+//! `UBrex` single-line command base — uses ubrex regex engine.
 //!
 //! Ported from: `net/sourceforge/plantuml/command/UBrexSingleLineCommand2.java`
 
@@ -49,19 +49,19 @@ impl<D> UbrexSingleLineCommand2<D> {
 
     /// Returns the ubrex pattern.
     #[must_use]
-    pub fn pattern(&self) -> &UnicodeBracketedExpression {
+    pub const fn pattern(&self) -> &UnicodeBracketedExpression {
         &self.pattern
     }
 
     /// Returns whether trimming is enabled.
     #[must_use]
-    pub fn do_trim(&self) -> bool {
+    pub const fn do_trim(&self) -> bool {
         self.do_trim
     }
 
     /// Returns `false` — single-line commands don't use final bracket syntax.
     #[must_use]
-    pub fn syntax_with_final_bracket(&self) -> bool {
+    pub const fn syntax_with_final_bracket(&self) -> bool {
         false
     }
 
@@ -69,7 +69,7 @@ impl<D> UbrexSingleLineCommand2<D> {
     ///
     /// Ported from: `UBrexSingleLineCommand2.isForbidden(CharSequence)`.
     #[must_use]
-    pub fn is_forbidden(&self, _input: &str) -> bool {
+    pub const fn is_forbidden(&self, _input: &str) -> bool {
         false
     }
 
@@ -77,7 +77,7 @@ impl<D> UbrexSingleLineCommand2<D> {
     ///
     /// Ported from: `UBrexSingleLineCommand2.finalVerification()`.
     #[must_use]
-    pub fn final_verification(&self) -> CommandExecutionResult {
+    pub const fn final_verification(&self) -> CommandExecutionResult {
         CommandExecutionResult::ok()
     }
 
@@ -85,7 +85,7 @@ impl<D> UbrexSingleLineCommand2<D> {
     ///
     /// Ported from: `UBrexSingleLineCommand2.explainArg(LineLocation, RegexResult)`.
     #[must_use]
-    pub fn explain_arg(&self, _location: &LineLocation, _result: &RegexResult) -> Option<String> {
+    pub const fn explain_arg(&self, _location: &LineLocation, _result: &RegexResult) -> Option<String> {
         None
     }
 }

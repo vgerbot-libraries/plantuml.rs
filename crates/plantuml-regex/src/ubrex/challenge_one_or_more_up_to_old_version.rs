@@ -1,8 +1,7 @@
-/// One-or-more-up-to challenge (old version): matches `origin` one or more
-/// times until `end` matches at the current position.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeOneOrMoreUpToOldVersion.java`
-
+//! One-or-more-up-to challenge (old version): matches `origin` one or more
+//! times until `end` matches at the current position.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeOneOrMoreUpToOldVersion.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,7 +17,7 @@ pub struct ChallengeOneOrMoreUpToOldVersion {
 
 impl ChallengeOneOrMoreUpToOldVersion {
     pub fn new(origin: Rc<dyn Challenge>, end: Rc<dyn Challenge>) -> Self {
-        ChallengeOneOrMoreUpToOldVersion { origin, end }
+        Self { origin, end }
     }
 }
 
@@ -32,9 +31,7 @@ impl Challenge for ChallengeOneOrMoreUpToOldVersion {
             if shall_we_pass.full_capture_length < 0 {
                 return ChallengeResult::no_match();
             }
-            if shall_we_pass.full_capture_length == 0 {
-                panic!("infinite loop in ChallengeOneOrMoreUpToOldVersion");
-            }
+            assert!(shall_we_pass.full_capture_length != 0, "infinite loop in ChallengeOneOrMoreUpToOldVersion");
             capture = capture.merge(&shall_we_pass.capture);
             current_pos += shall_we_pass.full_capture_length as usize;
 

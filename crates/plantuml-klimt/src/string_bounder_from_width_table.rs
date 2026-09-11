@@ -14,7 +14,9 @@ use crate::unicode_font_width_sans_serif::SANS_SERIF;
 const REFERENCE_SIZE: f64 = 16.0;
 
 /// A `StringBounder` that measures text using the hardcoded Unicode width
-/// table. Produces deterministic, platform-independent dimensions — the
+/// table.
+///
+/// Produces deterministic, platform-independent dimensions — the
 /// primary bounder for `SVG_DETERMINISTIC` and `LATEX_DETERMINISTIC` output.
 pub struct StringBounderFromWidthTable {
     file_format: FileFormat,

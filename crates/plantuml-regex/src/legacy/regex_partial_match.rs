@@ -21,7 +21,7 @@ impl RegexPartialMatch {
     ///
     /// Ported from `RegexPartialMatch(String name)`. The Java constructor
     /// takes a name argument but does not store it.
-    pub fn new(_name: &str) -> Self {
+    pub const fn new(_name: &str) -> Self {
         Self { data: Vec::new() }
     }
 
@@ -36,7 +36,7 @@ impl RegexPartialMatch {
     /// Returns the number of captured groups.
     ///
     /// Ported from `RegexPartialMatch.size()`.
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.data.len()
     }
 

@@ -48,7 +48,7 @@ impl EaterTheme {
             );
             self.name = Some(name[..x].trim().to_string());
         } else {
-            self.name = Some(name.clone());
+            self.name = Some(name);
         }
         self.real_name = context.apply_functions_and_variables(
             memory,

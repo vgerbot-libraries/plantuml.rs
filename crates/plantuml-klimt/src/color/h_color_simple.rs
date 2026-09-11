@@ -1,4 +1,4 @@
-//! HColorSimple — simple RGB color with alpha.
+//! `HColorSimple` — simple RGB color with alpha.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/color/HColorSimple.java`
 
@@ -76,6 +76,7 @@ impl HColorSimple {
     }
 }
 
+#[allow(dead_code)]
 /// Shortens a hex color string if possible.
 ///
 /// `#FFFFFF` → `#FFF`, `#E2E2F0` → `#E2E2F0` (not shortenable).

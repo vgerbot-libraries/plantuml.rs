@@ -1,8 +1,7 @@
-//! ULine — line shape.
+//! `ULine` — line shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/ULine.java`
 
-use crate::ushape::UShape;
 
 /// A line from (x1, y1) to (x2, y2).
 ///

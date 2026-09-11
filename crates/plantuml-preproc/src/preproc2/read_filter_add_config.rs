@@ -3,11 +3,10 @@
 //! Ported from `net.sourceforge.plantuml.preproc2.ReadFilterAddConfig`.
 
 use std::io;
-use std::sync::Mutex;
 
 use crate::preproc::read_line::ReadLine;
 use crate::preproc::read_line_list::ReadLineList;
-use crate::stubs::{LineLocation, StartUtils};
+use crate::stubs::StartUtils;
 use crate::StringLocated;
 use crate::preproc2::read_filter::ReadFilter;
 use crate::preproc2::read_filter_quote_comment::ReadFilterQuoteComment;

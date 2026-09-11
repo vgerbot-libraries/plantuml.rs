@@ -4,7 +4,7 @@
 
 use super::code_iterator::CodeIterator;
 use super::code_position::CodePosition;
-use crate::{StringLocated, TLineType};
+use crate::StringLocated;
 
 /// A code iterator that handles legacy `!define`/`!definelong` directives.
 ///

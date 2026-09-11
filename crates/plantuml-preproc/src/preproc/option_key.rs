@@ -20,8 +20,7 @@ impl OptionKey {
     #[must_use]
     pub fn get_default_value(&self) -> Option<&'static str> {
         match self {
-            Self::Handwritten => Some("true"),
-            Self::Debug => Some("true"),
+            Self::Handwritten | Self::Debug => Some("true"),
             _ => None,
         }
     }
@@ -32,7 +31,7 @@ impl OptionKey {
     #[must_use]
     pub fn simplify(s: &str) -> String {
         s.chars()
-            .filter(|c| ('A'..='Z').contains(c) || ('a'..='z').contains(c))
+            .filter(|c: &char| c.is_ascii_uppercase() || c.is_ascii_lowercase())
             .map(|c| c.to_ascii_lowercase())
             .collect()
     }
@@ -52,6 +51,6 @@ impl OptionKey {
             Self::SvgTitle,
         ]
         .into_iter()
-        .find(|key| simplified == Self::simplify(&format!("{:?}", key)))
+        .find(|key| simplified == Self::simplify(&format!("{key:?}")))
     }
 }

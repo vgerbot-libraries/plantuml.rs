@@ -4,7 +4,6 @@
 
 use super::eater::Eater;
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use crate::StringLocated;
@@ -46,10 +45,7 @@ impl EaterForeach {
     /// Returns `true` if the foreach should be skipped (empty collection).
     #[must_use]
     pub fn is_skip(&self) -> bool {
-        match &self.json_value {
-            Some(json) => Self::size(json) == 0,
-            None => true,
-        }
+        self.json_value.as_ref().is_none_or(|json| Self::size(json) == 0)
     }
 
     /// Returns the size of a JSON value.

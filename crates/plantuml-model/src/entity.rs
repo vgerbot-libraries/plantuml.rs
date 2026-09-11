@@ -56,7 +56,7 @@ impl std::fmt::Display for Display {
 #[derive(Debug, Clone, Default)]
 pub struct Stereotype;
 
-/// Placeholder for USymbol.
+/// Placeholder for `USymbol`.
 #[derive(Debug, Clone, Default)]
 pub struct USymbol;
 
@@ -64,7 +64,7 @@ pub struct USymbol;
 #[derive(Debug, Clone, Default)]
 pub struct Colors;
 
-/// Placeholder for CucaNote.
+/// Placeholder for `CucaNote`.
 #[derive(Debug, Clone, Default)]
 pub struct CucaNote;
 
@@ -80,7 +80,7 @@ pub struct Together;
 #[derive(Debug, Clone, Default)]
 pub struct Tip;
 
-/// Placeholder for VisibilityModifier.
+/// Placeholder for `VisibilityModifier`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct VisibilityModifier;
 
@@ -92,22 +92,22 @@ pub struct Neighborhood;
 #[derive(Debug, Clone, Default)]
 pub struct Margins;
 
-/// Placeholder for IEntityImage.
+/// Placeholder for `IEntityImage`.
 #[derive(Debug, Clone, Default)]
 pub struct IEntityImage;
 
-/// Placeholder for LineLocation.
+/// Placeholder for `LineLocation`.
 #[derive(Debug, Clone, Default)]
 pub struct LineLocation {
     pub file: Option<String>,
     pub line: u32,
 }
 
-/// Placeholder for StyleBuilder.
+/// Placeholder for `StyleBuilder`.
 #[derive(Debug, Clone, Default)]
 pub struct StyleBuilder;
 
-/// Placeholder for CucaDiagram.
+/// Placeholder for `CucaDiagram`.
 #[derive(Debug, Clone, Default)]
 pub struct CucaDiagramRef;
 
@@ -120,6 +120,7 @@ pub struct CucaDiagramRef;
 ///
 /// Ported from: `net/sourceforge/plantuml/abel/Entity.java`
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Entity {
     quark: Quark,
     uid: String,
@@ -144,6 +145,7 @@ pub struct Entity {
     visibility: Option<VisibilityModifier>,
     neighborhood: Neighborhood,
     colors: Colors,
+    #[allow(clippy::zero_sized_map_values)]
     tips: HashMap<String, Tip>,
     style_builder: StyleBuilder,
     hidden: bool,
@@ -155,6 +157,7 @@ impl Entity {
     ///
     /// Ported from: `Entity(StyleBuilder, LineLocation, Quark, CucaDiagram, Bodier, LeafType, int)`.
     #[must_use]
+    #[allow(clippy::zero_sized_map_values)]
     pub fn new_leaf(
         quark: Quark,
         leaf_type: LeafType,
@@ -195,6 +198,7 @@ impl Entity {
     ///
     /// Ported from: `Entity(StyleBuilder, LineLocation, Quark, CucaDiagram, Bodier, GroupType, int)`.
     #[must_use]
+    #[allow(clippy::zero_sized_map_values)]
     pub fn new_group(
         quark: Quark,
         group_type: GroupType,
@@ -235,7 +239,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.getLeafType()`.
     #[must_use]
-    pub fn get_leaf_type(&self) -> Option<LeafType> {
+    pub const fn get_leaf_type(&self) -> Option<LeafType> {
         self.leaf_type
     }
 
@@ -243,7 +247,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.getGroupType()`.
     #[must_use]
-    pub fn get_group_type(&self) -> Option<GroupType> {
+    pub const fn get_group_type(&self) -> Option<GroupType> {
         self.group_type
     }
 
@@ -251,7 +255,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.isGroup()`.
     #[must_use]
-    pub fn is_group(&self) -> bool {
+    pub const fn is_group(&self) -> bool {
         self.group_type.is_some()
     }
 
@@ -259,7 +263,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.getQuark()`.
     #[must_use]
-    pub fn get_quark(&self) -> &Quark {
+    pub const fn get_quark(&self) -> &Quark {
         &self.quark
     }
 
@@ -290,7 +294,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.getDisplay()`.
     #[must_use]
-    pub fn get_display(&self) -> &Display {
+    pub const fn get_display(&self) -> &Display {
         &self.display
     }
 
@@ -305,14 +309,14 @@ impl Entity {
     ///
     /// Ported from: `Entity.getStereotype()`.
     #[must_use]
-    pub fn get_stereotype(&self) -> Option<&Stereotype> {
+    pub const fn get_stereotype(&self) -> Option<&Stereotype> {
         self.stereotype.as_ref()
     }
 
     /// Sets the stereotype.
     ///
     /// Ported from: `Entity.setStereotype()`.
-    pub fn set_stereotype(&mut self, stereotype: Stereotype) {
+    pub const fn set_stereotype(&mut self, stereotype: Stereotype) {
         self.stereotype = Some(stereotype);
     }
 
@@ -320,12 +324,12 @@ impl Entity {
     ///
     /// Ported from: `Entity.isHidden()`.
     #[must_use]
-    pub fn is_hidden(&self) -> bool {
+    pub const fn is_hidden(&self) -> bool {
         self.hidden
     }
 
     /// Sets the hidden flag.
-    pub fn set_hidden(&mut self, hidden: bool) {
+    pub const fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
     }
 
@@ -333,12 +337,12 @@ impl Entity {
     ///
     /// Ported from: `Entity.isRemoved()`.
     #[must_use]
-    pub fn is_removed(&self) -> bool {
+    pub const fn is_removed(&self) -> bool {
         self.removed
     }
 
     /// Sets the removed flag.
-    pub fn set_removed(&mut self, removed: bool) {
+    pub const fn set_removed(&mut self, removed: bool) {
         self.removed = removed;
     }
 
@@ -346,29 +350,29 @@ impl Entity {
     ///
     /// Ported from: `Entity.getXposition()`.
     #[must_use]
-    pub fn get_xposition(&self) -> i32 {
+    pub const fn get_xposition(&self) -> i32 {
         self.xposition
     }
 
     /// Sets the x-position.
     ///
     /// Ported from: `Entity.setXposition()`.
-    pub fn set_xposition(&mut self, xposition: i32) {
+    pub const fn set_xposition(&mut self, xposition: i32) {
         self.xposition = xposition;
     }
 
-    /// Returns the USymbol, if any.
+    /// Returns the `USymbol`, if any.
     ///
     /// Ported from: `Entity.getUSymbol()`.
     #[must_use]
-    pub fn get_u_symbol(&self) -> Option<&USymbol> {
+    pub const fn get_u_symbol(&self) -> Option<&USymbol> {
         self.symbol.as_ref()
     }
 
-    /// Sets the USymbol.
+    /// Sets the `USymbol`.
     ///
     /// Ported from: `Entity.setUSymbol()`.
-    pub fn set_u_symbol(&mut self, symbol: USymbol) {
+    pub const fn set_u_symbol(&mut self, symbol: USymbol) {
         self.symbol = Some(symbol);
     }
 
@@ -376,7 +380,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.getColors()`.
     #[must_use]
-    pub fn get_colors(&self) -> &Colors {
+    pub const fn get_colors(&self) -> &Colors {
         &self.colors
     }
 
@@ -384,14 +388,14 @@ impl Entity {
     ///
     /// Ported from: `Entity.getUrl()`.
     #[must_use]
-    pub fn get_url(&self) -> Option<&Url> {
+    pub const fn get_url(&self) -> Option<&Url> {
         self.url.as_ref()
     }
 
     /// Adds a URL.
     ///
     /// Ported from: `Entity.addUrl()`.
-    pub fn add_url(&mut self, url: Url) {
+    pub const fn add_url(&mut self, url: Url) {
         self.url = Some(url);
     }
 
@@ -399,7 +403,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.hasUrl()`.
     #[must_use]
-    pub fn has_url(&self) -> bool {
+    pub const fn has_url(&self) -> bool {
         self.url.is_some()
     }
 
@@ -441,7 +445,7 @@ impl Entity {
     ///
     /// Ported from: `Entity.isAloneAndUnlinked()`.
     #[must_use]
-    pub fn is_alone_and_unlinked(&self) -> bool {
+    pub const fn is_alone_and_unlinked(&self) -> bool {
         self.leaf_type.is_some() && !self.has_url()
     }
 
@@ -449,14 +453,14 @@ impl Entity {
     ///
     /// Ported from: `Entity.getLocation()`.
     #[must_use]
-    pub fn get_location(&self) -> &LineLocation {
+    pub const fn get_location(&self) -> &LineLocation {
         &self.location
     }
 
     /// Mutates the entity to a different leaf type.
     ///
     /// Ported from: `Entity.muteToType(LeafType)`.
-    pub fn mute_to_type(&mut self, leaf_type: LeafType) {
+    pub const fn mute_to_type(&mut self, leaf_type: LeafType) {
         self.leaf_type = Some(leaf_type);
         self.group_type = None;
     }
@@ -464,15 +468,15 @@ impl Entity {
     /// Mutates the entity to a different group type.
     ///
     /// Ported from: `Entity.muteToGroupType(GroupType)`.
-    pub fn mute_to_group_type(&mut self, group_type: GroupType) {
+    pub const fn mute_to_group_type(&mut self, group_type: GroupType) {
         self.group_type = Some(group_type);
         self.leaf_type = None;
     }
 
-    /// Mutates the entity to a leaf type with a USymbol.
+    /// Mutates the entity to a leaf type with a `USymbol`.
     ///
     /// Ported from: `Entity.muteToType(LeafType, USymbol)`.
-    pub fn mute_to_type_with_symbol(&mut self, leaf_type: LeafType, symbol: USymbol) {
+    pub const fn mute_to_type_with_symbol(&mut self, leaf_type: LeafType, symbol: USymbol) {
         self.mute_to_type(leaf_type);
         self.symbol = Some(symbol);
     }
@@ -481,13 +485,13 @@ impl Entity {
     ///
     /// Ported from: `Entity.canBePacked()`.
     #[must_use]
-    pub fn can_be_packed(&self) -> bool {
+    pub const fn can_be_packed(&self) -> bool {
         self.packed
     }
 
     /// Returns the visibility modifier, if any.
     #[must_use]
-    pub fn get_visibility(&self) -> Option<VisibilityModifier> {
+    pub const fn get_visibility(&self) -> Option<VisibilityModifier> {
         self.visibility
     }
 

@@ -2,9 +2,7 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
-use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
 
 use super::SimpleReturnFunction;
@@ -12,7 +10,7 @@ use super::SimpleReturnFunction;
 static SIGNATURE: LazyLock<TFunctionSignature> =
     LazyLock::new(|| TFunctionSignature::new("%reverse_hsluv_color", 1));
 
-/// `%reverse_hsluv_color(color)` — reverses a color in HSLuv space.
+/// `%reverse_hsluv_color(color)` — reverses a color in `HSLuv` space.
 ///
 /// TODO: implement with `HColor`/`HColorSet` once the klimt color crate is ported.
 pub struct ReverseHsluvColor;

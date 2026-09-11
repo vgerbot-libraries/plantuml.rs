@@ -5,7 +5,7 @@
 use crate::color::color_mapper::ColorMapper;
 use crate::color::h_color::HColor;
 
-/// Converts an HColor to an SVG color string.
+/// Converts an `HColor` to an SVG color string.
 ///
 /// Ported from: `HColor.toSvg(ColorMapper)`.
 #[must_use]

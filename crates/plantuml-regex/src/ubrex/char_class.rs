@@ -1,7 +1,6 @@
-/// Character class combining a `CharClassRaw` with a `CharClassType` (normal/negative).
-///
-/// Ported from: `com/plantuml/ubrex/CharClass.java`
-
+//! Character class combining a `CharClassRaw` with a `CharClassType` (normal/negative).
+//!
+//! Ported from: `com/plantuml/ubrex/CharClass.java`
 use super::char_class_raw::CharClassRaw;
 use super::char_class_type::CharClassType;
 use super::text_navigator::TextNavigator;
@@ -12,8 +11,8 @@ pub struct CharClass {
 }
 
 impl CharClass {
-    pub fn new(char_class_raw: CharClassRaw, class_type: CharClassType) -> Self {
-        CharClass {
+    pub const fn new(char_class_raw: CharClassRaw, class_type: CharClassType) -> Self {
+        Self {
             char_class_raw,
             class_type,
         }
@@ -30,7 +29,7 @@ impl CharClass {
 
     /// Parses a `CharClass` from the start of `nav`.
     /// If the first character is uppercase, the class is negative.
-    pub fn from_definition(nav: &TextNavigator) -> CharClass {
+    pub fn from_definition(nav: &TextNavigator) -> Self {
         let ch = nav.char_at(0);
         let class_type = if ch.is_uppercase() {
             CharClassType::Negative
@@ -38,7 +37,7 @@ impl CharClass {
             CharClassType::Normal
         };
         let raw = CharClassRaw::from_definition(nav);
-        CharClass::new(raw, class_type)
+        Self::new(raw, class_type)
     }
 
     /// Returns the display name.

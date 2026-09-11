@@ -1,4 +1,4 @@
-//! RegexRepeatedZeroOrMore — repeated pattern `(?:p)*`.
+//! `RegexRepeatedZeroOrMore` — repeated pattern `(?:p)*`.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexRepeatedZeroOrMore` (Java).
 

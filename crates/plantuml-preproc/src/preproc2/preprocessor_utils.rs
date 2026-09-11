@@ -2,7 +2,6 @@
 //!
 //! Ported from `net.sourceforge.plantuml.preproc2.PreprocessorUtils`.
 
-use std::io;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -16,8 +15,10 @@ use crate::stubs::SURL;
 use crate::StringLocated;
 use crate::tim::eater_exception::EaterException;
 
-static ENV_PATTERN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"%(\w+)%").unwrap_or_else(|_| Regex::new("$").unwrap_or_else(|_| Regex::new("$").unwrap())));
+static ENV_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    #[allow(clippy::trivial_regex)]
+    Regex::new(r"%(\w+)%").unwrap_or_else(|_| Regex::new("$").unwrap_or_else(|_| Regex::new("$").unwrap()))
+});
 
 /// Utility methods for the preprocessor.
 ///
@@ -67,20 +68,24 @@ impl PreprocessorUtils {
         _s: &StringLocated,
         filename: &str,
     ) -> Option<Box<dyn ReadLine>> {
-        let filename = if filename.ends_with(".puml") {
+        let filename = if std::path::Path::new(filename)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("puml"))
+        {
             filename.to_string()
         } else {
-            format!("{}.puml", filename)
+            format!("{filename}.puml")
         };
 
         // Try to read from stdlib resources
-        let path = format!("stdlib/{}", filename);
-        if let Ok(data) = std::fs::read(&path) {
-            let description = format!("[{}]", filename);
-            Some(Box::new(ReadLineReader::from_bytes(&data, &description)))
-        } else {
-            None
-        }
+        let path = format!("stdlib/{filename}");
+        std::fs::read(&path).map_or_else(
+            |_| None,
+            |data| {
+                let description = format!("[{filename}]");
+                Some(Box::new(ReadLineReader::from_bytes(&data, &description)) as Box<dyn ReadLine>)
+            },
+        )
     }
 
     /// Returns a `ReadLine` for a stdlib include.
@@ -95,7 +100,7 @@ impl PreprocessorUtils {
             return Ok(None);
         }
         let puml = puml.unwrap_or_default();
-        let description = format!("<{}>", filename);
+        let description = format!("<{filename}>");
         match DiagramDetector::extract_from_bytes(&puml, &description) {
             Ok(Some(tmp)) => Ok(Some(tmp)),
             Ok(None) => Ok(Some(Box::new(ReadLineReader::from_bytes(&puml, &description)))),
@@ -118,8 +123,8 @@ impl PreprocessorUtils {
             Ok(Some(tmp)) => Ok(tmp),
             Ok(None) => Self::get_reader_include(url, s),
             Err(e) => Err(EaterException::new(
-                format!("Cannot open URL {}", e),
-                &s,
+                format!("Cannot open URL {e}"),
+                s,
             )),
         }
     }
@@ -131,10 +136,10 @@ impl PreprocessorUtils {
         url: &SURL,
         s: &StringLocated,
     ) -> Result<Box<dyn ReadLine>, EaterException> {
-        match url.open_stream() {
-            Some(data) => Ok(Box::new(ReadLineReader::from_bytes(&data, &url.to_string()))),
-            None => Err(EaterException::new("Cannot open URL", &s)),
-        }
+        url.open_stream().map_or_else(
+            || Err(EaterException::new("Cannot open URL", s)),
+            |data| Ok(Box::new(ReadLineReader::from_bytes(&data, &url.to_string())) as Box<dyn ReadLine>),
+        )
     }
 
     fn remove_quotes(s: &str) -> String {

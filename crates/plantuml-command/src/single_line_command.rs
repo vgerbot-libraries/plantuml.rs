@@ -54,7 +54,7 @@ impl<D> SingleLineCommand2<D> {
 
     /// Returns whether trimming is enabled.
     #[must_use]
-    pub fn do_trim(&self) -> bool {
+    pub const fn do_trim(&self) -> bool {
         self.do_trim
     }
 
@@ -62,7 +62,7 @@ impl<D> SingleLineCommand2<D> {
     ///
     /// Ported from: `SingleLineCommand2.syntaxWithFinalBracket()`.
     #[must_use]
-    pub fn syntax_with_final_bracket(&self) -> bool {
+    pub const fn syntax_with_final_bracket(&self) -> bool {
         false
     }
 
@@ -70,7 +70,7 @@ impl<D> SingleLineCommand2<D> {
     ///
     /// Ported from: `SingleLineCommand2.isForbidden(CharSequence)`.
     #[must_use]
-    pub fn is_forbidden(&self, _input: &str) -> bool {
+    pub const fn is_forbidden(&self, _input: &str) -> bool {
         false
     }
 
@@ -78,7 +78,7 @@ impl<D> SingleLineCommand2<D> {
     ///
     /// Ported from: `SingleLineCommand2.finalVerification()`.
     #[must_use]
-    pub fn final_verification(&self) -> CommandExecutionResult {
+    pub const fn final_verification(&self) -> CommandExecutionResult {
         CommandExecutionResult::ok()
     }
 
@@ -86,7 +86,7 @@ impl<D> SingleLineCommand2<D> {
     ///
     /// Ported from: `SingleLineCommand2.explainArg(LineLocation, RegexResult)`.
     #[must_use]
-    pub fn explain_arg(&self, _location: &LineLocation, _result: &RegexResult) -> Option<String> {
+    pub const fn explain_arg(&self, _location: &LineLocation, _result: &RegexResult) -> Option<String> {
         None
     }
 }
@@ -116,15 +116,13 @@ impl<D: 'static> Command<D> for SingleLineCommand2<D> {
             return Ok(CommandExecutionResult::error("Empty input"));
         };
         let text = if self.do_trim { first.trim() } else { first };
-        match self.pattern.matcher(text) {
-            Some(result) => {
-                // Subclass would implement execute_arg here.
-                // This base implementation just returns Ok.
+        self.pattern.matcher(text).map_or_else(
+            || Ok(CommandExecutionResult::error("Pattern does not match")),
+            |result| {
                 let _ = result;
                 Ok(self.final_verification())
-            }
-            None => Ok(CommandExecutionResult::error("Pattern does not match")),
-        }
+            },
+        )
     }
 
     fn explain(&self, lines: &BlocLines) -> Option<String> {

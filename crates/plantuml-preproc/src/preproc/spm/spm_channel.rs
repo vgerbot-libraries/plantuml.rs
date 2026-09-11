@@ -19,7 +19,7 @@ pub enum SpmChannel {
 
 impl SpmChannel {
     /// Returns the file name for this channel (e.g. `info.spm`).
-    fn get_file_name(&self) -> String {
+    fn get_file_name(self) -> String {
         let name = match self {
             Self::Info => "info",
             Self::Puml => "puml",
@@ -28,7 +28,7 @@ impl SpmChannel {
             Self::Svg => "svg",
             Self::Image => "image",
         };
-        format!("{}.spm", name)
+        format!("{name}.spm")
     }
 
     /// Returns an input stream for the given library name and channel.

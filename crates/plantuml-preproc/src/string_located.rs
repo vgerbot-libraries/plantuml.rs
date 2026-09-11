@@ -15,8 +15,9 @@ pub struct StringLocated {
     s: String,
     location: LineLocation,
     preprocessor_error: Option<String>,
-    trimmed: Option<Box<StringLocated>>,
+    trimmed: Option<Box<Self>>,
     fox: i64,
+    #[allow(dead_code)]
     type_cache: Option<TLineType>,
 }
 
@@ -100,7 +101,7 @@ impl StringLocated {
     /// Merges with the next line when the current line ends with a backslash.
     ///
     /// Ported from `StringLocated.mergeEndBackslash`.
-    pub fn merge_end_backslash(&self, next: &StringLocated) -> Self {
+    pub fn merge_end_backslash(&self, next: &Self) -> Self {
         Self {
             s: format!("{}{}", &self.s[..self.s.len() - 1], next.s),
             location: self.location.clone(),
@@ -132,7 +133,7 @@ impl StringLocated {
 
     /// Returns a trimmed version of this `StringLocated`.
     #[must_use]
-    pub fn get_trimmed(&self) -> StringLocated {
+    pub fn get_trimmed(&self) -> Self {
         if self.s.is_empty() {
             return self.clone();
         }
@@ -143,7 +144,7 @@ impl StringLocated {
         if tmp == self.s {
             self.clone()
         } else {
-            StringLocated {
+            Self {
                 s: tmp,
                 location: self.location.clone(),
                 preprocessor_error: self.preprocessor_error.clone(),
@@ -158,7 +159,7 @@ impl StringLocated {
     ///
     /// Ported from `StringLocated.removeInnerComment`.
     #[must_use]
-    pub fn remove_inner_comment(&self) -> StringLocated {
+    pub fn remove_inner_comment(&self) -> Self {
         let string = self.s.as_str();
         let replaced = string.replace('\t', " ");
         let trim = replaced.trim();
@@ -227,28 +228,28 @@ impl StringLocated {
 
     /// Splits at a triple separator position.
     #[must_use]
-    pub fn split_at_triple_separator(&self, x: usize) -> [StringLocated; 2] {
+    pub fn split_at_triple_separator(&self, x: usize) -> [Self; 2] {
         let s1 = &self.s[..x];
         let s2 = &self.s[x + 3..];
         [
-            StringLocated::new(s1, self.location.clone()),
-            StringLocated::new(s2, self.location.clone()),
+            Self::new(s1, self.location.clone()),
+            Self::new(s2, self.location.clone()),
         ]
     }
 
     /// Expands newlines (replaces `Jaws::BLOCK_E1_NEWLINE` with actual newlines).
     #[must_use]
-    pub fn expands_newline(&self) -> Vec<StringLocated> {
+    pub fn expands_newline(&self) -> Vec<Self> {
         self.s
             .split(Jaws::BLOCK_E1_NEWLINE)
-            .map(|s| StringLocated::new(s, self.location.clone()))
+            .map(|s| Self::new(s, self.location.clone()))
             .collect()
     }
 
     /// Replaces backslash with the Jaws real backslash character.
     #[must_use]
-    pub fn jaws_hide_backslash(&self) -> StringLocated {
-        StringLocated {
+    pub fn jaws_hide_backslash(&self) -> Self {
+        Self {
             s: self.s.replace('\\', &Jaws::BLOCK_E1_REAL_BACKSLASH.to_string()),
             location: self.location.clone(),
             preprocessor_error: self.preprocessor_error.clone(),
@@ -283,6 +284,6 @@ impl std::hash::Hash for StringLocated {
     }
 }
 
-/// The fox signature of the exclamation mark string.
+#[allow(dead_code)]
 static EXCLAMATION_MARK: LazyLock<u64> =
     LazyLock::new(|| FoxSignature::get_fox_signature_from_real_string("!"));

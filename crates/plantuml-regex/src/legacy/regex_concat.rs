@@ -1,4 +1,4 @@
-//! RegexConcat — concatenation of regex parts with fox-signature fast reject.
+//! `RegexConcat` — concatenation of regex parts with fox-signature fast reject.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexConcat` (Java).
 //!
@@ -50,7 +50,7 @@ impl RegexConcat {
     /// Sets the maximum input size for fast rejection.
     ///
     /// Ported from `RegexConcat.protectSize(int)`.
-    pub fn protect_size(mut self, size: usize) -> Self {
+    pub const fn protect_size(mut self, size: usize) -> Self {
         self.limit_size = size;
         self
     }
@@ -141,6 +141,6 @@ impl std::fmt::Debug for RegexConcat {
         f.debug_struct("RegexConcat")
             .field("partials_count", &self.partials.len())
             .field("limit_size", &self.limit_size)
-            .finish()
+            .finish_non_exhaustive()
     }
 }

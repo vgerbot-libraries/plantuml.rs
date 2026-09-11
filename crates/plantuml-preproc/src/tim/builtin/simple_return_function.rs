@@ -9,16 +9,8 @@
 //! In Rust, we use a trait to mark simple return functions and a macro to
 //! generate the common `TFunction` boilerplate.
 
-use std::collections::{HashMap, HashSet};
 
-use crate::string_located::StringLocated;
-use crate::tim::eater_exception::EaterException;
-use crate::tim::expression::TValue;
-use crate::tim::t_context::TContext;
 use crate::tim::t_function::TFunction;
-use crate::tim::t_function_signature::TFunctionSignature;
-use crate::tim::t_function_type::TFunctionType;
-use crate::tim::t_memory::TMemory;
 
 /// Marker trait for simple return-type builtin functions.
 ///

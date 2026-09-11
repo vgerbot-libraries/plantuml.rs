@@ -1,7 +1,6 @@
-/// Challenge matching a character class (`〴w`, `〴d`, etc.).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeCharClass.java`
-
+//! Challenge matching a character class (`〴w`, `〴d`, etc.).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeCharClass.java`
 use std::any::Any;
 
 use super::challenge::Challenge;
@@ -14,8 +13,8 @@ pub struct ChallengeCharClass {
 }
 
 impl ChallengeCharClass {
-    pub fn new(char_class: CharClass) -> Self {
-        ChallengeCharClass { char_class }
+    pub const fn new(char_class: CharClass) -> Self {
+        Self { char_class }
     }
 }
 

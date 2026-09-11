@@ -2,9 +2,7 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
-use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
 
 use super::SimpleReturnFunction;
@@ -24,7 +22,7 @@ crate::impl_simple_return_function!(
     &*SIGNATURE,
     can_cover = |nb_arg, _named| nb_arg == 2,
     execute = |_self, _context, _memory, location, values, _named| {
-        let color_string = values[0].to_string();
+        let _color_string = values[0].to_string();
         // TODO: implement with HColorSet.instance().getColor(colorString).darken(ratio)
         Err(EaterException::new(
             "No such color".to_string(),

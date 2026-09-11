@@ -1,7 +1,6 @@
-/// Alternation builder: matches the first of several `UBrexPart`s.
-///
-/// Ported from: `com/plantuml/ubrex/builder/UBrexOr.java`
-
+//! Alternation builder: matches the first of several `UBrexPart`s.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/UBrexOr.java`
 use std::rc::Rc;
 
 use crate::ubrex::challenge_alternative::ChallengeAlternative;
@@ -17,12 +16,12 @@ impl UBrexOr {
         for element in parts {
             alt.add_alternative(Rc::clone(element.get_challenge()));
         }
-        UBrexOr {
+        Self {
             part: UBrexPart::new(Rc::new(alt)),
         }
     }
 
-    pub fn as_part(&self) -> &UBrexPart {
+    pub const fn as_part(&self) -> &UBrexPart {
         &self.part
     }
 

@@ -1,4 +1,4 @@
-//! HColor — abstract color type.
+//! `HColor` — abstract color type.
 //!
 use crate::color::h_color_simple::HColorSimple;
 
@@ -15,20 +15,20 @@ pub enum TransparentFillBehavior {
     WithFillOpacity,
 }
 
-/// Abstract color type — the base for all PlantUML colors.
+/// Abstract color type — the base for all `PlantUML` colors.
 ///
 /// In Java this is an abstract class with subclasses for simple RGB colors,
 /// gradients, named colors, etc. In Rust we use an enum to keep things
 /// simple and deterministic.
 ///
 /// Ported from: `net/sourceforge/plantuml/klimt/color/HColor.java`
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HColor {
     /// Simple RGB color with optional alpha.
     Simple(HColorSimple),
     /// Fully transparent.
     Transparent,
-    /// Named color (resolved lazily via HColorSet).
+    /// Named color (resolved lazily via `HColorSet`).
     Named(String),
 }
 
@@ -37,7 +37,7 @@ impl HColor {
     ///
     /// Ported from: `HColor.isTransparent()`.
     #[must_use]
-    pub fn is_transparent(&self) -> bool {
+    pub const fn is_transparent(&self) -> bool {
         matches!(self, Self::Transparent)
     }
 
@@ -50,12 +50,7 @@ impl HColor {
             Self::Transparent => "#00000000".to_string(),
             Self::Simple(s) => s.to_svg(mapper),
             Self::Named(name) => {
-                // Resolve named color via HColorSet
-                if let Some(resolved) = HColorSet::get_color(name) {
-                    resolved.to_svg(mapper)
-                } else {
-                    format!("#{name}")
-                }
+                HColorSet::get_color(name).map_or_else(|| format!("#{name}"), |resolved| resolved.to_svg(mapper))
             }
         }
     }
@@ -69,30 +64,27 @@ impl HColor {
             Self::Transparent => "000000".to_string(),
             Self::Simple(s) => s.to_rgb(mapper),
             Self::Named(name) => {
-                if let Some(resolved) = HColorSet::get_color(name) {
-                    resolved.to_rgb(mapper)
-                } else {
-                    name.clone()
-                }
+                HColorSet::get_color(name).map_or_else(|| name.clone(), |resolved| resolved.to_rgb(mapper))
             }
         }
     }
 
     /// Creates a simple RGB color from red, green, blue components (0-255).
     #[must_use]
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self::Simple(HColorSimple::new(r, g, b, 255))
     }
 
     /// Creates a simple RGBA color from red, green, blue, alpha components.
     #[must_use]
-    pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self::Simple(HColorSimple::new(r, g, b, a))
     }
 }
 
 use crate::color::h_color_set::HColorSet;
 
+#[allow(dead_code)]
 /// Marker trait for background changes.
 ///
 /// Ported from: `net/sourceforge/plantuml/klimt/UBackground.java`
@@ -100,20 +92,22 @@ pub trait UBackground: crate::uchange::UChange {
     fn get_back_color(&self) -> HColor;
 }
 
-/// A background change carrying an HColor.
+#[allow(dead_code)]
+/// A background change carrying an `HColor`.
 #[derive(Debug, Clone)]
 pub struct Back {
     color: HColor,
 }
 
+#[allow(dead_code)]
 impl Back {
     #[must_use]
-    pub fn new(color: HColor) -> Self {
+    pub const fn new(color: HColor) -> Self {
         Self { color }
     }
 
     #[must_use]
-    pub fn color(&self) -> &HColor {
+    pub const fn color(&self) -> &HColor {
         &self.color
     }
 }

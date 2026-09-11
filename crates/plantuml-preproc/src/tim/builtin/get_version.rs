@@ -10,7 +10,7 @@ use super::SimpleReturnFunction;
 static SIGNATURE: LazyLock<TFunctionSignature> =
     LazyLock::new(|| TFunctionSignature::new("%version", 0));
 
-/// `%version()` — returns the PlantUML version string.
+/// `%version()` — returns the `PlantUML` version string.
 pub struct GetVersion;
 
 impl SimpleReturnFunction for GetVersion {}

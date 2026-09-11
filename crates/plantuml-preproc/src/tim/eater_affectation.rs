@@ -4,7 +4,6 @@
 
 use super::eater::Eater;
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use super::t_variable_scope::TVariableScope;
@@ -43,17 +42,17 @@ impl EaterAffectation {
             }
         }
         self.eater.skip_spaces();
-        let mut conditional = false;
-        if self.eater.peek_char() == '?' {
+        let conditional = if self.eater.peek_char() == '?' {
             self.eater.check_and_eat_char('?')?;
-            conditional = true;
-        }
+            true
+        } else {
+            false
+        };
         self.eater.check_and_eat_char('=')?;
-        if conditional {
-            if memory.get_variable(&varname).is_some() {
+        if conditional
+            && memory.get_variable(&varname).is_some() {
                 return Ok(());
             }
-        }
         self.eater.skip_spaces();
         let value = self.eater.eat_expression(context, memory)?;
         memory.put_variable(&varname, value, scope, self.eater.get_string_located())?;

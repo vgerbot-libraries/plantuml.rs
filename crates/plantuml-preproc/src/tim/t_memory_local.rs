@@ -168,14 +168,14 @@ impl TMemory for TMemoryLocal {
         Log::info(|| {
             format!("[MemLocal] Number of overridden variable(s) : {}", self.overriden_variables_01.len())
         });
-        let mut sorted: std::collections::BTreeMap<&String, &TValue> = self.overriden_variables_01.iter().collect();
+        let sorted: std::collections::BTreeMap<&String, &TValue> = self.overriden_variables_01.iter().collect();
         for (name, value) in &sorted {
             Log::info(|| format!("[MemLocal] {name} = {value}"));
         }
         Log::info(|| {
             format!("[MemLocal] Number of local variable(s) : {}", self.local_variables_01.len())
         });
-        let mut sorted2: std::collections::BTreeMap<&String, &TValue> = self.local_variables_01.iter().collect();
+        let sorted2: std::collections::BTreeMap<&String, &TValue> = self.local_variables_01.iter().collect();
         for (name, value) in &sorted2 {
             Log::info(|| format!("[MemLocal] {name} = {value}"));
         }

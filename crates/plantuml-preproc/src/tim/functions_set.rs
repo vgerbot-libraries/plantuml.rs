@@ -5,13 +5,10 @@
 use std::collections::{HashMap, HashSet};
 
 use super::eater_exception::EaterException;
-use super::eater_ifdef::EaterIfdef;
-use super::eater_ifndef::EaterIfndef;
 use super::eater_legacy_define::EaterLegacyDefine;
 use super::eater_legacy_define_long::EaterLegacyDefineLong;
 use super::eater_declare_procedure::EaterDeclareProcedure;
 use super::eater_declare_return_function::EaterDeclareReturnFunction;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_function::TFunction;
 use super::t_function_impl::TFunctionImpl;
@@ -74,8 +71,8 @@ impl FunctionsSet {
     pub fn add_function(&mut self, func: Box<dyn TFunction>) {
         let name = func.get_signature().get_function_name().to_string();
         let key = func.get_signature().clone();
-        self.functions3.add(&format!("{}(", name));
-        self.update_functions_by_name(&name, key.clone(), func);
+        self.functions3.add(&format!("{name}("));
+        self.update_functions_by_name(&name, key, func);
     }
 
     fn update_functions_by_name(
@@ -102,10 +99,7 @@ impl FunctionsSet {
     ///
     /// Ported from `FunctionsSet.getFunctionsByName`.
     pub fn get_functions_by_name(&self, function_name: &str) -> Vec<&dyn TFunction> {
-        match self.functions_by_name.get(function_name) {
-            Some(map) => map.values().map(|f| f.as_ref()).collect(),
-            None => Vec::new(),
-        }
+        self.functions_by_name.get(function_name).map_or_else(Vec::new, |map| map.values().map(std::convert::AsRef::as_ref).collect())
     }
 
     /// Finds a function matching the given signature, using smart matching.
@@ -147,14 +141,14 @@ impl FunctionsSet {
         s: &StringLocated,
     ) -> Result<(), EaterException> {
         if self.pending_function.is_some() {
-            return Err(EaterException::new("already0048", &s));
+            return Err(EaterException::new("already0048", s));
         }
         let mut legacy_define = EaterLegacyDefine::new(s.clone());
         legacy_define.analyze(context, memory)?;
         if let Some(func) = legacy_define.take_function() {
             let name = func.get_signature().get_function_name().to_string();
             let key = func.get_signature().clone();
-            self.functions3.add(&format!("{}(", name));
+            self.functions3.add(&format!("{name}("));
             self.update_functions_by_name(&name, key, Box::new(func));
         }
         Ok(())
@@ -168,7 +162,7 @@ impl FunctionsSet {
         s: &StringLocated,
     ) -> Result<(), EaterException> {
         if self.pending_function.is_some() {
-            return Err(EaterException::new("already0068", &s));
+            return Err(EaterException::new("already0068", s));
         }
         let mut legacy_define_long = EaterLegacyDefineLong::new(s.clone());
         legacy_define_long.analyze(context, memory)?;
@@ -184,7 +178,7 @@ impl FunctionsSet {
         s: &StringLocated,
     ) -> Result<(), EaterException> {
         if self.pending_function.is_some() {
-            return Err(EaterException::new("already0068", &s));
+            return Err(EaterException::new("already0068", s));
         }
         let mut declare_function = EaterDeclareReturnFunction::new(s.clone());
         declare_function.analyze(context, memory)?;
@@ -195,7 +189,7 @@ impl FunctionsSet {
                 .get(declared_signature.get_function_name())
                 .is_some_and(|m| m.contains_key(&declared_signature));
             if previous_exists && (final_flag || self.functions_final.contains(&declared_signature)) {
-                return Err(EaterException::new("This function is already defined", &s));
+                return Err(EaterException::new("This function is already defined", s));
             }
             if final_flag {
                 self.functions_final.insert(declared_signature);
@@ -217,7 +211,7 @@ impl FunctionsSet {
         s: &StringLocated,
     ) -> Result<(), EaterException> {
         if self.pending_function.is_some() {
-            return Err(EaterException::new("already0068", &s));
+            return Err(EaterException::new("already0068", s));
         }
         let mut declare_function = EaterDeclareProcedure::new(s.clone());
         declare_function.analyze(context, memory)?;
@@ -228,7 +222,7 @@ impl FunctionsSet {
                 .get(declared_signature.get_function_name())
                 .is_some_and(|m| m.contains_key(&declared_signature));
             if previous_exists && (final_flag || self.functions_final.contains(&declared_signature)) {
-                return Err(EaterException::new("This function is already defined", &s));
+                return Err(EaterException::new("This function is already defined", s));
             }
             if final_flag {
                 self.functions_final.insert(declared_signature);

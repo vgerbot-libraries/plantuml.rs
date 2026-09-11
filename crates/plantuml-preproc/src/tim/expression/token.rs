@@ -11,6 +11,7 @@ use super::token_type::TokenType;
 ///
 /// Ported from `net.sourceforge.plantuml.tim.expression.Token`.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
 pub struct Token {
     surface: String,
     token_type: TokenType,
@@ -71,8 +72,8 @@ impl Token {
     ///
     /// Ported from `Token.muteToFunction`.
     #[must_use]
-    pub fn mute_to_function(&self) -> Token {
-        Token::new(self.surface.clone(), TokenType::FunctionName, None)
+    pub fn mute_to_function(&self) -> Self {
+        Self::new(self.surface.clone(), TokenType::FunctionName, None)
     }
 
     /// Returns the JSON value of this `JSON_DATA` token.

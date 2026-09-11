@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 /**
- * Renders PlantUML source to SVG.
+ * Renders `PlantUML` source to SVG.
  *
  * Returns `0` on success, storing the SVG string in `*out` (newly allocated;
  * caller must free with [`plantuml_free_string`]). Returns `-1` on parse
@@ -14,7 +14,7 @@
 int plantuml_render_svg(const char *source, char **out);
 
 /**
- * Renders PlantUML source to PREPROC text.
+ * Renders `PlantUML` source to PREPROC text.
  *
  * Same contract as [`plantuml_render_svg`].
  */

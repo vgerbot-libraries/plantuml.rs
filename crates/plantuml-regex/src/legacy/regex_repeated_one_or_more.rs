@@ -1,4 +1,4 @@
-//! RegexRepeatedOneOrMore — repeated pattern `(?:p)+`.
+//! `RegexRepeatedOneOrMore` — repeated pattern `(?:p)+`.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexRepeatedOneOrMore` (Java).
 
@@ -24,7 +24,7 @@ impl RegexRepeatedOneOrMore {
     /// Ported from `RegexRepeatedOneOrMore(String, IRegex)`.
     pub fn new(name: Option<&str>, partial: Box<dyn IRegex>) -> Self {
         Self {
-            name: name.map(|s| s.to_string()),
+            name: name.map(std::string::ToString::to_string),
             partial,
         }
     }
@@ -81,6 +81,6 @@ impl std::fmt::Debug for RegexRepeatedOneOrMore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RegexRepeatedOneOrMore")
             .field("name", &self.name)
-            .finish()
+            .finish_non_exhaustive()
     }
 }

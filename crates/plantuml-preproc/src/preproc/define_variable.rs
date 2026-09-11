@@ -18,25 +18,26 @@ impl DefineVariable {
     #[must_use]
     pub fn new(raw: &str) -> Self {
         let name = raw.trim();
-        if let Some(idx) = name.find('=') {
-            let var_name = name[..idx].trim().to_string();
-            let right = name[idx + 1..].trim();
-            // Strip surrounding quotes
-            let default = if right.len() >= 2 {
-                right[1..right.len() - 1].to_string()
-            } else {
-                right.to_string()
-            };
-            Self {
-                name: var_name,
-                default_value: Some(default),
-            }
-        } else {
-            Self {
+        name.find('=').map_or_else(
+            || Self {
                 name: name.to_string(),
                 default_value: None,
-            }
-        }
+            },
+            |idx| {
+                let var_name = name[..idx].trim().to_string();
+                let right = name[idx + 1..].trim();
+                // Strip surrounding quotes
+                let default = if right.len() >= 2 {
+                    right[1..right.len() - 1].to_string()
+                } else {
+                    right.to_string()
+                };
+                Self {
+                    name: var_name,
+                    default_value: Some(default),
+                }
+            },
+        )
     }
 
     /// Returns the variable name.

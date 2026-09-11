@@ -1,12 +1,11 @@
-/// Immutable list wrapper used by `Capture` for storing capture entries.
-///
-/// In the Java original this is a custom linked-list with block caching for
-/// efficient immutable `add` / `addAll` operations.  In Rust we simplify to a
-/// `Vec`-backed wrapper that clones on every mutation, preserving the
-/// immutable-semantics of the Java API.
-///
-/// Ported from: `com/plantuml/ubrex/SafeList.java`
-
+//! Immutable list wrapper used by `Capture` for storing capture entries.
+//!
+//! In the Java original this is a custom linked-list with block caching for
+//! efficient immutable `add` / `addAll` operations.  In Rust we simplify to a
+//! `Vec`-backed wrapper that clones on every mutation, preserving the
+//! immutable-semantics of the Java API.
+//!
+//! Ported from: `com/plantuml/ubrex/SafeList.java`
 use std::fmt::{self, Debug, Display, Formatter};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -22,32 +21,32 @@ impl<E: Clone + Debug> Debug for SafeList<E> {
 
 impl<E: Clone> SafeList<E> {
     /// Creates an empty list.
-    pub fn create_empty() -> Self {
-        SafeList { items: Vec::new() }
+    pub const fn create_empty() -> Self {
+        Self { items: Vec::new() }
     }
 
     /// Returns a new list with `item` appended.
     pub fn add(&self, item: E) -> Self {
         let mut new_items = self.items.clone();
         new_items.push(item);
-        SafeList { items: new_items }
+        Self { items: new_items }
     }
 
     /// Returns the number of elements.
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.items.len()
     }
 
     /// Returns a new list with all elements of `other` appended.
-    pub fn add_all(&self, other: &SafeList<E>) -> Self {
+    pub fn add_all(&self, other: &Self) -> Self {
         let mut new_items = self.items.clone();
         new_items.extend(other.items.iter().cloned());
-        SafeList { items: new_items }
+        Self { items: new_items }
     }
 
     /// Returns a new list with `f` applied to every element.
     pub fn mapped<F: Fn(&E) -> E>(&self, f: F) -> Self {
-        SafeList {
+        Self {
             items: self.items.iter().map(f).collect(),
         }
     }
@@ -58,7 +57,7 @@ impl<E: Clone> SafeList<E> {
     }
 
     /// Returns `true` if the list contains no elements.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 }
@@ -70,7 +69,7 @@ impl<E: Clone + Display> Display for SafeList<E> {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", item)?;
+            write!(f, "{item}")?;
         }
         write!(f, "]")
     }

@@ -4,7 +4,6 @@
 
 use super::eater::Eater;
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use crate::StringLocated;
@@ -36,7 +35,7 @@ impl EaterAssert {
                 self.eater.check_and_eat_char(':')?;
                 let message = self.eater.eat_expression(context, memory)?;
                 return Err(EaterException::new(
-                    format!("Assertion error : {}", message),
+                    format!("Assertion error : {message}"),
                     self.eater.get_string_located(),
                 ));
             }

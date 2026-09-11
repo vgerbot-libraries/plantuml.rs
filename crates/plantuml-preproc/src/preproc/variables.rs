@@ -55,7 +55,7 @@ impl Variables {
     /// Ported from `net.sourceforge.plantuml.preproc.Variables.removeSomeDefaultValues`.
     #[must_use]
     pub fn remove_some_default_values(&self, mut nb: usize) -> Self {
-        let mut result = Variables::new(&self.fonction_name, &self.definition_quoted);
+        let mut result = Self::new(&self.fonction_name, &self.definition_quoted);
         for v in &self.all {
             if v.get_default_value().is_some() && nb > 0 {
                 result.add(v.remove_default());
@@ -84,12 +84,10 @@ impl Variables {
         for (j, variable) in self.all.iter().enumerate() {
             let var_name = variable.get_name();
             let var2 = format!(
-                r"(##{}##)|(##{}\b)|(\b{}##)|(\b{}\b)",
-                var_name, var_name, var_name, var_name
+                r"(##{var_name}##)|(##{var_name}\b)|(\b{var_name}##)|(\b{var_name}\b)"
             );
-            let var_re = match Regex::new(&var2) {
-                Ok(r) => r,
-                Err(_) => continue,
+            let Ok(var_re) = Regex::new(&var2) else {
+                continue;
             };
 
             if variable.get_default_value().is_none() {
@@ -112,6 +110,7 @@ impl Variables {
         }
         regex.push_str(r"\)");
 
+        #[allow(clippy::trivial_regex)]
         let compiled = Regex::new(&regex).unwrap_or_else(|_| Regex::new("$").unwrap_or_else(|_| Regex::new("$").unwrap()));
         (compiled, new_value)
     }

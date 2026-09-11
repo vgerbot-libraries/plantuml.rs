@@ -20,12 +20,12 @@ impl<'a> MatcherIterator<'a> {
     /// Creates an iterator over the matcher's capture groups.
     ///
     /// Ported from `MatcherIterator(Matcher2)`.
-    pub fn new(matcher: &'a Matcher2<'a>) -> Self {
+    pub const fn new(matcher: &'a Matcher2<'a>) -> Self {
         Self { cpt: 1, matcher }
     }
 }
 
-impl<'a> Iterator for MatcherIterator<'a> {
+impl Iterator for MatcherIterator<'_> {
     type Item = Option<String>;
 
     fn next(&mut self) -> Option<Self::Item> {

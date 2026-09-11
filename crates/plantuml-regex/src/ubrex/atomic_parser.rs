@@ -1,19 +1,18 @@
-/// Recursive-descent parser that dispatches by Unicode bracket character.
-///
-/// Dispatch table:
-/// - `〒` → lookaround
-/// - `【】` → alternation
-/// - `〇` → quantifier
-/// - `〄` → up-to
-/// - `〘〙` → group
-/// - `「」` → character set
-/// - `〴` → character class
-/// - `〶` → named group
-/// - `〃` → double quote
-/// - default → regular character
-///
-/// Ported from: `com/plantuml/ubrex/AtomicParser.java`
-
+//! Recursive-descent parser that dispatches by Unicode bracket character.
+//!
+//! Dispatch table:
+//! - `〒` → lookaround
+//! - `【】` → alternation
+//! - `〇` → quantifier
+//! - `〄` → up-to
+//! - `〘〙` → group
+//! - `「」` → character set
+//! - `〴` → character class
+//! - `〶` → named group
+//! - `〃` → double quote
+//! - default → regular character
+//!
+//! Ported from: `com/plantuml/ubrex/AtomicParser.java`
 use std::rc::Rc;
 
 use super::challenge::Challenge;
@@ -40,9 +39,15 @@ use super::text_navigator::TextNavigator;
 
 pub struct AtomicParser;
 
+impl Default for AtomicParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AtomicParser {
-    pub fn new() -> Self {
-        AtomicParser
+    pub const fn new() -> Self {
+        Self
     }
 
     /// Finds the matching closing bracket, accounting for nesting.
@@ -57,9 +62,7 @@ impl AtomicParser {
                     return Some(i);
                 }
                 level -= 1;
-                if level < 0 {
-                    panic!("Unbalanced brackets");
-                }
+                assert!(level >= 0, "Unbalanced brackets");
             }
         }
         None
@@ -68,9 +71,7 @@ impl AtomicParser {
     /// Parses a single challenge (expects exactly one result).
     fn parse_single(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         let result = self.parse(input);
-        if result.len() != 1 {
-            panic!("Expected single challenge, got {}", result.len());
-        }
+        assert!(result.len() == 1, "Expected single challenge, got {}", result.len());
         result.into_iter().next().unwrap()
     }
 
@@ -110,6 +111,7 @@ impl AtomicParser {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_class(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         input.jump(1);
         let result = CharClass::from_definition(input);
@@ -168,9 +170,7 @@ impl AtomicParser {
                 p2,
             ];
         }
-        if operator != '+' {
-            panic!("manageQuantifierUpTo1");
-        }
+        assert!(operator == '+', "manageQuantifierUpTo1");
 
         input.jump(2);
         self.skip_spaces(input);
@@ -179,12 +179,8 @@ impl AtomicParser {
 
         self.skip_spaces(input);
 
-        if input.char_at(0) != '-' {
-            panic!("manageQuantifierUpTo2");
-        }
-        if input.char_at(1) != '>' {
-            panic!("manageQuantifierUpTo2");
-        }
+        assert!(input.char_at(0) == '-', "manageQuantifierUpTo2");
+        assert!(input.char_at(1) == '>', "manageQuantifierUpTo2");
 
         input.jump(2);
         self.skip_spaces(input);
@@ -196,12 +192,14 @@ impl AtomicParser {
         ]
     }
 
+    #[allow(clippy::unused_self)]
     fn skip_spaces(&self, input: &mut TextNavigator) {
         while input.length() > 0 && input.char_at(0) == ' ' {
             input.jump(1);
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_group(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         let end = Self::get_closing_bracket(input, '〘', '〙').expect("wip99: unclosed group");
         let sub = input.sub_sequence(1, end);
@@ -211,6 +209,7 @@ impl AtomicParser {
         Rc::new(result)
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_alternative(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         let mut result = ChallengeAlternative::new();
 
@@ -236,9 +235,7 @@ impl AtomicParser {
                     return Rc::new(result);
                 }
                 level -= 1;
-                if level < 0 {
-                    panic!("Unbalanced alternative brackets");
-                }
+                assert!(level >= 0, "Unbalanced alternative brackets");
             }
         }
         panic!("wip32: unclosed alternative");
@@ -246,18 +243,14 @@ impl AtomicParser {
 
     fn manage_named(&self, input: &mut TextNavigator) -> Vec<Rc<dyn Challenge>> {
         let mut name = String::new();
-        if input.char_at(1) != '$' {
-            panic!("varname must have a $");
-        }
+        assert!(input.char_at(1) == '$', "varname must have a $");
 
         input.jump(2);
         loop {
             let ch = input.char_at(0);
             input.jump(1);
             if ch == '=' {
-                if name.is_empty() {
-                    panic!("no name!");
-                }
+                assert!(!name.is_empty(), "no name!");
                 let parsed = self.parse(input);
                 let named = CompositeNamed::new(name.clone(), Rc::clone(&parsed[0]));
                 if parsed.len() == 1 {
@@ -278,6 +271,7 @@ impl AtomicParser {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_character_set(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         let end = input.index_of('」').expect("wip80: unclosed charset");
         let sub = input.sub_sequence(1, end);
@@ -286,16 +280,16 @@ impl AtomicParser {
         Rc::new(result)
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_regular_character(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         let ch = input.char_at(0);
-        if ch == ' ' {
-            panic!("no space allowed");
-        }
+        assert!(ch != ' ', "no space allowed");
         let ch = if ch == '∙' { ' ' } else { ch };
         input.jump(1);
         Rc::new(ChallengeSingleChar::new(ch))
     }
 
+    #[allow(clippy::unused_self)]
     fn manage_double_quote(&self, input: &mut TextNavigator) -> Rc<dyn Challenge> {
         input.jump(1);
         Rc::new(ChallengeSingleChar::new('"'))

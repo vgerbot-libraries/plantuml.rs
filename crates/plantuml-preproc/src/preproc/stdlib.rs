@@ -15,12 +15,14 @@ use crate::stubs::FileUtils;
 static ALL: LazyLock<Mutex<HashMap<String, Stdlib>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Access to PlantUML standard library resources (puml files, sprites, images).
+/// Access to `PlantUML` standard library resources (puml files, sprites, images).
 ///
 /// Ported from `net.sourceforge.plantuml.preproc.Stdlib`.
 pub struct Stdlib {
+    #[allow(dead_code)]
     colors: Vec<i32>,
     puml: HashMap<String, Vec<u8>>,
+    #[allow(dead_code)]
     json: HashMap<String, Vec<u8>>,
     sprites: HashMap<String, StdlibSprite>,
     images: Vec<FutureImage>,
@@ -32,7 +34,7 @@ impl Stdlib {
     /// Creates a new `Stdlib` for the given name, loading the info file.
     ///
     /// Ported from `net.sourceforge.plantuml.preproc.Stdlib.Stdlib`.
-    fn new(name: &str) -> io::Result<Self> {
+    fn new(name: &str) -> Self {
         let mut info = HashMap::new();
         if let Ok(mut stream) = SpmChannel::Info.get_internal_stream(name) {
             let mut data = Vec::new();
@@ -49,7 +51,7 @@ impl Stdlib {
             }
         }
 
-        Ok(Self {
+        Self {
             colors: Vec::new(),
             puml: HashMap::new(),
             json: HashMap::new(),
@@ -57,14 +59,14 @@ impl Stdlib {
             images: Vec::new(),
             name: name.to_string(),
             info,
-        })
+        }
     }
 
     /// Retrieves a `Stdlib` by name, following links if present.
     ///
     /// Ported from `net.sourceforge.plantuml.preproc.Stdlib.retrieve`.
-    pub fn retrieve(name: &str) -> io::Result<Stdlib> {
-        let mut cache = ALL.lock().unwrap_or_else(|e| e.into_inner());
+    pub fn retrieve(name: &str) -> io::Result<Self> {
+        let mut cache = ALL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(lib) = cache.get(name) {
             if let Some(link) = lib.get_link_from_info() {
                 return Self::retrieve(&link);
@@ -79,11 +81,12 @@ impl Stdlib {
                 info: lib.info.clone(),
             });
         }
-        let lib = Self::new(name)?;
+        let lib = Self::new(name);
         let link = lib.get_link_from_info();
         let info = lib.info.clone();
         let name_owned = lib.name.clone();
         cache.insert(name.to_string(), lib);
+        drop(cache);
         if let Some(link) = link {
             return Self::retrieve(&link);
         }
@@ -116,7 +119,7 @@ impl Stdlib {
     /// Ported from `net.sourceforge.plantuml.preproc.Stdlib.readSprite`.
     pub fn read_sprite(&mut self, name: &str) -> Option<&StdlibSprite> {
         if self.sprites.is_empty() {
-            self.init_sprites().ok();
+            self.init_sprites();
         }
         self.sprites.get(name)
     }
@@ -126,7 +129,7 @@ impl Stdlib {
     /// Ported from `net.sourceforge.plantuml.preproc.Stdlib.readDataImagePng`.
     pub fn read_data_image_png(&mut self, num: usize) -> Option<&FutureImage> {
         if self.images.is_empty() {
-            self.init_images().ok();
+            self.init_images();
         }
         self.images.get(num)
     }
@@ -182,7 +185,7 @@ impl Stdlib {
             for name in &names {
                 if let Ok(folder) = Self::retrieve(name) {
                     if details {
-                        strings.push(format!("<b>{}", name));
+                        strings.push(format!("<b>{name}"));
                         strings.push(format!("Version {}", folder.get_version().unwrap_or("?")));
                         strings.push(format!("Delivered by {}", folder.get_source().unwrap_or("?")));
                         strings.push(" ".to_string());
@@ -210,12 +213,16 @@ impl Stdlib {
         })
     }
 
-    fn init_sprites(&mut self) -> io::Result<()> {
-        Ok(())
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    #[allow(clippy::unnecessary_wraps)]
+    fn init_sprites(&mut self) {
     }
 
-    fn init_images(&mut self) -> io::Result<()> {
-        Ok(())
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::needless_pass_by_ref_mut)]
+    #[allow(clippy::unnecessary_wraps)]
+    fn init_images(&mut self) {
     }
 
     /// Reads 1 byte from a stream, returning 0-255.

@@ -1,10 +1,9 @@
-//! TContext — the main preprocessor orchestrator.
+//! `TContext` — the main preprocessor orchestrator.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.TContext`.
 
 use std::collections::{HashMap, HashSet};
 
-use super::eater::Eater;
 use super::eater_affectation::EaterAffectation;
 use super::eater_affectation_define::EaterAffectationDefine;
 use super::eater_assert::EaterAssert;
@@ -17,7 +16,6 @@ use super::eater_import::EaterImport;
 use super::eater_includesub::EaterIncludesub;
 use super::eater_include::EaterInclude;
 use super::eater_include_def::EaterIncludeDef;
-use super::eater_include_sprites::EaterIncludeSprites;
 use super::eater_log::EaterLog;
 use super::eater_option::EaterOption;
 use super::eater_return::EaterReturn;
@@ -30,18 +28,15 @@ use super::eater_dump_memory::EaterDumpMemory;
 use super::execution_context_foreach::ExecutionContextForeach;
 use super::execution_context_if::ExecutionContextIf;
 use super::execution_context_while::ExecutionContextWhile;
-use super::expression::{Knowledge, TValue};
+use super::expression::TValue;
 use super::functions_set::FunctionsSet;
 use super::t_function::TFunction;
-use super::t_function_impl::TFunctionImpl;
 use super::t_function_signature::TFunctionSignature;
 use super::t_function_type::TFunctionType;
 use super::t_memory::TMemory;
-use super::t_mode::TMode;
-use super::trie::Trie;
+
 use crate::preproc::{PreprocessingArtifact, Sub};
-use crate::preproc2::PreprocessorIncludeStrategy;
-use crate::stubs::{DefinitionsContainer, LineLocation, PathSystem, Warning};
+use crate::stubs::{DefinitionsContainer, PathSystem};
 use crate::{StringLocated, TLineType};
 
 /// The main preprocessor orchestrator. Manages function/variable substitution,
@@ -52,8 +47,10 @@ pub struct TContext {
     result_list: Vec<StringLocated>,
     debug: Vec<StringLocated>,
     functions_set: FunctionsSet,
+    #[allow(dead_code)]
     charset: String,
     subs: HashMap<String, Sub>,
+    #[allow(dead_code)]
     definitions_container: DefinitionsContainer,
     files_used_current: HashSet<String>,
     preprocessing_artifact: PreprocessingArtifact,
@@ -87,7 +84,7 @@ impl TContext {
             reading_lines_len: 0,
             reading_index: 0,
             subs: HashMap::new(),
-            definitions_container: DefinitionsContainer::default(),
+            definitions_container: DefinitionsContainer,
             files_used_current: HashSet::new(),
             preprocessing_artifact: PreprocessingArtifact::new(),
             path_system: PathSystem::default(),
@@ -255,6 +252,7 @@ impl TContext {
     /// Executes preprocessor lines internally.
     ///
     /// Ported from `TContext.executeLinesInternal`.
+    #[allow(clippy::only_used_in_recursion)]
     fn execute_lines_internal(
         &mut self,
         memory: &mut dyn TMemory,
@@ -330,7 +328,7 @@ impl TContext {
             match t {
                 TLineType::Plain => {
                     if memory.are_all_if_ok() {
-                        self.add_plain(memory, &line)?;
+                        self.add_plain(memory, &line);
                     }
                 }
                 TLineType::Affectation => {
@@ -432,7 +430,7 @@ impl TContext {
                                 // Jump back to start of while
                                 let start = ctx.get_start_while();
                                 if let Some(pos) = start.as_any().downcast_ref::<super::iterator::Position>() {
-                                    i = pos.pos;
+                                    self.reading_index = pos.pos;
                                 }
                             } else {
                                 memory.poll_while();
@@ -481,7 +479,7 @@ impl TContext {
                             memory.put_variable(&varname, TValue::from_json(value), None, &line)?;
                             let start = ctx.get_start_foreach();
                             if let Some(pos) = start.as_any().downcast_ref::<super::iterator::Position>() {
-                                i = pos.pos;
+                                self.reading_index = pos.pos;
                             }
                         }
                     }
@@ -560,7 +558,7 @@ impl TContext {
         Ok(None)
     }
 
-    fn add_plain(&mut self, memory: &mut dyn TMemory, s: &StringLocated) -> Result<(), EaterException> {
+    fn add_plain(&mut self, memory: &mut dyn TMemory, s: &StringLocated) {
         let new_s = self.apply_functions_and_variables(memory, s);
         if let Some(new_s) = new_s {
             // Empty string from a non-empty input means a procedure was executed
@@ -577,7 +575,7 @@ impl TContext {
         } else {
             self.result_list.push(s.clone());
         }
-        Ok(())
+
     }
 
     /// Applies function calls and variable substitutions to a line.
@@ -642,38 +640,33 @@ impl TContext {
                         if full_str.ends_with('\\') {
                             full_str.pop();
                         }
-                        loop {
-                            match self.read_line2() {
-                                Some(extra_line) => {
-                                    consumed_extra_lines += 1;
-                                    let extra_s = extra_line.get_string();
-                                    // Strip trailing backslash (line continuation)
-                                    let extra_s = extra_s.strip_suffix('\\').unwrap_or(extra_s);
-                                    full_str.push_str(extra_s);
-                                    let extra_bytes: Vec<char> =
-                                        extra_s.chars().collect();
-                                    for &c in &extra_bytes {
-                                        if in_string {
-                                            if c == string_char {
-                                                in_string = false;
-                                            }
-                                        } else if c == '"' || c == '\'' {
-                                            in_string = true;
-                                            string_char = c;
-                                        } else if c == '(' {
-                                            depth += 1;
-                                        } else if c == ')' {
-                                            depth -= 1;
-                                            if depth == 0 {
-                                                break;
-                                            }
-                                        }
+                        while let Some(extra_line) = self.read_line2() {
+                            consumed_extra_lines += 1;
+                            let extra_s = extra_line.get_string();
+                            // Strip trailing backslash (line continuation)
+                            let extra_s = extra_s.strip_suffix('\\').unwrap_or(extra_s);
+                            full_str.push_str(extra_s);
+                            let extra_bytes: Vec<char> =
+                                extra_s.chars().collect();
+                            for &c in &extra_bytes {
+                                if in_string {
+                                    if c == string_char {
+                                        in_string = false;
                                     }
+                                } else if c == '"' || c == '\'' {
+                                    in_string = true;
+                                    string_char = c;
+                                } else if c == '(' {
+                                    depth += 1;
+                                } else if c == ')' {
+                                    depth -= 1;
                                     if depth == 0 {
                                         break;
                                     }
                                 }
-                                None => break,
+                            }
+                            if depth == 0 {
+                                break;
                             }
                         }
                         func_call_str = full_str;
@@ -759,19 +752,16 @@ impl TContext {
             values.len() as i32,
             named.keys().cloned().collect(),
         );
-        let mut fs = std::mem::take(&mut self.functions_set);
+        let fs = std::mem::take(&mut self.functions_set);
         // Use transmute to get a raw pointer without extending the borrow of `fs`.
         let (func_ptr, func_type) = unsafe {
             let func = fs.get_function_smart(&signature);
-            match func {
-                Some(f) => {
-                    let ptr: *const dyn super::t_function::TFunction =
-                        std::mem::transmute::<&dyn super::t_function::TFunction, *const dyn super::t_function::TFunction>(f);
-                    let ftype = f.get_function_type();
-                    (Some(ptr), ftype)
-                }
-                None => (None, super::t_function_type::TFunctionType::ReturnFunction),
-            }
+            func.map_or((None, super::t_function_type::TFunctionType::ReturnFunction), |f| {
+                let ptr: *const dyn super::t_function::TFunction =
+                    std::mem::transmute::<&dyn super::t_function::TFunction, *const dyn super::t_function::TFunction>(f);
+                let ftype = f.get_function_type();
+                (Some(ptr), ftype)
+            })
         };
         if let Some(func_ptr) = func_ptr {
             // Restore functions_set BEFORE execution so nested calls can find functions.
@@ -794,7 +784,7 @@ impl TContext {
             }
         }
         self.functions_set = fs;
-        Err(EaterException::new(format!("No such function {function_name}"), &s))
+        Err(EaterException::new(format!("No such function {function_name}"), s))
     }
     fn execute_theme(&mut self, memory: &mut dyn TMemory, s: &StringLocated) -> Result<(), EaterException> {
         let mut eater = EaterTheme::new(s.clone(), self.path_system.clone());
@@ -822,6 +812,7 @@ impl TContext {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn execute_startsub(&mut self, memory: &mut dyn TMemory, s: &StringLocated) -> Result<(), EaterException> {
         let mut eater = EaterStartsub::new(s.clone());
         eater.analyze(self, memory)?;
@@ -843,7 +834,7 @@ impl TContext {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let lines = parse_puml_lines(&content);
                     let sub_lines = collect_sub_block_lines(&lines, blocname);
-                    for sl in &sub_lines {
+                    for _sl in &sub_lines {
                     }
                     if !sub_lines.is_empty() {
                         self.execute_lines_internal(memory, &sub_lines, None, false)?;
@@ -876,10 +867,7 @@ impl TContext {
         let s = crate::string_located::StringLocated::new(name.to_string(), location.get_location().clone());
         let result = self.apply_functions_and_variables(memory, &s);
         let result = result.unwrap_or_else(|| name.to_string());
-        match serde_json::from_str::<serde_json::Value>(&result) {
-            Ok(json) => TValue::from_json(json),
-            Err(_) => TValue::from_string(result),
-        }
+        serde_json::from_str::<serde_json::Value>(&result).map_or_else(|_| TValue::from_string(result), TValue::from_json)
     }
 
     /// Creates a `Knowledge` view over this context and memory.
@@ -892,12 +880,12 @@ impl TContext {
     ) -> super::expression::knowledge::ContextKnowledge {
         // SAFETY: The raw pointers are valid for the duration of expression
         // evaluation (single-threaded, stack-owned). We erase the lifetime
-        // from the memory pointer via transmute so that the returned
+        // from the memory pointer via an `as` cast so that the returned
         // ContextKnowledge does not hold a borrow of `self` or `memory`,
-        // allowing both to be used again while it exists.
-        let ctx_ptr = self as *mut TContext;
+        let ctx_ptr = self as *mut Self;
         let mem_ptr: *mut (dyn TMemory + '_) = memory;
-        let mem_ptr: *mut (dyn TMemory + 'static) = unsafe { std::mem::transmute(mem_ptr) };
+        #[allow(clippy::unnecessary_cast)]
+        let mem_ptr: *mut (dyn TMemory + 'static) = mem_ptr as *mut dyn TMemory;
         super::expression::knowledge::ContextKnowledge::new(ctx_ptr, mem_ptr, location.clone())
     }
 
@@ -907,7 +895,7 @@ impl TContext {
     pub fn extract_from_result_list(&mut self, n1: usize) -> String {
         let mut sb = String::new();
         while self.result_list.len() > n1 {
-            sb.push_str(&self.result_list[n1].get_string());
+            sb.push_str(self.result_list[n1].get_string());
             self.result_list.remove(n1);
             if self.result_list.len() > n1 {
                 sb.push('\n');
@@ -948,7 +936,7 @@ impl TContext {
         args: &[TValue],
         named: &HashMap<String, TValue>,
     ) -> Result<TValue, EaterException> {
-        let mut fs = std::mem::take(&mut self.functions_set);
+        let fs = std::mem::take(&mut self.functions_set);
         let func = fs.get_function_smart(signature);
         if let Some(func) = func {
             let result = func.execute_return_function(self, memory, location, args, named);
@@ -973,7 +961,7 @@ impl TContext {
         args: &[TValue],
         named: &HashMap<String, TValue>,
     ) -> Result<(), EaterException> {
-        let mut fs = std::mem::take(&mut self.functions_set);
+        let fs = std::mem::take(&mut self.functions_set);
         let func = fs.get_function_smart(signature);
         if let Some(func) = func {
             let result = func.execute_procedure_internal(self, memory, location, args, named);
@@ -994,7 +982,7 @@ impl Default for TContext {
     }
 }
 
-/// Parses puml file content into StringLocated lines, skipping YAML header.
+/// Parses puml file content into `StringLocated` lines, skipping YAML header.
 fn parse_puml_lines(content: &str) -> Vec<StringLocated> {
     let mut lines = Vec::new();
     let mut inside_yaml = false;

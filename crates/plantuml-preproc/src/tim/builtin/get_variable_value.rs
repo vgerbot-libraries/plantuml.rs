@@ -21,9 +21,6 @@ crate::impl_simple_return_function!(
     can_cover = |nb_arg, _named| nb_arg == 1,
     execute = |_self, _context, memory, _location, values, _named| {
         let name = values[0].to_string();
-        match memory.get_variable(&name) {
-            Some(v) => Ok(v),
-            None => Ok(TValue::from_string("")),
-        }
+        memory.get_variable(&name).map_or_else(|| Ok(TValue::from_string("")), Ok)
     },
 );

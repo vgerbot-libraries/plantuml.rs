@@ -12,7 +12,6 @@ use plantuml_klimt::color::{ColorMapper, HColor};
 use plantuml_klimt::shapes::{UEllipse, ULine, UPath, UPolygon, URectangle, UText};
 use plantuml_klimt::uchange::UChange;
 use plantuml_klimt::ushape::UShape;
-use std::any::Any;
 
 /// Change types for SVG rendering.
 ///

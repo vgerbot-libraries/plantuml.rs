@@ -1,4 +1,4 @@
-//! RegexOr — alternation of regex patterns.
+//! `RegexOr` — alternation of regex patterns.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexOr` (Java).
 //!
@@ -58,7 +58,7 @@ impl IRegex for RegexOr {
 
     fn count(&self) -> usize {
         // start count is 1 if named
-        let start = if self.name.is_some() { 1 } else { 0 };
+        let start = usize::from(self.name.is_some());
         start + self.partials.iter().map(|p| p.count()).sum::<usize>()
     }
 

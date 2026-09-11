@@ -3,7 +3,6 @@
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
@@ -31,7 +30,7 @@ crate::impl_simple_return_function!(
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            return Ok(TValue::from_string(&now.to_string()));
+            return Ok(TValue::from_string(now.to_string()));
         }
         let format = values[0].to_string();
         // TODO: implement SimpleDateFormat equivalent.

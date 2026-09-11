@@ -45,7 +45,7 @@ pub enum TokenType {
 impl TokenType {
     /// Returns `true` if this token type is a single-char token
     /// (`OPEN_PAREN_MATH`, `COMMA`, `CLOSE_PAREN_MATH`).
-    const fn is_single_char1(&self) -> bool {
+    const fn is_single_char1(self) -> bool {
         matches!(
             self,
             Self::OpenParenMath | Self::Comma | Self::CloseParenMath
@@ -56,41 +56,39 @@ impl TokenType {
     ///
     /// Ported from `TokenType.isPlainTextBreak`.
     fn is_plain_text_break(ch: char, ch2: char) -> bool {
-        match Self::from_char(ch, ch2) {
-            Some(tt) => tt.is_single_char1() || tt == Self::Operator || tt == Self::Spaces || tt == Self::Affectation,
-            None => false,
-        }
+        let tt = Self::from_char(ch, ch2);
+        tt.is_single_char1() || tt == Self::Operator || tt == Self::Spaces || tt == Self::Affectation
     }
 
     /// Classifies a character into a token type.
     ///
     /// Ported from `TokenType.fromChar`.
-    fn from_char(ch: char, ch2: char) -> Option<Self> {
+    fn from_char(ch: char, ch2: char) -> Self {
         if TLineType::is_quote(ch) {
-            return Some(Self::QuotedString);
+            return Self::QuotedString;
         }
         if ch == '=' {
-            return Some(Self::Affectation);
+            return Self::Affectation;
         }
         if ch == '(' {
-            return Some(Self::OpenParenMath);
+            return Self::OpenParenMath;
         }
         if ch == ')' {
-            return Some(Self::CloseParenMath);
+            return Self::CloseParenMath;
         }
         if ch == ',' {
-            return Some(Self::Comma);
+            return Self::Comma;
         }
         if TLineType::is_latin_digit(ch) {
-            return Some(Self::Number);
+            return Self::Number;
         }
         if TLineType::is_space_char(ch) {
-            return Some(Self::Spaces);
+            return Self::Spaces;
         }
         if ch == '-' || TokenOperator::get_token_operator(ch, ch2).is_some() {
-            return Some(Self::Operator);
+            return Self::Operator;
         }
-        Some(Self::PlainText)
+        Self::PlainText
     }
 
     /// Eats one token from the eater.
@@ -179,10 +177,7 @@ impl TokenType {
     ///
     /// Ported from `TokenType.isSubtractionOperator`.
     fn is_subtraction_operator(last_token: Option<&Token>) -> bool {
-        let last_token = match last_token {
-            Some(t) => t,
-            None => return false,
-        };
+        let Some(last_token) = last_token else { return false };
         let tt = last_token.get_token_type();
         !matches!(
             tt,

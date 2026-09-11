@@ -1,4 +1,4 @@
-//! TValue — the main value type for expression evaluation.
+//! `TValue` — the main value type for expression evaluation.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.expression.TValue`.
 
@@ -17,7 +17,7 @@ use super::token_type::TokenType;
 /// - `Int` → `intValue` set, others null
 /// - `Str` → `stringValue` set, others null
 /// - `Json` → `jsonValue` set, others null
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TValue {
     /// An integer value.
     Int(i32),
@@ -41,7 +41,7 @@ impl TValue {
     /// Ported from `TValue.fromBoolean`.
     #[must_use]
     pub fn from_boolean(b: bool) -> Self {
-        Self::Int(if b { 1 } else { 0 })
+        Self::Int(i32::from(b))
     }
 
     /// Creates a `TValue` from a JSON value.
@@ -110,11 +110,10 @@ impl TValue {
     pub fn to_int(&self) -> i32 {
         match self {
             Self::Int(i) => *i,
-            Self::Str(s) => s.parse().unwrap_or(0),
+            Self::Str(s) | Self::Json(Value::String(s)) => s.parse().unwrap_or(0),
             Self::Json(Value::Number(n)) => n.as_i64().unwrap_or(0) as i32,
-            Self::Json(Value::String(s)) => s.parse().unwrap_or(0),
             Self::Json(Value::Bool(b)) => i32::from(*b),
-            _ => 0,
+            Self::Json(_) => 0,
         }
     }
 
@@ -140,8 +139,7 @@ impl TValue {
     pub fn to_string_value(&self) -> String {
         match self {
             Self::Int(i) => i.to_string(),
-            Self::Str(s) => s.clone(),
-            Self::Json(Value::String(s)) => s.clone(),
+            Self::Str(s) | Self::Json(Value::String(s)) => s.clone(),
             Self::Json(j) => j.to_string(),
         }
     }
@@ -192,44 +190,44 @@ impl TValue {
     ///
     /// Ported from `TValue.add`.
     #[must_use]
-    pub fn add(&self, v2: &TValue) -> TValue {
+    pub fn add(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_int(self.to_int() + v2.to_int());
+            return Self::from_int(self.to_int() + v2.to_int());
         }
-        TValue::from_string(format!("{}{}", self.to_string_value(), v2.to_string_value()))
+        Self::from_string(format!("{}{}", self.to_string_value(), v2.to_string_value()))
     }
 
     /// Subtracts two values. Numbers subtract numerically; otherwise string concatenation.
     ///
     /// Ported from `TValue.minus`.
     #[must_use]
-    pub fn minus(&self, v2: &TValue) -> TValue {
+    pub fn minus(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_int(self.to_int() - v2.to_int());
+            return Self::from_int(self.to_int() - v2.to_int());
         }
-        TValue::from_string(format!("{}{}", self.to_string_value(), v2.to_string_value()))
+        Self::from_string(format!("{}{}", self.to_string_value(), v2.to_string_value()))
     }
 
     /// Multiplies two values. Numbers multiply numerically; otherwise string concat with `*`.
     ///
     /// Ported from `TValue.multiply`.
     #[must_use]
-    pub fn multiply(&self, v2: &TValue) -> TValue {
+    pub fn multiply(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_int(self.to_int() * v2.to_int());
+            return Self::from_int(self.to_int() * v2.to_int());
         }
-        TValue::from_string(format!("{}*{}", self.to_string_value(), v2.to_string_value()))
+        Self::from_string(format!("{}*{}", self.to_string_value(), v2.to_string_value()))
     }
 
     /// Divides two values. Numbers divide numerically; otherwise string concat with `/`.
     ///
     /// Ported from `TValue.dividedBy`.
     #[must_use]
-    pub fn divided_by(&self, v2: &TValue) -> TValue {
+    pub fn divided_by(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_int(self.to_int() / v2.to_int());
+            return Self::from_int(self.to_int() / v2.to_int());
         }
-        TValue::from_string(format!("{}/{}", self.to_string_value(), v2.to_string_value()))
+        Self::from_string(format!("{}/{}", self.to_string_value(), v2.to_string_value()))
     }
 
     // ---- Comparison operations ----
@@ -238,66 +236,66 @@ impl TValue {
     ///
     /// Ported from `TValue.greaterThan`.
     #[must_use]
-    pub fn greater_than(&self, v2: &TValue) -> TValue {
+    pub fn greater_than(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() > v2.to_int());
+            return Self::from_boolean(self.to_int() > v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() > v2.to_string_value())
+        Self::from_boolean(self.to_string_value() > v2.to_string_value())
     }
 
     /// Greater-than-or-equals comparison. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.greaterThanOrEquals`.
     #[must_use]
-    pub fn greater_than_or_equals(&self, v2: &TValue) -> TValue {
+    pub fn greater_than_or_equals(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() >= v2.to_int());
+            return Self::from_boolean(self.to_int() >= v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() >= v2.to_string_value())
+        Self::from_boolean(self.to_string_value() >= v2.to_string_value())
     }
 
     /// Less-than comparison. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.lessThan`.
     #[must_use]
-    pub fn less_than(&self, v2: &TValue) -> TValue {
+    pub fn less_than(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() < v2.to_int());
+            return Self::from_boolean(self.to_int() < v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() < v2.to_string_value())
+        Self::from_boolean(self.to_string_value() < v2.to_string_value())
     }
 
     /// Less-than-or-equals comparison. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.lessThanOrEquals`.
     #[must_use]
-    pub fn less_than_or_equals(&self, v2: &TValue) -> TValue {
+    pub fn less_than_or_equals(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() <= v2.to_int());
+            return Self::from_boolean(self.to_int() <= v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() <= v2.to_string_value())
+        Self::from_boolean(self.to_string_value() <= v2.to_string_value())
     }
 
     /// Equality comparison. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.equalsOperation`.
     #[must_use]
-    pub fn equals_operation(&self, v2: &TValue) -> TValue {
+    pub fn equals_operation(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() == v2.to_int());
+            return Self::from_boolean(self.to_int() == v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() == v2.to_string_value())
+        Self::from_boolean(self.to_string_value() == v2.to_string_value())
     }
 
     /// Not-equals comparison. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.notEquals`.
     #[must_use]
-    pub fn not_equals(&self, v2: &TValue) -> TValue {
+    pub fn not_equals(&self, v2: &Self) -> Self {
         if self.is_number() && v2.is_number() {
-            return TValue::from_boolean(self.to_int() != v2.to_int());
+            return Self::from_boolean(self.to_int() != v2.to_int());
         }
-        TValue::from_boolean(self.to_string_value() != v2.to_string_value())
+        Self::from_boolean(self.to_string_value() != v2.to_string_value())
     }
 
     // ---- Logical operations ----
@@ -306,16 +304,16 @@ impl TValue {
     ///
     /// Ported from `TValue.logicalAnd`.
     #[must_use]
-    pub fn logical_and(&self, v2: &TValue) -> TValue {
-        TValue::from_boolean(self.to_boolean() && v2.to_boolean())
+    pub fn logical_and(&self, v2: &Self) -> Self {
+        Self::from_boolean(self.to_boolean() && v2.to_boolean())
     }
 
     /// Logical OR. Returns a boolean `TValue`.
     ///
     /// Ported from `TValue.logicalOr`.
     #[must_use]
-    pub fn logical_or(&self, v2: &TValue) -> TValue {
-        TValue::from_boolean(self.to_boolean() || v2.to_boolean())
+    pub fn logical_or(&self, v2: &Self) -> Self {
+        Self::from_boolean(self.to_boolean() || v2.to_boolean())
     }
 }
 
@@ -323,8 +321,7 @@ impl std::fmt::Display for TValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(i) => write!(f, "{i}"),
-            Self::Str(s) => write!(f, "{s}"),
-            Self::Json(Value::String(s)) => write!(f, "{s}"),
+            Self::Str(s) | Self::Json(Value::String(s)) => write!(f, "{s}"),
             Self::Json(j) => write!(f, "{j}"),
         }
     }

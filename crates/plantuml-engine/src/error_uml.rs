@@ -76,11 +76,7 @@ impl ErrorUml {
     /// Ported from `ErrorUml.getError`.
     #[must_use]
     pub fn get_error(&self) -> String {
-        if let Some(dt) = &self.diagram_type {
-            format!("{} (Assumed diagram type: {})", self.error, dt.human_readable_name())
-        } else {
-            self.error.clone()
-        }
+        self.diagram_type.as_ref().map_or_else(|| self.error.clone(), |dt| format!("{} (Assumed diagram type: {})", self.error, dt.human_readable_name()))
     }
 
     /// Returns the error type.

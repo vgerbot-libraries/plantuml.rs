@@ -10,6 +10,7 @@ use plantuml_skin::ArrowConfiguration;
 ///
 /// Ported from: `net/sourceforge/plantuml/sequencediagram/Message.java`
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
 pub struct Message {
     p1: Participant,
     p2: Participant,
@@ -45,13 +46,13 @@ impl Message {
 
     /// Returns the source participant.
     #[must_use]
-    pub fn p1(&self) -> &Participant {
+    pub const fn p1(&self) -> &Participant {
         &self.p1
     }
 
     /// Returns the destination participant.
     #[must_use]
-    pub fn p2(&self) -> &Participant {
+    pub const fn p2(&self) -> &Participant {
         &self.p2
     }
 
@@ -63,7 +64,7 @@ impl Message {
 
     /// Returns the arrow configuration.
     #[must_use]
-    pub fn arrow_config(&self) -> &ArrowConfiguration {
+    pub const fn arrow_config(&self) -> &ArrowConfiguration {
         &self.arrow_config
     }
 
@@ -79,7 +80,7 @@ impl Message {
     }
 
     /// Marks this message as parallel.
-    pub fn go_parallel(&mut self) {
+    pub const fn go_parallel(&mut self) {
         self.parallel = true;
     }
 

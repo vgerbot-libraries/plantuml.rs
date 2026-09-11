@@ -1,7 +1,6 @@
-/// Challenge matching a character set (charset ranges + character classes).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeCharSet.java`
-
+//! Challenge matching a character set (charset ranges + character classes).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeCharSet.java`
 use std::any::Any;
 
 use super::challenge::Challenge;
@@ -16,9 +15,15 @@ pub struct ChallengeCharSet {
     reversed: bool,
 }
 
+impl Default for ChallengeCharSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChallengeCharSet {
-    pub fn new() -> Self {
-        ChallengeCharSet {
+    pub const fn new() -> Self {
+        Self {
             char_classes: Vec::new(),
             char_set: CharSet::new(),
             reversed: false,
@@ -26,17 +31,13 @@ impl ChallengeCharSet {
     }
 
     /// Builds a `ChallengeCharSet` from a pattern string.
-    pub fn build(pattern: &str) -> ChallengeCharSet {
-        if pattern.is_empty() {
-            panic!("Empty!");
-        }
+    pub fn build(pattern: &str) -> Self {
+        assert!(!pattern.is_empty(), "Empty!");
 
         let pattern_chars: Vec<char> = pattern.chars().collect();
-        if pattern_chars.last() == Some(&'〜') {
-            panic!("Range operator '〜' must be followed by a character.");
-        }
+        assert!(pattern_chars.last() != Some(&'〜'), "Range operator '〜' must be followed by a character.");
 
-        let mut result = ChallengeCharSet::new();
+        let mut result = Self::new();
         let mut nav = TextNavigator::build(pattern);
 
         while nav.length() > 0 {
@@ -89,10 +90,10 @@ impl Challenge for ChallengeCharSet {
         }
         let ch = string.char_at(position);
         let matched = self.char_set.contains(ch) || CharClassRaw::internal_matches_any(&self.char_classes, ch);
-        if matched != self.reversed {
-            ChallengeResult::one()
-        } else {
+        if matched == self.reversed {
             ChallengeResult::no_match()
+        } else {
+            ChallengeResult::one()
         }
     }
 

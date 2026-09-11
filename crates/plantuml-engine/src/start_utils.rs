@@ -2,7 +2,7 @@
 //!
 //! Ported from `net.sourceforge.plantuml.utils.StartUtils`.
 
-/// Utilities for detecting PlantUML start/end/pause/exit directives.
+/// Utilities for detecting `PlantUML` start/end/pause/exit directives.
 ///
 /// Ported from `net.sourceforge.plantuml.utils.StartUtils`.
 pub struct StartUtils;

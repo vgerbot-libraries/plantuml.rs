@@ -51,7 +51,7 @@ pub enum DiagramType {
 impl DiagramType {
     /// `true` for the legacy UML diagram types.
     #[must_use]
-    pub fn is_legacy_uml(&self) -> bool {
+    pub const fn is_legacy_uml(&self) -> bool {
         matches!(
             self,
             Self::Sequence
@@ -76,7 +76,7 @@ impl DiagramType {
         self.name_lower()
     }
 
-    const fn name_lower(&self) -> &'static str {
+    const fn name_lower(self) -> &'static str {
         match self {
             Self::Sequence => "sequence",
             Self::State => "state",
@@ -125,7 +125,7 @@ impl DiagramType {
     ///
     /// Returns an empty set when no valid directive is found.
     #[must_use]
-    pub fn find_start_types(text: &str) -> HashSet<DiagramType> {
+    pub fn find_start_types(text: &str) -> HashSet<Self> {
         let chars: Vec<char> = text.chars().collect();
         for i in 0..chars.len() {
             let c = chars[i];

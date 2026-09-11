@@ -11,7 +11,7 @@ pub enum CaseMode {
 impl CaseMode {
     /// Converts an uppercase ASCII letter to lowercase; other characters are unchanged.
     pub fn ensure_lowercase(ch: char) -> char {
-        if ('A'..='Z').contains(&ch) {
+        if ch.is_ascii_uppercase() {
             char::from_u32(ch as u32 - 'A' as u32 + 'a' as u32).unwrap_or(ch)
         } else {
             ch

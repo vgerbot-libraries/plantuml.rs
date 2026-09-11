@@ -2,7 +2,6 @@
 //!
 //! Ported from: `net/sourceforge/plantuml/sequencediagram/SequenceDiagram.java`
 
-use crate::event::Event;
 use crate::life_event::LifeEvent;
 use crate::life_event_type::LifeEventType;
 use crate::message::Message;
@@ -29,7 +28,7 @@ pub enum SequenceEvent {
 impl SequenceDiagram {
     /// Creates a new empty sequence diagram.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             participants: Vec::new(),
             events: Vec::new(),

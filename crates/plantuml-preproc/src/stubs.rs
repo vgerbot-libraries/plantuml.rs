@@ -14,6 +14,7 @@ use std::collections::HashSet;
 ///
 /// Ported from `net.sourceforge.plantuml.utils.LineLocation`.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct LineLocation {
     pub file: Option<String>,
     pub line: u32,
@@ -26,23 +27,15 @@ impl LineLocation {
     }
 }
 
-impl Default for LineLocation {
-    fn default() -> Self {
-        Self {
-            file: None,
-            line: 0,
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // net.sourceforge.plantuml.nio.PathSystem
 // ---------------------------------------------------------------------------
 
-/// Stub for PathSystem — file resolution and include tracking.
+/// Stub for `PathSystem` — file resolution and include tracking.
 ///
 /// Ported from `net.sourceforge.plantuml.nio.PathSystem`.
-/// Stub for PathSystem — manages file path resolution for !include directives.
+/// Stub for `PathSystem` — manages file path resolution for !include directives.
 ///
 /// Ported from `net.sourceforge.plantuml.security.PathSystem`.
 #[derive(Debug, Clone, Default)]
@@ -83,7 +76,7 @@ impl PathSystem {
 // net.sourceforge.plantuml.DefinitionsContainer
 // ---------------------------------------------------------------------------
 
-/// Stub for DefinitionsContainer — manages `@startdef` definitions.
+/// Stub for `DefinitionsContainer` — manages `@startdef` definitions.
 ///
 /// Ported from `net.sourceforge.plantuml.DefinitionsContainer`.
 #[derive(Debug, Clone, Default)]
@@ -136,7 +129,7 @@ impl Jaws {
 // net.sourceforge.plantuml.command.CommandExecutionResult
 // ---------------------------------------------------------------------------
 
-/// Stub for CommandExecutionResult.
+/// Stub for `CommandExecutionResult`.
 ///
 /// Ported from `net.sourceforge.plantuml.command.CommandExecutionResult`.
 #[derive(Debug)]
@@ -152,13 +145,13 @@ impl CommandExecutionResult {
 // net.sourceforge.plantuml.teavm.TeaVM
 // ---------------------------------------------------------------------------
 
-/// Stub for TeaVM platform checks.
+/// Stub for `TeaVM` platform checks.
 ///
 /// Ported from `net.sourceforge.plantuml.teavm.TeaVM`.
 pub struct TeaVM;
 
 impl TeaVM {
-    /// Returns `true` if running under TeaVM (browser/WASM).
+    /// Returns `true` if running under `TeaVM` (browser/WASM).
     #[must_use]
     pub fn is_teavm() -> bool {
         false
@@ -212,7 +205,7 @@ pub struct Warning(pub String);
 // net.sourceforge.plantuml.FoxSignature
 // ---------------------------------------------------------------------------
 
-/// Stub for FoxSignature — fast-reject signature.
+/// Stub for `FoxSignature` — fast-reject signature.
 ///
 /// Ported from `net.sourceforge.plantuml.FoxSignature`.
 pub struct FoxSignature;
@@ -275,7 +268,7 @@ impl Theme {
 // net.sourceforge.plantuml.theme.ThemeUtils
 // ---------------------------------------------------------------------------
 
-/// Stub for ThemeUtils.
+/// Stub for `ThemeUtils`.
 ///
 /// Ported from `net.sourceforge.plantuml.theme.ThemeUtils`.
 pub struct ThemeUtils;
@@ -295,7 +288,7 @@ impl ThemeUtils {
 // net.sourceforge.plantuml.security.SFile / SURL
 // ---------------------------------------------------------------------------
 
-/// Stub for SFile.
+/// Stub for `SFile`.
 #[derive(Debug, Clone)]
 pub struct SFile {
     pub path: String,
@@ -314,7 +307,7 @@ impl SFile {
 // net.sourceforge.plantuml.nio.InputFile
 // ---------------------------------------------------------------------------
 
-/// Stub for InputFile.
+/// Stub for `InputFile`.
 #[derive(Debug, Clone)]
 pub struct InputFile {
     pub path: String,
@@ -333,7 +326,7 @@ impl InputFile {
 // net.sourceforge.plantuml.FileSystem
 // ---------------------------------------------------------------------------
 
-/// Stub for FileSystem.
+/// Stub for `FileSystem`.
 pub struct FileSystem;
 
 impl FileSystem {
@@ -529,7 +522,7 @@ impl FileUtils {
 
     /// Reads exactly `len` bytes from a slice, returning the sub-slice as a Vec.
     pub fn read_exactly(data: &[u8], len: usize) -> Vec<u8> {
-        data.get(..len).map_or(Vec::new(), |s| s.to_vec())
+        data.get(..len).map_or(Vec::new(), <[u8]>::to_vec)
     }
 }
 
@@ -550,6 +543,7 @@ impl SURL {
         None
     }
 
+    #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
         self.url.clone()
     }
@@ -566,7 +560,7 @@ pub trait Sprite: Send + Sync {
     fn as_text_block(&self) -> String;
 }
 
-/// Stub for SpriteMonochrome.
+/// Stub for `SpriteMonochrome`.
 ///
 /// Ported from `net.sourceforge.plantuml.klimt.sprite.SpriteMonochrome`.
 pub struct SpriteMonochrome {
@@ -595,12 +589,12 @@ impl SpriteMonochrome {
 // net.sourceforge.plantuml.klimt.awt.PortableImage
 // ---------------------------------------------------------------------------
 
-/// Stub for PortableImage.
+/// Stub for `PortableImage`.
 ///
 /// Ported from `net.sourceforge.plantuml.klimt.awt.PortableImage`.
 pub struct PortableImage;
 
-/// Stub for PortableImageFactory.
+/// Stub for `PortableImageFactory`.
 ///
 /// Ported from `net.sourceforge.plantuml.klimt.awt.PortableImageFactory`.
 pub struct PortableImageFactory;
@@ -618,7 +612,7 @@ pub const TYPE_INT_ARGB: usize = 0;
 // net.sourceforge.plantuml.version.Version
 // ---------------------------------------------------------------------------
 
-/// Returns the PlantUML version string.
+/// Returns the `PlantUML` version string.
 pub fn version_string() -> String {
     "1.2024.7".to_string()
 }

@@ -1,4 +1,4 @@
-//! TMode — placeholder for mode tracking.
+//! `TMode` — placeholder for mode tracking.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.TMode`.
 

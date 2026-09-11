@@ -3,7 +3,6 @@
 //! Ported from `net.sourceforge.plantuml.tim.VariableManager`.
 
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use crate::{StringLocated, TLineType};
@@ -39,10 +38,7 @@ impl<'a> VariableManager<'a> {
         i: usize,
         result: &mut String,
     ) -> Result<usize, EaterException> {
-        let present_variable = match self.get_varname_at(str, i) {
-            Some(v) => v,
-            None => return Ok(i),
-        };
+        let Some(present_variable) = self.get_varname_at(str, i) else { return Ok(i) };
         if result.ends_with("##") {
             result.truncate(result.len() - 2);
         }
@@ -58,11 +54,7 @@ impl<'a> VariableManager<'a> {
                 } else if json.is_number() {
                     result.push_str(&json.to_string());
                 } else {
-                    let json_value = if json.is_array() || json.is_object() {
-                        json.clone()
-                    } else {
-                        json.clone()
-                    };
+                    let json_value = json.clone();
                     new_i += 1;
                     new_i = self.replace_json(json_value, str, new_i, result)? - 1;
                 }

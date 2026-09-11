@@ -2,9 +2,6 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
-use crate::tim::eater_exception::EaterException;
-use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
 
 use super::SimpleReturnFunction;

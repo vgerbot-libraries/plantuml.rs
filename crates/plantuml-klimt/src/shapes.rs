@@ -1,4 +1,4 @@
-//! UShape implementations — concrete drawable shapes.
+//! `UShape` implementations — concrete drawable shapes.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/` package
 

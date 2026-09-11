@@ -5,11 +5,11 @@
 use crate::entity::Entity;
 use std::sync::Arc;
 
-/// Placeholder for LinkType.
+/// Placeholder for `LinkType`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkType;
 
-/// Placeholder for LinkArg.
+/// Placeholder for `LinkArg`.
 #[derive(Debug, Clone, Default)]
 pub struct LinkArg {
     label: String,
@@ -27,15 +27,15 @@ impl LinkArg {
     }
 }
 
-/// Placeholder for LinkArrow.
+/// Placeholder for `LinkArrow`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LinkArrow;
 
-/// Placeholder for LinkConstraint.
+/// Placeholder for `LinkConstraint`.
 #[derive(Debug, Clone, Default)]
 pub struct LinkConstraint;
 
-/// Placeholder for CucaNote.
+/// Placeholder for `CucaNote`.
 #[derive(Debug, Clone, Default)]
 pub struct CucaNote;
 
@@ -47,18 +47,18 @@ pub struct Url;
 #[derive(Debug, Clone, Default)]
 pub struct Stereotype;
 
-/// Placeholder for StyleBuilder.
+/// Placeholder for `StyleBuilder`.
 #[derive(Debug, Clone, Default)]
 pub struct StyleBuilder;
 
-/// Placeholder for LineLocation.
+/// Placeholder for `LineLocation`.
 #[derive(Debug, Clone, Default)]
 pub struct LineLocation {
     pub file: Option<String>,
     pub line: u32,
 }
 
-/// Placeholder for CucaDiagram.
+/// Placeholder for `CucaDiagram`.
 #[derive(Debug, Clone, Default)]
 pub struct CucaDiagramRef;
 
@@ -66,6 +66,7 @@ pub struct CucaDiagramRef;
 ///
 /// Ported from: `net/sourceforge/plantuml/abel/Link.java`
 #[derive(Debug, Clone)]
+#[allow(dead_code, clippy::struct_field_names)]
 pub struct Link {
     entity1: Arc<Entity>,
     entity2: Arc<Entity>,
@@ -175,14 +176,14 @@ impl Link {
     ///
     /// Ported from: `Link.isInvis()`.
     #[must_use]
-    pub fn is_invis(&self) -> bool {
+    pub const fn is_invis(&self) -> bool {
         self.invis
     }
 
     /// Sets the invisible flag.
     ///
     /// Ported from: `Link.setInvis()`.
-    pub fn set_invis(&mut self, invis: bool) {
+    pub const fn set_invis(&mut self, invis: bool) {
         self.invis = invis;
     }
 
@@ -190,14 +191,14 @@ impl Link {
     ///
     /// Ported from: `Link.getWeight()`.
     #[must_use]
-    pub fn get_weight(&self) -> f64 {
+    pub const fn get_weight(&self) -> f64 {
         self.weight
     }
 
     /// Sets the weight.
     ///
     /// Ported from: `Link.setWeight()`.
-    pub fn set_weight(&mut self, weight: f64) {
+    pub const fn set_weight(&mut self, weight: f64) {
         self.weight = weight;
     }
 
@@ -205,20 +206,20 @@ impl Link {
     ///
     /// Ported from: `Link.isConstraint()`.
     #[must_use]
-    pub fn is_constraint(&self) -> bool {
+    pub const fn is_constraint(&self) -> bool {
         self.constraint
     }
 
     /// Sets the constraint flag.
     ///
     /// Ported from: `Link.setConstraint()`.
-    pub fn set_constraint(&mut self, constraint: bool) {
+    pub const fn set_constraint(&mut self, constraint: bool) {
         self.constraint = constraint;
     }
 
     /// Returns `true` if the link is inverted.
     #[must_use]
-    pub fn is_inverted(&self) -> bool {
+    pub const fn is_inverted(&self) -> bool {
         self.inverted
     }
 
@@ -226,33 +227,33 @@ impl Link {
     ///
     /// Ported from: `Link.getLinkArrow()`.
     #[must_use]
-    pub fn get_link_arrow(&self) -> LinkArrow {
+    pub const fn get_link_arrow(&self) -> LinkArrow {
         self.link_arrow
     }
 
     /// Sets the link arrow.
     ///
     /// Ported from: `Link.setLinkArrow()`.
-    pub fn set_link_arrow(&mut self, link_arrow: LinkArrow) {
+    pub const fn set_link_arrow(&mut self, link_arrow: LinkArrow) {
         self.link_arrow = link_arrow;
     }
 
     /// Returns `true` if the link is opale (transparent style).
     #[must_use]
-    pub fn is_opale(&self) -> bool {
+    pub const fn is_opale(&self) -> bool {
         self.opale
     }
 
     /// Sets the opale flag.
     ///
     /// Ported from: `Link.setOpale()`.
-    pub fn set_opale(&mut self, opale: bool) {
+    pub const fn set_opale(&mut self, opale: bool) {
         self.opale = opale;
     }
 
     /// Returns `true` if the link is horizontally solitary.
     #[must_use]
-    pub fn is_horizontal_solitary(&self) -> bool {
+    pub const fn is_horizontal_solitary(&self) -> bool {
         self.horizontal_solitary
     }
 
@@ -279,66 +280,66 @@ impl Link {
     ///
     /// Ported from: `Link.getLinkArg()`.
     #[must_use]
-    pub fn get_link_arg(&self) -> &LinkArg {
+    pub const fn get_link_arg(&self) -> &LinkArg {
         &self.link_arg
     }
 
     /// Returns the note, if any.
     #[must_use]
-    pub fn get_note(&self) -> Option<&CucaNote> {
+    pub const fn get_note(&self) -> Option<&CucaNote> {
         self.note.as_ref()
     }
 
     /// Adds a note to the link.
     ///
     /// Ported from: `Link.addNote()`.
-    pub fn add_note(&mut self, note: CucaNote) {
+    pub const fn add_note(&mut self, note: CucaNote) {
         self.note = Some(note);
     }
 
     /// Returns the URL, if any.
     #[must_use]
-    pub fn get_url(&self) -> Option<&Url> {
+    pub const fn get_url(&self) -> Option<&Url> {
         self.url.as_ref()
     }
 
     /// Sets the URL.
-    pub fn set_url(&mut self, url: Url) {
+    pub const fn set_url(&mut self, url: Url) {
         self.url = Some(url);
     }
 
     /// Returns `true` if the link has a URL.
     #[must_use]
-    pub fn has_url(&self) -> bool {
+    pub const fn has_url(&self) -> bool {
         self.url.is_some()
     }
 
     /// Returns the stereotype, if any.
     #[must_use]
-    pub fn get_stereotype(&self) -> Option<&Stereotype> {
+    pub const fn get_stereotype(&self) -> Option<&Stereotype> {
         self.stereotype.as_ref()
     }
 
     /// Sets the stereotype.
-    pub fn set_stereotype(&mut self, stereotype: Stereotype) {
+    pub const fn set_stereotype(&mut self, stereotype: Stereotype) {
         self.stereotype = Some(stereotype);
     }
 
     /// Returns `true` if the link is hidden.
     #[must_use]
-    pub fn is_hidden(&self) -> bool {
+    pub const fn is_hidden(&self) -> bool {
         self.invis
     }
 
     /// Returns `true` if the link is removed.
     #[must_use]
-    pub fn is_removed(&self) -> bool {
+    pub const fn is_removed(&self) -> bool {
         false
     }
 
     /// Returns the location.
     #[must_use]
-    pub fn get_location(&self) -> &LineLocation {
+    pub const fn get_location(&self) -> &LineLocation {
         &self.location
     }
 
@@ -376,12 +377,12 @@ impl Link {
 
     /// Returns the link constraint, if any.
     #[must_use]
-    pub fn get_link_constraint(&self) -> Option<&LinkConstraint> {
+    pub const fn get_link_constraint(&self) -> Option<&LinkConstraint> {
         self.link_constraint.as_ref()
     }
 
     /// Sets the link constraint.
-    pub fn set_link_constraint(&mut self, constraint: LinkConstraint) {
+    pub const fn set_link_constraint(&mut self, constraint: LinkConstraint) {
         self.link_constraint = Some(constraint);
     }
 }

@@ -21,9 +21,6 @@ crate::impl_simple_return_function!(
     can_cover = |nb_arg, _named| nb_arg == 1,
     execute = |_self, _context, _memory, _location, values, _named| {
         let value = values[0].to_string();
-        match serde_json::from_str(&value) {
-            Ok(json) => Ok(TValue::from_json(json)),
-            Err(_) => Ok(TValue::from_string("")),
-        }
+        serde_json::from_str(&value).map_or_else(|_| Ok(TValue::from_string("")), |json| Ok(TValue::from_json(json)))
     },
 );

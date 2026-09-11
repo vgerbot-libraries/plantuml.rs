@@ -111,12 +111,7 @@ impl PragmaKey {
             Self::UseIntermediatePackages,
             Self::UseVerticalIf,
         ];
-        for key in all {
-            if simplified == simplify(key.name()) {
-                return Some(key);
-            }
-        }
-        None
+        all.into_iter().find(|&key| simplified == simplify(key.name()))
     }
 }
 

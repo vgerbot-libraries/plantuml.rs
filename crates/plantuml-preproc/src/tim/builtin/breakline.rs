@@ -22,7 +22,7 @@ crate::impl_simple_return_function!(
     can_cover = |nb_arg, _named| nb_arg == 0,
     execute = |_self, _context, _memory, _location, _values, _named| {
         if jaws_flags::USE_BLOCK_E1_IN_NEWLINE_FUNCTION {
-            Ok(TValue::from_string(&jaws::BLOCK_E1_BREAKLINE.to_string()))
+            Ok(TValue::from_string(jaws::BLOCK_E1_BREAKLINE.to_string()))
         } else {
             Ok(TValue::from_string("\n"))
         }

@@ -36,7 +36,7 @@ impl TMemoryGlobal {
 
     fn dump_memory_internal(&self) {
         Log::info(|| format!("[MemGlobal] Number of variable(s) : {}", self.global_variables.len()));
-        let mut sorted: std::collections::BTreeMap<&String, &TValue> = self.global_variables.iter().collect();
+        let sorted: std::collections::BTreeMap<&String, &TValue> = self.global_variables.iter().collect();
         for (name, value) in &sorted {
             Log::info(|| format!("[MemGlobal] {name} = {value}"));
         }
@@ -56,7 +56,7 @@ impl TMemory for TMemoryGlobal {
         location: &StringLocated,
     ) -> Result<(), EaterException> {
         if scope == Some(TVariableScope::Local) {
-            return Err(EaterException::new("Cannot use local variable here", &location));
+            return Err(EaterException::new("Cannot use local variable here", location));
         }
         Log::info(|| format!("[MemGlobal] Setting {varname}"));
         self.global_variables.insert(varname.to_string(), value);

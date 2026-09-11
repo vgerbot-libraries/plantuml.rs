@@ -1,7 +1,6 @@
-/// Concatenation builder: sequences multiple `UBrexPart`s.
-///
-/// Ported from: `com/plantuml/ubrex/builder/UBrexConcat.java`
-
+//! Concatenation builder: sequences multiple `UBrexPart`s.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/UBrexConcat.java`
 use std::rc::Rc;
 
 use crate::ubrex::composite_list::CompositeList;
@@ -17,12 +16,12 @@ impl UBrexConcat {
         for element in parts {
             result.add_challenge(Rc::clone(element.get_challenge()));
         }
-        UBrexConcat {
+        Self {
             part: UBrexPart::new(Rc::new(result)),
         }
     }
 
-    pub fn as_part(&self) -> &UBrexPart {
+    pub const fn as_part(&self) -> &UBrexPart {
         &self.part
     }
 

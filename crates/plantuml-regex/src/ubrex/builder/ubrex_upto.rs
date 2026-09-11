@@ -1,7 +1,6 @@
-/// Up-to builder: matches one or more of `what` until `stop` matches.
-///
-/// Ported from: `com/plantuml/ubrex/builder/UBrexUpto.java`
-
+//! Up-to builder: matches one or more of `what` until `stop` matches.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/UBrexUpto.java`
 use std::rc::Rc;
 
 use crate::ubrex::challenge_one_or_more_up_to_old_version::ChallengeOneOrMoreUpToOldVersion;
@@ -22,12 +21,12 @@ impl UBrexUpto {
             Rc::clone(&p2),
         )));
         result.add_challenge(p2);
-        UBrexUpto {
+        Self {
             part: UBrexPart::new(Rc::new(result)),
         }
     }
 
-    pub fn as_part(&self) -> &UBrexPart {
+    pub const fn as_part(&self) -> &UBrexPart {
         &self.part
     }
 

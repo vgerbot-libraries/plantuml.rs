@@ -1,4 +1,4 @@
-//! UBrex multi-line command base — uses ubrex regex engine.
+//! `UBrex` multi-line command base — uses ubrex regex engine.
 //!
 //! Ported from: `net/sourceforge/plantuml/command/UBrexCommandMultilines2.java`
 
@@ -49,7 +49,7 @@ impl<D> UbrexCommandMultilines2<D> {
 
     /// Returns the starting pattern.
     #[must_use]
-    pub fn starting_pattern(&self) -> &UnicodeBracketedExpression {
+    pub const fn starting_pattern(&self) -> &UnicodeBracketedExpression {
         &self.starting
     }
 
@@ -61,19 +61,19 @@ impl<D> UbrexCommandMultilines2<D> {
 
     /// Returns the trim mode for the end pattern.
     #[must_use]
-    pub fn trim_end(&self) -> Trim {
+    pub const fn trim_end(&self) -> Trim {
         self.trim_end
     }
 
     /// Returns the multilines strategy.
     #[must_use]
-    pub fn strategy(&self) -> MultilinesStrategy {
+    pub const fn strategy(&self) -> MultilinesStrategy {
         self.strategy
     }
 
     /// Returns `false` — multi-line commands don't use final bracket syntax.
     #[must_use]
-    pub fn syntax_with_final_bracket(&self) -> bool {
+    pub const fn syntax_with_final_bracket(&self) -> bool {
         false
     }
 
@@ -81,7 +81,7 @@ impl<D> UbrexCommandMultilines2<D> {
     ///
     /// Ported from: `UBrexCommandMultilines2.finalVerification(BlocLines)`.
     #[must_use]
-    pub fn final_verification(&self, _lines: &BlocLines) -> CommandExecutionResult {
+    pub const fn final_verification(&self, _lines: &BlocLines) -> CommandExecutionResult {
         CommandExecutionResult::ok()
     }
 }

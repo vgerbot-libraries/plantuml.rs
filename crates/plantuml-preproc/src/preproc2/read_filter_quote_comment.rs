@@ -28,10 +28,7 @@ impl ReadLine for QuoteCommentReader {
         let mut long_comment = false;
         loop {
             let result = self.source.read_line()?;
-            let line = match result {
-                None => return Ok(None),
-                Some(l) => l,
-            };
+            let Some(line) = result else { return Ok(None) };
 
             let trim = line.get_string().replace('\t', " ").trim().to_string();
 

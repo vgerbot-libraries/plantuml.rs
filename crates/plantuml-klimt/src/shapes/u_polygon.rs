@@ -1,8 +1,7 @@
-//! UPolygon — polygon shape.
+//! `UPolygon` — polygon shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/UPolygon.java`
 
-use crate::ushape::UShape;
 
 /// A polygon defined by a list of points.
 ///
@@ -15,13 +14,13 @@ pub struct UPolygon {
 impl UPolygon {
     /// Creates a new empty `UPolygon`.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { points: Vec::new() }
     }
 
     /// Creates a `UPolygon` from a list of (x, y) points.
     #[must_use]
-    pub fn from_points(points: Vec<(f64, f64)>) -> Self {
+    pub const fn from_points(points: Vec<(f64, f64)>) -> Self {
         Self { points }
     }
 

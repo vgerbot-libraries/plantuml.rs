@@ -73,6 +73,7 @@ impl ReadLine for MergeLinesReader {
 }
 
 impl MergeLinesReader {
+    #[allow(clippy::unused_self)]
     fn is_ditaa(&self, string: &str) -> bool {
         let trimmed = string.trim();
         DiagramType::find_start_types(trimmed).contains(&DiagramType::Ditaa)

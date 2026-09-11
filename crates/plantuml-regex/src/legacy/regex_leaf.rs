@@ -1,4 +1,4 @@
-//! RegexLeaf — a leaf regex pattern (single compiled pattern string).
+//! `RegexLeaf` — a leaf regex pattern (single compiled pattern string).
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexLeaf` (Java).
 //!
@@ -42,7 +42,7 @@ impl RegexLeaf {
     pub fn with_count_name(count: usize, name: Option<&str>, regex: &str) -> Self {
         Self {
             pattern: regex.to_string(),
-            name: name.map(|s| s.to_string()),
+            name: name.map(std::string::ToString::to_string),
             count,
         }
     }

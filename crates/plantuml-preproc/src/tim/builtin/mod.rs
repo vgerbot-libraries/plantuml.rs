@@ -109,7 +109,7 @@ pub mod jaws {
 
 /// Jaws flags ported from `net.sourceforge.plantuml.jaws.JawsFlags`.
 pub mod jaws_flags {
-    /// Whether to use BLOCK_E1 sentinels in newline functions.
+    /// Whether to use `BLOCK_E1` sentinels in newline functions.
     pub const USE_BLOCK_E1_IN_NEWLINE_FUNCTION: bool = true;
 }
 

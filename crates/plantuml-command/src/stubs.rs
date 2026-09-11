@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Stub types for unported Java dependencies.
 //!
 //! These are placeholder types for Java classes that haven't been ported yet.
@@ -17,19 +18,19 @@ pub struct BlocLines {
 impl BlocLines {
     /// Creates a new `BlocLines` from a list of strings.
     #[must_use]
-    pub fn new(lines: Vec<String>) -> Self {
+    pub const fn new(lines: Vec<String>) -> Self {
         Self { lines }
     }
 
     /// Returns the number of lines.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.lines.len()
     }
 
     /// Returns `true` if there are no lines.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.lines.is_empty()
     }
 
@@ -97,7 +98,7 @@ pub struct LineLocation {
 impl LineLocation {
     /// Creates a new `LineLocation`.
     #[must_use]
-    pub fn new(file: Option<String>, line: u32) -> Self {
+    pub const fn new(file: Option<String>, line: u32) -> Self {
         Self { file, line }
     }
 }
@@ -129,7 +130,7 @@ impl StringLocated {
 
     /// Returns the location.
     #[must_use]
-    pub fn get_location(&self) -> &LineLocation {
+    pub const fn get_location(&self) -> &LineLocation {
         &self.location
     }
 }

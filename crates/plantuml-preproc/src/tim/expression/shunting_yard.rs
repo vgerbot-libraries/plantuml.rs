@@ -38,10 +38,7 @@ impl ShuntingYard {
         };
 
         while it.has_more_tokens() {
-            let token = match it.next_token() {
-                Some(t) => t,
-                None => break,
-            };
+            let Some(token) = it.next_token() else { break };
 
             let tt = token.get_token_type();
 
@@ -51,18 +48,15 @@ impl ShuntingYard {
                 sy.operator_stack.push_front(token);
             } else if tt == TokenType::PlainText {
                 let name = token.get_surface();
-                match knowledge.get_variable(name)? {
-                    Some(variable) => sy.output_queue.add(variable.to_token()),
-                    None => {
-                        if !Self::is_variable_name(name) {
-                            return Err(EaterException::new(
-                                format!("Parsing syntax error about {name}"),
-                                &location,
-                            ));
-                        }
-                        sy.output_queue
-                            .add(Token::new(name.to_string(), TokenType::QuotedString, None));
+                if let Some(variable) = knowledge.get_variable(name)? { sy.output_queue.add(variable.to_token()) } else {
+                    if !Self::is_variable_name(name) {
+                        return Err(EaterException::new(
+                            format!("Parsing syntax error about {name}"),
+                            location,
+                        ));
                     }
+                    sy.output_queue
+                        .add(Token::new(name.to_string(), TokenType::QuotedString, None));
                 }
             } else if Self::is_operator_or_affectation(&token) {
                 while (sy.there_is_a_function_at_the_top()
@@ -75,9 +69,7 @@ impl ShuntingYard {
                     }
                 }
                 sy.operator_stack.push_front(token);
-            } else if tt == TokenType::OpenParenFunc {
-                sy.operator_stack.push_front(token);
-            } else if tt == TokenType::OpenParenMath {
+            } else if tt == TokenType::OpenParenFunc || tt == TokenType::OpenParenMath {
                 sy.operator_stack.push_front(token);
             } else if tt == TokenType::CloseParenFunc {
                 while let Some(top) = sy.operator_stack.front() {
@@ -105,7 +97,7 @@ impl ShuntingYard {
                 if sy
                     .operator_stack
                     .front()
-                    .map_or(false, |t| t.get_token_type() == TokenType::OpenParenMath)
+                    .is_some_and(|t| t.get_token_type() == TokenType::OpenParenMath)
                 {
                     sy.operator_stack.pop_front();
                 }
@@ -122,7 +114,7 @@ impl ShuntingYard {
             } else {
                 return Err(EaterException::new(
                     format!("Unsupported token: {token}"),
-                    &location,
+                    location,
                 ));
             }
         }
@@ -154,11 +146,11 @@ impl ShuntingYard {
     fn there_is_a_function_at_the_top(&self) -> bool {
         self.operator_stack
             .front()
-            .map_or(false, |t| t.get_token_type() == TokenType::FunctionName)
+            .is_some_and(|t| t.get_token_type() == TokenType::FunctionName)
     }
 
     fn there_is_an_operator_at_the_top_with_greater_precedence(&self, token: &Token) -> bool {
-        self.operator_stack.front().map_or(false, |top| {
+        self.operator_stack.front().is_some_and(|top| {
             Self::is_operator_or_affectation(top) && top.get_precedence() > token.get_precedence()
         })
     }
@@ -167,13 +159,14 @@ impl ShuntingYard {
         &self,
         token: &Token,
     ) -> bool {
-        self.operator_stack.front().map_or(false, |top| {
+        self.operator_stack.front().is_some_and(|top| {
             Self::is_operator_or_affectation(top)
                 && top.get_left_associativity()
                 && top.get_precedence() == token.get_precedence()
         })
     }
 
+    #[allow(clippy::unused_self)]
     fn the_operator_at_the_top_is_not_a_left_parenthesis(&self) -> bool {
         // Java always returns true here (bug in original code — the check
         // for OPEN_PAREN_MATH returns true instead of false).

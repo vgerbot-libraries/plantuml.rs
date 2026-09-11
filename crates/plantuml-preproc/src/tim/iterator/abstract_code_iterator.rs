@@ -1,4 +1,4 @@
-//! Abstract code iterator — wraps a source CodeIterator.
+//! Abstract code iterator — wraps a source `CodeIterator`.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.iterator.CodeIteratorImpl`.
 

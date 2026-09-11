@@ -70,7 +70,7 @@ impl ReadLine for ReadLineWithYamlHeader {
             if let Some(ref l) = line {
                 if Self::is_separator(l) {
                     // Read until the second separator
-                    let mut current = Some(l.clone());
+                    let mut current: Option<StringLocated>;
                     loop {
                         current = self.source.read_line()?;
                         match &current {

@@ -1,7 +1,6 @@
-/// Builder subpackage for constructing ubrex patterns programmatically.
-///
-/// Ported from: `com/plantuml/ubrex/builder/`
-
+//! Builder subpackage for constructing ubrex patterns programmatically.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/`
 pub mod ubrex_concat;
 pub mod ubrex_leaf;
 pub mod ubrex_named;

@@ -25,9 +25,6 @@ crate::impl_simple_return_function!(
     execute = |_self, _context, _memory, _location, values, _named| {
         // TODO: implement with Stdlib.getAllFolderNames() and Stdlib.retrieve()
         match values.len() {
-            0 | 1 => Ok(TValue::from_json(serde_json::Value::Object(
-                serde_json::Map::new(),
-            ))),
             2 => Ok(TValue::from_string("")),
             _ => Ok(TValue::from_json(serde_json::Value::Object(
                 serde_json::Map::new(),

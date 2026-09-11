@@ -47,11 +47,11 @@ impl Sub {
         reader: &mut dyn ReadLine,
         blocname: &str,
     ) -> io::Result<Option<Self>> {
-        let mut result: Option<Sub> = None;
+        let mut result: Option<Self> = None;
         let mut skip = false;
 
         while let Some(s) = reader.read_line()? {
-            let mut trimmed = s.get_trimmed();
+            let trimmed = s.get_trimmed();
             let line_type = trimmed.get_type();
 
             if line_type == TLineType::Startsub {
@@ -62,7 +62,7 @@ impl Sub {
                 if line_str.contains(blocname) {
                     skip = false;
                     if result.is_none() {
-                        result = Some(Sub::new(blocname));
+                        result = Some(Self::new(blocname));
                     }
                 }
                 continue;

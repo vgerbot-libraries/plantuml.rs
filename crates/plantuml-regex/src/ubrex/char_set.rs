@@ -1,10 +1,9 @@
-/// Bitmask-based character set for ranges 32–128 (case-insensitive).
-///
-/// Uses two `u64` bitmasks to cover the 97 possible character offsets
-/// (char code 32 through 128, offset 0 through 96).
-///
-/// Ported from: `com/plantuml/ubrex/CharSet.java`
-
+//! Bitmask-based character set for ranges 32–128 (case-insensitive).
+//!
+//! Uses two `u64` bitmasks to cover the 97 possible character offsets
+//! (char code 32 through 128, offset 0 through 96).
+//!
+//! Ported from: `com/plantuml/ubrex/CharSet.java`
 use super::case_mode::CaseMode;
 
 pub struct CharSet {
@@ -12,9 +11,15 @@ pub struct CharSet {
     mask2: u64,
 }
 
+impl Default for CharSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CharSet {
-    pub fn new() -> Self {
-        CharSet {
+    pub const fn new() -> Self {
+        Self {
             mask1: 0,
             mask2: 0,
         }
@@ -23,10 +28,8 @@ impl CharSet {
     /// Adds a single character to the set (case-insensitive).
     pub fn add_char(&mut self, ch: char) {
         let ch = CaseMode::ensure_lowercase(ch);
-        if ch < ' ' || ch > '\u{80}' {
-            panic!("Bad char: {ch}");
-        }
-        let offset = (ch as u32 - 32) as u32;
+        assert!((' '..='\u{80}').contains(&ch), "Bad char: {ch}");
+        let offset = ch as u32 - 32;
         if offset < 64 {
             self.mask1 |= 1u64 << offset;
         } else {
@@ -36,12 +39,8 @@ impl CharSet {
 
     /// Adds a range of characters to the set (case-insensitive).
     pub fn add_range(&mut self, start: char, end: char) {
-        if start > end {
-            panic!("Invalid range: '{start}' is greater than '{end}'.");
-        }
-        if start < ' ' || end > '\u{80}' {
-            panic!("Characters must be in the range 32 to 128.");
-        }
+        assert!(start <= end, "Invalid range: '{start}' is greater than '{end}'.");
+        assert!(!(start < ' ' || end > '\u{80}'), "Characters must be in the range 32 to 128.");
         let start = CaseMode::ensure_lowercase(start);
         let end = CaseMode::ensure_lowercase(end);
 

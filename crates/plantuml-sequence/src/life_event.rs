@@ -12,7 +12,7 @@ use crate::participant::Participant;
 pub struct LifeEvent {
     participant: Participant,
     event_type: LifeEventType,
-    /// Index of the message this LifeEvent is attached to (inline `++`/`--`).
+    /// Index of the message this `LifeEvent` is attached to (inline `++`/`--`).
     /// `None` for standalone `activate`/`deactivate`/`destroy` commands.
     message_index: Option<usize>,
 }
@@ -20,7 +20,7 @@ pub struct LifeEvent {
 impl LifeEvent {
     /// Creates a new life event.
     #[must_use]
-    pub fn new(participant: Participant, event_type: LifeEventType) -> Self {
+    pub const fn new(participant: Participant, event_type: LifeEventType) -> Self {
         Self {
             participant,
             event_type,
@@ -29,7 +29,7 @@ impl LifeEvent {
     }
     /// Creates a new life event attached to a message (inline `++`/`--`).
     #[must_use]
-    pub fn new_inline(participant: Participant, event_type: LifeEventType, message_index: usize) -> Self {
+    pub const fn new_inline(participant: Participant, event_type: LifeEventType, message_index: usize) -> Self {
         Self {
             participant,
             event_type,
@@ -44,7 +44,7 @@ impl LifeEvent {
 
     /// Returns the participant this life event applies to.
     #[must_use]
-    pub fn participant(&self) -> &Participant {
+    pub const fn participant(&self) -> &Participant {
         &self.participant
     }
 

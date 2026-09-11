@@ -21,7 +21,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.ok()`.
     #[must_use]
-    pub fn ok() -> Self {
+    pub const fn ok() -> Self {
         Self {
             error: None,
             new_diagram: None,
@@ -85,7 +85,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.newDiagram(AbstractDiagram)`.
     #[must_use]
-    pub fn new_diagram(diagram: AbstractDiagram) -> Self {
+    pub const fn new_diagram(diagram: AbstractDiagram) -> Self {
         Self {
             error: None,
             new_diagram: Some(diagram),
@@ -99,7 +99,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.isOk()`.
     #[must_use]
-    pub fn is_ok(&self) -> bool {
+    pub const fn is_ok(&self) -> bool {
         self.error.is_none()
     }
 
@@ -115,7 +115,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.getScore()`.
     #[must_use]
-    pub fn get_score(&self) -> i32 {
+    pub const fn get_score(&self) -> i32 {
         self.score
     }
 
@@ -123,7 +123,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.getNewDiagram()`.
     #[must_use]
-    pub fn get_new_diagram(&self) -> Option<&AbstractDiagram> {
+    pub const fn get_new_diagram(&self) -> Option<&AbstractDiagram> {
         self.new_diagram.as_ref()
     }
 
@@ -147,7 +147,7 @@ impl CommandExecutionResult {
     ///
     /// Ported from: `CommandExecutionResult.withDiagram(AbstractDiagram)`.
     #[must_use]
-    pub fn with_diagram(mut self, diagram: AbstractDiagram) -> Self {
+    pub const fn with_diagram(mut self, diagram: AbstractDiagram) -> Self {
         self.new_diagram = Some(diagram);
         self
     }

@@ -1,4 +1,4 @@
-//! PlantUML entity model — Entity, Link, and related types.
+//! `PlantUML` entity model — Entity, Link, and related types.
 //!
 //! Ported from: `net/sourceforge/plantuml/abel/` and `net/sourceforge/plantuml/cucadiagram/` packages.
 

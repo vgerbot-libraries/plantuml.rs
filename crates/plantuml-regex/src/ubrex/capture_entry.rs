@@ -1,7 +1,6 @@
-/// A single key-value capture entry produced by a named group match.
-///
-/// Ported from: `com/plantuml/ubrex/CaptureEntry.java`
-
+//! A single key-value capture entry produced by a named group match.
+//!
+//! Ported from: `com/plantuml/ubrex/CaptureEntry.java`
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,8 +10,8 @@ pub struct CaptureEntry {
 }
 
 impl CaptureEntry {
-    pub fn new(key: String, value: String) -> Self {
-        CaptureEntry { key, value }
+    pub const fn new(key: String, value: String) -> Self {
+        Self { key, value }
     }
 
     pub fn get_key(&self) -> &str {
@@ -24,8 +23,8 @@ impl CaptureEntry {
     }
 
     /// Returns a new entry with `prefix` prepended to the key, separated by `/`.
-    pub fn with_prefixed_key(&self, prefix: &str) -> CaptureEntry {
-        CaptureEntry {
+    pub fn with_prefixed_key(&self, prefix: &str) -> Self {
+        Self {
             key: format!("{prefix}/{}", self.key),
             value: self.value.clone(),
         }
@@ -33,10 +32,10 @@ impl CaptureEntry {
 
     /// Returns a new entry with `prefix` stripped from the key, or `None` if
     /// the key does not start with `prefix/`.
-    pub fn without_prefixed_key(&self, prefix: &str) -> Option<CaptureEntry> {
+    pub fn without_prefixed_key(&self, prefix: &str) -> Option<Self> {
         let needle = format!("{prefix}/");
         if self.key.starts_with(&needle) {
-            Some(CaptureEntry {
+            Some(Self {
                 key: self.key[prefix.len() + 1..].to_string(),
                 value: self.value.clone(),
             })

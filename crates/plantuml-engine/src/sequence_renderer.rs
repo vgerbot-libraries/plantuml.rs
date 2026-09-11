@@ -29,9 +29,9 @@ const TEXT_BLOCK_HEIGHT: f64 = 28.0;
 const HEIGHT_EXTRA: f64 = 1.0;
 /// Spacing between participants (from LivingSpaces.addConstraints).
 const PARTICIPANT_SPACING: f64 = 10.0;
-/// Page margin (UTranslate(5, 5) in SequenceDiagramFileMakerTeoz).
+/// Page margin (UTranslate(5, 5) in `SequenceDiagramFileMakerTeoz`).
 const PAGE_MARGIN: f64 = 5.0;
-/// Starting Y offset for heads (from YGauge startingY).
+/// Starting Y offset for heads (from `YGauge` startingY).
 const STARTING_Y: f64 = 5.0;
 /// Rounded corner radius.
 const ROUND_CORNER: f64 = 2.5;
@@ -65,7 +65,7 @@ const ARROWHEAD_SIZE: f64 = 10.0;
 const ARROWHEAD_TIP_OFFSET: f64 = 2.0;
 /// Arrow line end offset from target center.
 const ARROW_LINE_END_OFFSET: f64 = 6.0;
-/// Arrow delta Y (half-height of arrowhead). From Java's getArrowDeltaY() = 4.
+/// Arrow delta Y (half-height of arrowhead). From Java's `getArrowDeltaY()` = 4.
 const ARROW_DELTA_Y: f64 = 4.0;
 /// Ascent for font size 14.
 const ASCENT_14: f64 = 12.889;
@@ -94,7 +94,7 @@ const HEADER_FONT_SIZE: f64 = 10.0;
 /// Legend corner radius.
 const LEGEND_CORNER_RADIUS: f64 = 7.5;
 
-/// Converts a PlantUML color name to a hex color string (`#RRGGBB`).
+/// Converts a `PlantUML` color name to a hex color string (`#RRGGBB`).
 /// Ported from: `net/sourceforge/plantuml/klimt/color/ColorTrieNode.java`.
 fn color_name_to_hex(name: &str) -> Option<String> {
     let hex = match name.to_lowercase().as_str() {
@@ -171,21 +171,21 @@ const COLOR_NOTE_BACK: &str = "#FEFFDD";
 
 // ── Group frame constants (from GroupingTile.java) ────────────────────────
 
-/// Horizontal margin inside group frame (MARGINX in GroupingTile).
+/// Horizontal margin inside group frame (MARGINX in `GroupingTile`).
 const GROUP_MARGIN_X: f64 = 16.0;
-/// Vertical margin around group frame (EXTERNAL_MARGINY in GroupingTile).
+/// Vertical margin around group frame (`EXTERNAL_MARGINY` in `GroupingTile`).
 const GROUP_MARGIN_Y: f64 = 4.0;
-/// Magic vertical margin (MARGINY_MAGIC in GroupingTile).
+/// Magic vertical margin (`MARGINY_MAGIC` in `GroupingTile`).
 const GROUP_MARGIN_Y_MAGIC: f64 = 20.0;
-/// Group header tab height (from ComponentGroupingHeaderTeoz preferred height).
+/// Group header tab height (from `ComponentGroupingHeaderTeoz` preferred height).
 const GROUP_HEADER_HEIGHT: f64 = 15.0;
 /// Group header offset added to first message Y inside a group.
-/// = header_height + MARGINY_MAGIC/2 + EXTERNAL_MARGINY = 15 + 10 + 4.
+/// = `header_height` + `MARGINY_MAGIC/2` + `EXTERNAL_MARGINY` = 15 + 10 + 4.
 const GROUP_HEADER_OFFSET: f64 = 29.0;
-/// Extra header height for partitions: TITLE_VPAD*2 - (GROUP_HEADER_HEIGHT - font_height) = 4*2 - (15-13) = 6.
+/// Extra header height for partitions: `TITLE_VPAD`*2 - (`GROUP_HEADER_HEIGHT` - `font_height`) = 4*2 - (15-13) = 6.
 /// Partition titles are drawn directly on the frame (no tab), with 4px padding above and below.
 const PARTITION_HEADER_EXTRA: f64 = 6.0;
-/// Gap between consecutive group frames = 2*EXTERNAL_MARGINY + MARGINY_MAGIC/2.
+/// Gap between consecutive group frames = 2*`EXTERNAL_MARGINY` + `MARGINY_MAGIC/2`.
 const GROUP_GAP: f64 = 18.0;
 /// Else tile height (from ComponentRoseGroupingElse.getPreferredHeight in teoz mode).
 /// = getTextHeight(13) + 4 = 17.
@@ -194,9 +194,9 @@ const ELSE_TILE_HEIGHT: f64 = 17.0;
 const GROUP_STROKE_WIDTH: f64 = 1.5;
 /// Group header tab corner cut size.
 const GROUP_TAB_CORNER: f64 = 10.0;
-/// External margin X1 (left side of group frame, from GroupingTile.EXTERNAL_MARGINX1).
+/// External margin X1 (left side of group frame, from `GroupingTile.EXTERNAL_MARGINX1`).
 const GROUP_EXTERNAL_MARGIN_X1: f64 = 3.0;
-/// External margin X2 (right side of group frame, from GroupingTile.EXTERNAL_MARGINX2).
+/// External margin X2 (right side of group frame, from `GroupingTile.EXTERNAL_MARGINX2`).
 const GROUP_EXTERNAL_MARGIN_X2: f64 = 9.0;
 /// Group header text left padding from frame x.
 const GROUP_TEXT_PADDING: f64 = 15.0;
@@ -207,8 +207,8 @@ const COLOR_GROUP_HEADER: &str = "#EEE";
 /// Group frame stroke color.
 const COLOR_GROUP_STROKE: &str = "#000";
 
-/// Wraps message text to fit within max_width, splitting by words.
-/// Ported from Java's StringBounder word-wrap logic for MaxMessageSize.
+/// Wraps message text to fit within `max_width`, splitting by words.
+/// Ported from Java's `StringBounder` word-wrap logic for `MaxMessageSize`.
 fn wrap_message_text(
     bounder: &StringBounderFromWidthTable,
     font: &UFont,
@@ -243,10 +243,10 @@ fn wrap_message_text(
     }
     result
 }
-/// Adds a disjoint constraint: pos_c[target] >= pos_c[source] + extra + offset.
+/// Adds a disjoint constraint: `pos_c`[target] >= `pos_c`[source] + extra + offset.
 /// If the source participant is to the right of the target (making the constraint
 /// impossible with live values), uses a cached/fixed value instead to match Java's
-/// RealMax caching behavior in getMaxX().
+/// `RealMax` caching behavior in `getMaxX()`.
 fn add_disjoint_constraint(
     pos_c: &[std::rc::Rc<dyn plantuml_real::Real>],
     pos_b: &[std::rc::Rc<dyn plantuml_real::Real>],
@@ -345,7 +345,7 @@ pub fn render_sequence_svg(
     // beyond the path's right edge. Value 10.0 matches the reference SVGs' total
     // width. The 1px difference from the layout value accounts for the older
     // PlantUML version's rounding behavior.
-    let delta_shadow_note_ensure = if skin_rose { 10.0 } else { 0.0 };
+    let _delta_shadow_note_ensure = if skin_rose { 10.0 } else { 0.0 };
 
     let mut head_widths: Vec<f64> = Vec::with_capacity(participants.len());
     let mut preferred_widths: Vec<f64> = Vec::with_capacity(participants.len());
@@ -415,8 +415,8 @@ pub fn render_sequence_svg(
                 if is_self {
                     let p_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                     let level_ignore = pre_participant_levels.get(p_idx).copied().unwrap_or(0);
-                    let future_acts = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
-                    let future_deacts = msg_deactivates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
+                    let future_acts = msg_activates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32);
+                    let future_deacts = msg_deactivates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32);
                     let level_considere = (level_ignore + future_acts - future_deacts).max(0);
                     pre_msg_self_levels.push((level_ignore, level_considere));
                 } else {
@@ -431,8 +431,8 @@ pub fn render_sequence_svg(
                 let p1_level = pre_participant_levels.get(p1_idx).copied().unwrap_or(0);
                 let p2_level = pre_participant_levels.get(p2_idx).copied().unwrap_or(0);
                 // Add inline activations attached to this message (lookahead in Java)
-                let inline_acts_p1 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
-                let inline_acts_p2 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32).unwrap_or(0);
+                let inline_acts_p1 = msg_activates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32);
+                let inline_acts_p2 = msg_activates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32);
                 let p1_level_for_constraint = p1_level + inline_acts_p1;
                 let p2_level_for_constraint = p2_level + inline_acts_p2;
                 msg_p1_levels.push(p1_level_for_constraint);
@@ -480,8 +480,8 @@ pub fn render_sequence_svg(
             if let SequenceEvent::Message(msg) = event {
                 let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                 let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
-                let inline_acts_p1 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
-                let inline_acts_p2 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32).unwrap_or(0);
+                let inline_acts_p1 = msg_activates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32);
+                let inline_acts_p2 = msg_activates.get(mi).map_or(0, |v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32);
                 let future_acts_p1 = total_acts.get(p1_idx).copied().unwrap_or(0) - acts_so_far.get(p1_idx).copied().unwrap_or(0) - inline_acts_p1;
                 let future_acts_p2 = total_acts.get(p2_idx).copied().unwrap_or(0) - acts_so_far.get(p2_idx).copied().unwrap_or(0) - inline_acts_p2;
                 note_p1_levels.push(msg_p1_levels.get(mi).copied().unwrap_or(0) + future_acts_p1.max(0));
@@ -502,14 +502,12 @@ pub fn render_sequence_svg(
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let label = msg.label();
-            let wrapped = if !label.is_empty() {
-                if let Some(max_w) = max_message_size {
-                    wrap_message_text(&bounder, &font_m, label, max_w)
-                } else {
-                    label.split("\\n").map(String::from).collect()
-                }
-            } else {
+            let wrapped = if label.is_empty() {
                 Vec::new()
+            } else if let Some(max_w) = max_message_size {
+                wrap_message_text(&bounder, &font_m, label, max_w)
+            } else {
+                label.split("\\n").map(String::from).collect()
             };
             let max_w = wrapped.iter()
                 .map(|l| bounder.calculate_dimension(&font_m, l).width())
@@ -572,23 +570,11 @@ pub fn render_sequence_svg(
                 } else {
                     level_p2 > 0
                 };
-                if !has_activation {
-                    // No activation: use posB constraint (posB[hi] >= posD[lo] + required)
-                    let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
-                    if hi - lo == 1 {
-                        if required > min_spacing[hi] {
-                            min_spacing[hi] = required;
-                        }
-                    } else {
-                        nonadjacent_constraints.push((lo, hi, 0.0, 0.0, text_w + 24.0));
-                    }
-                } else {
+                if has_activation {
                     // With activation: use posC constraint matching Java's addConstraints()
                     let point1_offset = if is_reverse {
                         if level_p1 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 }
-                    } else {
-                        if level_p2 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 }
-                    };
+                    } else if level_p2 > 0 { -ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
                     let point2_pre_offset = if is_reverse {
                         level_p2 as f64 * ACTIVATION_BAR_EXPLICIT_OFFSET
                     } else {
@@ -598,6 +584,16 @@ pub fn render_sequence_svg(
                     // the arrow width and activation bar edges. No additional posB
                     // constraint needed for source-activated messages.
                     nonadjacent_constraints.push((lo, hi, point1_offset, point2_pre_offset, text_w + 24.0));
+                } else {
+                    // No activation: use posB constraint (posB[hi] >= posD[lo] + required)
+                    let required = text_w + 24.0 - head_widths[lo] / 2.0 - head_widths[hi] / 2.0;
+                    if hi - lo == 1 {
+                        if required > min_spacing[hi] {
+                            min_spacing[hi] = required;
+                        }
+                    } else {
+                        nonadjacent_constraints.push((lo, hi, 0.0, 0.0, text_w + 24.0));
+                    }
                 }
             }
             spacing_msg_idx += 1;
@@ -639,10 +635,8 @@ pub fn render_sequence_svg(
                     if comp_width > max_reverse_comp_width[p1_idx] {
                         max_reverse_comp_width[p1_idx] = comp_width;
                     }
-                } else {
-                    if comp_width > max_forward_comp_width[p1_idx] {
-                        max_forward_comp_width[p1_idx] = comp_width;
-                    }
+                } else if comp_width > max_forward_comp_width[p1_idx] {
+                    max_forward_comp_width[p1_idx] = comp_width;
                 }
             }
             spacing_msg_idx2 += 1;
@@ -691,7 +685,7 @@ pub fn render_sequence_svg(
     // and the leftmost participant clears the previous participant's frame.
     let frame_margin = GROUP_MARGIN_X + GROUP_EXTERNAL_MARGIN_X2;
     let font_bold = UFont::sans_serif(FONT_SIZE_MESSAGE).with_style(FontStyle::bold());
-    for group in groups.iter() {
+    for group in groups {
         if group.group_type == "else" { continue; }
         // Find touched participants (from messages within the group's range)
         let mut touched: Vec<usize> = Vec::new();
@@ -711,7 +705,7 @@ pub fn render_sequence_svg(
             }
         }
         if touched.is_empty() { continue; }
-        touched.sort();
+        touched.sort_unstable();
         let leftmost = *touched.first().unwrap();
         let rightmost = *touched.last().unwrap();
 
@@ -944,7 +938,7 @@ pub fn render_sequence_svg(
                             let nesting_depth_prev = if prev_is_group {
                                 groups.iter()
                                     .find(|g| g.msg_start == prev_start && g.msg_end == prev_end)
-                                    .map(|prev_g| {
+                                    .map_or(1.0, |prev_g| {
                                         let max_nesting = groups.iter()
                                             .filter(|g| g.msg_start >= prev_g.msg_start && g.msg_end <= prev_g.msg_end)
                                             .map(|g| g.nesting_level)
@@ -952,12 +946,11 @@ pub fn render_sequence_svg(
                                             .unwrap_or(prev_g.nesting_level);
                                         (max_nesting - prev_g.nesting_level + 1) as f64
                                     })
-                                    .unwrap_or(1.0)
                             } else { 0.0 };
                             let nesting_depth_curr = if curr_is_group {
                                 groups.iter()
                                     .find(|g| g.msg_start == t_start && g.msg_end == t_end)
-                                    .map(|curr_g| {
+                                    .map_or(1.0, |curr_g| {
                                         let max_nesting = groups.iter()
                                             .filter(|g| g.msg_start >= curr_g.msg_start && g.msg_end <= curr_g.msg_end)
                                             .map(|g| g.nesting_level)
@@ -965,7 +958,6 @@ pub fn render_sequence_svg(
                                             .unwrap_or(curr_g.nesting_level);
                                         (max_nesting - curr_g.nesting_level + 1) as f64
                                     })
-                                    .unwrap_or(1.0)
                             } else { 0.0 };
                             let offset = nesting_depth_prev * grp_max_x + nesting_depth_curr * grp_min_x;
                             for (mi2, event) in diagram.events().iter().enumerate() {
@@ -1007,7 +999,7 @@ pub fn render_sequence_svg(
                             let nesting_depth = if prev_is_group {
                                 groups.iter()
                                     .find(|g| g.msg_start == prev_start && g.msg_end == prev_end)
-                                    .map(|prev_g| {
+                                    .map_or(1.0, |prev_g| {
                                         let max_nesting = groups.iter()
                                             .filter(|g| g.msg_start >= prev_g.msg_start && g.msg_end <= prev_g.msg_end)
                                             .map(|g| g.nesting_level)
@@ -1015,7 +1007,6 @@ pub fn render_sequence_svg(
                                             .unwrap_or(prev_g.nesting_level);
                                         (max_nesting - prev_g.nesting_level + 1) as f64
                                     })
-                                    .unwrap_or(1.0)
                             } else { 0.0 };
                             let offset = nesting_depth * grp_min_x + (if curr_is_group { grp_max_x } else { 0.0 });
                             for (mi2, event) in diagram.events().iter().enumerate() {
@@ -1147,8 +1138,7 @@ pub fn render_sequence_svg(
                 // Prefer the innermost (highest nesting level) group
                 let prev_level = msg_group[mi]
                     .and_then(|prev_gi| groups.get(prev_gi))
-                    .map(|g| g.nesting_level)
-                    .unwrap_or(0);
+                    .map_or(0, |g| g.nesting_level);
                 if group.nesting_level >= prev_level {
                     msg_group[mi] = Some(gi);
                 }
@@ -1157,7 +1147,7 @@ pub fn render_sequence_svg(
     }
     // Precompute innermost nesting level at each msg_start (for parallel group Y)
     let mut msg_start_innermost: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-    for group in groups.iter() {
+    for group in groups {
         if group.group_type == "else" { continue; }
         let entry = msg_start_innermost.entry(group.msg_start).or_insert(0);
         if group.nesting_level > *entry {
@@ -1200,7 +1190,7 @@ pub fn render_sequence_svg(
     let mut has_parallel_in_cluster = false;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
-            let has_text = !msg.label().is_empty();
+            let _has_text = !msg.label().is_empty();
             // Use precomputed wrapped lines
             let wrapped_lines = pre_wrapped_lines[msg_idx].clone();
             let line_count = wrapped_lines.len();
@@ -1213,13 +1203,11 @@ pub fn render_sequence_svg(
             is_self_flags.push(is_self);
             let curr_group = msg_group.get(msg_idx).copied().flatten();
             let is_first_in_group = curr_group.is_some() && curr_group != prev_group
-                && curr_group.map(|gi| msg_idx == groups[gi].msg_start).unwrap_or(false);
+                && curr_group.is_some_and(|gi| msg_idx == groups[gi].msg_start);
             let is_else = curr_group
-                .map(|gi| groups[gi].group_type == "else")
-                .unwrap_or(false);
+                .is_some_and(|gi| groups[gi].group_type == "else");
             let is_partition = curr_group
-                .map(|gi| groups[gi].group_type == "partition")
-                .unwrap_or(false);
+                .is_some_and(|gi| groups[gi].group_type == "partition");
             let header_extra = if is_partition { PARTITION_HEADER_EXTRA } else { 0.0 };
             let is_parallel = msg_parallel.get(msg_idx).copied().unwrap_or(false);
 
@@ -1233,11 +1221,10 @@ pub fn render_sequence_svg(
                     let innermost = *msg_start_innermost.get(&g_msg_start).unwrap_or(&groups[gi].nesting_level);
                     let par_level = groups.iter()
                         .find(|g| g.msg_start == g_msg_start && g.parallel && g.group_type != "else")
-                        .map(|g| g.nesting_level)
-                        .unwrap_or(groups[gi].nesting_level);
+                        .map_or(groups[gi].nesting_level, |g| g.nesting_level);
                     let headers = (innermost + 1) - par_level;
                     let needs_offset = last_non_parallel_gho == 0.0 && has_parallel_in_cluster;
-                    group_header_offset = last_non_parallel_gho.max((GROUP_HEADER_OFFSET * headers as f64) + if needs_offset { GROUP_HEADER_HEIGHT - 2.0 } else { 0.0 } + header_extra) as f64;
+                    group_header_offset = last_non_parallel_gho.max((GROUP_HEADER_OFFSET * headers as f64) + if needs_offset { GROUP_HEADER_HEIGHT - 2.0 } else { 0.0 } + header_extra);
                     if needs_offset { group_parallel_offset[gi] = true; }
                     current_y = cluster_start_y + group_header_offset;
                 } else if is_first_in_group && is_else {
@@ -1255,8 +1242,7 @@ pub fn render_sequence_svg(
                 if is_first_in_group {
                     let curr_level = curr_group
                         .and_then(|gi| groups.get(gi))
-                        .map(|g| g.nesting_level)
-                        .unwrap_or(0);
+                        .map_or(0, |g| g.nesting_level);
                     group_header_offset = GROUP_HEADER_OFFSET * (curr_level as f64 + 1.0) + header_extra;
                     current_y += group_header_offset;
                 }
@@ -1269,12 +1255,10 @@ pub fn render_sequence_svg(
                 // First message in a subsequent group (non-else)
                 let curr_level = curr_group
                     .and_then(|gi| groups.get(gi))
-                    .map(|g| g.nesting_level)
-                    .unwrap_or(0);
+                    .map_or(0, |g| g.nesting_level);
                 let prev_level = prev_group
                     .and_then(|gi| groups.get(gi))
-                    .map(|g| g.nesting_level)
-                    .unwrap_or(0);
+                    .map_or(0, |g| g.nesting_level);
                 if curr_level > prev_level {
                     // Nested group within an else/parent: normal increment + header offset
                     let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
@@ -1338,8 +1322,7 @@ pub fn render_sequence_svg(
                     let fb_level = prev_frame_bottom_level;
                     let curr_level = curr_group
                         .and_then(|gi| groups.get(gi))
-                        .map(|g| g.nesting_level)
-                        .unwrap_or(0);
+                        .map_or(0, |g| g.nesting_level);
                     if is_first_in_group && is_else {
                         if curr_level < fb_level {
                             let min_y = fb + GROUP_GAP + ARROW_Y_BASE + ELSE_TILE_HEIGHT + 1.0;
@@ -1407,7 +1390,7 @@ pub fn render_sequence_svg(
                     let fb = frame_y + frame_height;
                     // For parallel groups, take max with existing prev_frame_bottom
                     if group.parallel {
-                        prev_frame_bottom = Some(prev_frame_bottom.map(|existing| existing.max(fb)).unwrap_or(fb));
+                        prev_frame_bottom = Some(prev_frame_bottom.map_or(fb, |existing| existing.max(fb)));
                     } else {
                         prev_frame_bottom = Some(fb);
                     }
@@ -1430,7 +1413,7 @@ pub fn render_sequence_svg(
                                 let p_fb = p_fy + p_fh;
                                 if p_fb > fb {
                                     if pgroup.parallel {
-                                        prev_frame_bottom = Some(prev_frame_bottom.map(|existing| existing.max(p_fb)).unwrap_or(p_fb));
+                                        prev_frame_bottom = Some(prev_frame_bottom.map_or(p_fb, |existing| existing.max(p_fb)));
                                     } else {
                                         prev_frame_bottom = Some(p_fb);
                                     }
@@ -1673,15 +1656,14 @@ pub fn render_sequence_svg(
                     }
                 }
                 // LifeEvents inside the group's message range extend the frame.
-                if mi_check > group.msg_start && mi_check <= group.msg_end {
-                    if p_idx < pos_c_vals.len() {
+                if mi_check > group.msg_start && mi_check <= group.msg_end
+                    && p_idx < pos_c_vals.len() {
                         let level = group_max_levels[p_idx] as f64;
                         if level > 0.0 {
                             max_x = max_x.max(pos_c_vals[p_idx] + level * ACTIVATION_BAR_EXPLICIT_OFFSET);
                             min_x = min_x.min(pos_c_vals[p_idx] - ACTIVATION_BAR_EXPLICIT_OFFSET);
                         }
                     }
-                }
             }
         }
 
@@ -1786,14 +1768,12 @@ pub fn render_sequence_svg(
             if groups[pj].nesting_level == child_level - 1
                 && groups[pj].msg_start <= cs
                 && groups[pj].msg_end >= ce
-            {
-                if parent_gi.is_none()
+                && (parent_gi.is_none()
                     || (groups[pj].msg_end - groups[pj].msg_start)
-                        < (groups[parent_gi.unwrap()].msg_end - groups[parent_gi.unwrap()].msg_start)
+                        < (groups[parent_gi.unwrap()].msg_end - groups[parent_gi.unwrap()].msg_start))
                 {
                     parent_gi = Some(pj);
                 }
-            }
         }
         if let Some(pgi) = parent_gi {
             let (cfx, cfy, cfw, cfh) = group_frames[ci];
@@ -1880,7 +1860,7 @@ pub fn render_sequence_svg(
             group_frames[gi] = (pfx, efy, pfw, efh);
         }
     }
-    for (gi, gf) in group_frames.iter().enumerate() {
+    for _gf in group_frames.iter() {
     }
 
     // Compute note heights for each message
@@ -1901,8 +1881,7 @@ pub fn render_sequence_svg(
         .enumerate()
         .zip(is_self_flags.iter())
         .max_by(|((_, ya), _), ((_, yb), _)| ya.partial_cmp(yb).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|((mi, &y), &s)| (y, s, mi))
-        .unwrap_or((lifeline_y + ARROW_Y_BASE, false, 0));
+        .map_or((lifeline_y + ARROW_Y_BASE, false, 0), |((mi, &y), &s)| (y, s, mi));
 
     // Compute the max note bottom across all messages
     let mut max_note_bottom = 0.0_f64;
@@ -2159,13 +2138,13 @@ pub fn render_sequence_svg(
         // Compute the note path's actual right edge for ensureVisible.
         // path_right = noteX + x2 where noteX = posC + level_dx + NOTE_PADDING_X
         // and x2 = (int)(pureTextWidth + oldPaddingX1 + oldPaddingX2)
-        let x2 = (note_text_w + NOTE_OLD_PADDING_X1 as f64 + NOTE_OLD_PADDING_X2 as f64).trunc();
+        let x2 = (note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2).trunc();
         let note_x = if is_self_msg && !is_reverse {
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-            p_center + comp_width + level_dx + NOTE_PADDING_X as f64
+            p_center + comp_width + level_dx + NOTE_PADDING_X
         } else {
-            p_center + level_dx + NOTE_PADDING_X as f64
+            p_center + level_dx + NOTE_PADDING_X
         };
         let path_right = note_x + x2;
         if path_right > max_note_path_right {
@@ -2183,11 +2162,11 @@ pub fn render_sequence_svg(
         footbox_y + head_rect_height
     };
     // Include header/footer/legend/caption widths in total width
-    let header_w = header_dim.map(|(w, _)| w).unwrap_or(0.0);
-    let title_w = title_dim.map(|(w, _)| w).unwrap_or(0.0);
-    let legend_w = legend_dim.map(|(w, _)| w).unwrap_or(0.0);
-    let caption_w = caption_dim.map(|(w, _)| w).unwrap_or(0.0);
-    let footer_w = footer_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let header_w = header_dim.map_or(0.0, |(w, _)| w);
+    let title_w = title_dim.map_or(0.0, |(w, _)| w);
+    let legend_w = legend_dim.map_or(0.0, |(w, _)| w);
+    let caption_w = caption_dim.map_or(0.0, |(w, _)| w);
+    let footer_w = footer_dim.map_or(0.0, |(w, _)| w);
     let max_element_width = header_w.max(title_w).max(legend_w).max(caption_w).max(footer_w);
     let content_right = rightmost_x.max(title_rightmost).max(max_note_right).max(max_frame_right);
     let has_extra_elements = header_text.is_some() || footer_text.is_some() || legend_text.is_some() || caption_text.is_some();
@@ -2213,9 +2192,9 @@ pub fn render_sequence_svg(
     // already provides the extra pixel for hide_footbox.
     let height_extra = if hide_footbox { 0.0 } else if has_actor { 0.0 } else { HEIGHT_EXTRA };
     // Compute extra height for legend, caption, footer (below footbox)
-    let legend_h = legend_dim.map(|(_, h)| h).unwrap_or(0.0);
-    let caption_h = caption_dim.map(|(_, h)| h).unwrap_or(0.0);
-    let footer_h = footer_dim.map(|(_, h)| h).unwrap_or(0.0);
+    let legend_h = legend_dim.map_or(0.0, |(_, h)| h);
+    let caption_h = caption_dim.map_or(0.0, |(_, h)| h);
+    let footer_h = footer_dim.map_or(0.0, |(_, h)| h);
     let bottom_extra = if legend_text.is_some() || caption_text.is_some() || footer_text.is_some() {
         let mut extra = 0.0;
         if legend_text.is_some() { extra += LEGEND_GAP + legend_h; }
@@ -2271,8 +2250,8 @@ pub fn render_sequence_svg(
     if let Some(header_txt) = header_text {
         let font_h = UFont::sans_serif(header_font_size as i32);
         let text_w = bounder.calculate_dimension(&font_h, header_txt).width();
-        let rect_w = header_dim.map(|(w, _)| w).unwrap_or(text_w);
-        let rect_h = header_dim.map(|(_, h)| h).unwrap_or(header_font_size);
+        let rect_w = header_dim.map_or(text_w, |(w, _)| w);
+        let rect_h = header_dim.map_or(header_font_size, |(_, h)| h);
         let rect_y = PAGE_MARGIN;
         // Right-aligned: x = centering_width - PAGE_MARGIN - rect_w
         let rect_x = centering_width - PAGE_MARGIN - rect_w;
@@ -2689,7 +2668,7 @@ pub fn render_sequence_svg(
     svg.set_hidden(true);
     // Background rectangle sets SVG dimensions via ensure_visible.
     // ensure_visible(total_width, ...) → max_x = total_width + 1 = SVG width.
-    svg.svg_rectangle(0.0, 0.0, total_width as f64, total_height as f64, 0.0, 0.0, 0.0);
+    svg.svg_rectangle(0.0, 0.0, total_width as f64, total_height, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
     // ── Draw group headers + messages + notes (interleaved) ──────────────
@@ -2869,16 +2848,16 @@ pub fn render_sequence_svg(
                     draw_exo_message(
                         &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
                         p1_idx, exo_type,
-                        msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                        msg_wrapped_lines.get(msg_idx).map_or(&[], std::vec::Vec::as_slice),
                         &skin,
                     );
                 } else {
                     draw_message(
                         &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
                         p1_idx, p2_idx,
-                        msg_self_levels.get(msg_idx).map(|&(li, lc)| li).unwrap_or(0),
-                        msg_self_levels.get(msg_idx).map(|&(li, lc)| lc).unwrap_or(0),
-                        msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                        msg_self_levels.get(msg_idx).map_or(0, |&(li, _lc)| li),
+                        msg_self_levels.get(msg_idx).map_or(0, |&(_li, lc)| lc),
+                        msg_wrapped_lines.get(msg_idx).map_or(&[], std::vec::Vec::as_slice),
                         msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
                         msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
                         &skin,
@@ -3058,7 +3037,7 @@ fn draw_note(
     font_m: &UFont,
     pre_wrapped_width: f64,
     msg_p1_level: i32,
-    msg_p2_level: i32,
+    _msg_p2_level: i32,
     note_p1_level: i32,
     note_p2_level: i32,
     skin: &SkinConfig,
@@ -3095,7 +3074,7 @@ fn draw_note(
     }
     // Note polygon width = (int)(text_width + oldPaddingX1 + oldPaddingX2)
     let text_width_total = max_line_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2;
-    let polygon_w = text_width_total.trunc() as f64;
+    let polygon_w = text_width_total.trunc();
     // Note layout width = text_width + oldPaddingX1 + oldPaddingX2 + 2*paddingX
     let layout_w = text_width_total + 2.0 * NOTE_PADDING_X + if skin.skin_rose { 9.0 } else { 0.0 };
     let note_h = (lines.len() as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y;
@@ -3273,13 +3252,11 @@ fn draw_message(
                 let x1 = if level_ignore > 1 { ld - extra_live_delta_indent } else { 0.0 };
                 let x2 = 1.0 + if level_ignore == 1 { -ld } else { 0.0 };
                 (x1, x2)
+            } else if level_ignore > 1 {
+                let adj = extra_live_delta_indent - ld;
+                (-adj, 1.0 - adj)
             } else {
-                if level_ignore > 1 {
-                    let adj = extra_live_delta_indent - ld;
-                    (-adj, 1.0 - adj)
-                } else {
-                    (0.0, 1.0)
-                }
+                (0.0, 1.0)
             };
             let x1_local = x1_pre + 1.0; // Java: x1 += 1
             // extraline = 1 for normal full arrowheads (regardless of dashed line).
@@ -3484,10 +3461,10 @@ fn draw_message(
     let label = msg.label();
     if !label.is_empty() {
         // Use wrapped lines if provided, otherwise split by \\n
-        let lines: Vec<&str> = if !wrapped_lines.is_empty() {
-            wrapped_lines.iter().map(String::as_str).collect()
-        } else {
+        let lines: Vec<&str> = if wrapped_lines.is_empty() {
             label.split("\\n").collect()
+        } else {
+            wrapped_lines.iter().map(String::as_str).collect()
         };
         let text_x = if is_self {
             if is_reverse {
@@ -3595,8 +3572,8 @@ fn draw_message(
 
 /// Draws an exo (external) arrow where `?` is used as a message endpoint.
 /// Ported from: net/sourceforge/plantuml/sequencediagram/teoz/CommunicationExoTile.java
-/// For TO_RIGHT (`A->?`): arrow from posC[A] to posC[A] + width
-/// For FROM_LEFT (`?->E`): arrow from posC[E] - width to posC[E]
+/// For `TO_RIGHT` (`A->?`): arrow from posC[A] to posC[A] + width
+/// For `FROM_LEFT` (`?->E`): arrow from posC[E] - width to posC[E]
 /// The arrow is drawn like a regular left-to-right arrow within an area of width `text_w + 24`.
 fn draw_exo_message(
     svg: &mut SvgGraphics,
@@ -3615,10 +3592,10 @@ fn draw_exo_message(
     let pos_c_val = pos_c[p_idx] + x_offset;
 
     // Compute text width (use wrapped lines if available, otherwise raw label)
-    let lines: Vec<&str> = if !wrapped_lines.is_empty() {
-        wrapped_lines.iter().map(String::as_str).collect()
-    } else {
+    let lines: Vec<&str> = if wrapped_lines.is_empty() {
         label.split("\\n").collect()
+    } else {
+        wrapped_lines.iter().map(String::as_str).collect()
     };
     let text_w = lines.iter().map(|l| bounder.calculate_dimension(font, l).width()).fold(0.0_f64, f64::max);
     let area_w = text_w + 24.0; // getTextWidth + getArrowDeltaX = (pureText + 7 + 7) + 10
@@ -3697,7 +3674,7 @@ fn format_note_corner_abs(x: f64, y: f64, width: f64, cornersize: f64) -> String
 }
 
 /// Formats a number for use in SVG path data (matches Java's number formatting).
-/// Uses HALF_UP rounding via shortest-representation to match Java's BigDecimal behavior.
+/// Uses `HALF_UP` rounding via shortest-representation to match Java's `BigDecimal` behavior.
 fn format_number_path(n: f64) -> String {
     let shortest = format!("{n}");
     let rounded = round_half_up_path(&shortest, 3);
@@ -3707,7 +3684,7 @@ fn format_number_path(n: f64) -> String {
     s.to_string()
 }
 
-/// Rounds a decimal string to `decimal` fractional digits using HALF_UP.
+/// Rounds a decimal string to `decimal` fractional digits using `HALF_UP`.
 fn round_half_up_path(s: &str, decimal: usize) -> String {
     let neg = s.starts_with('-');
     let s = s.trim_start_matches('-');
@@ -3826,7 +3803,7 @@ pub struct ParsedSequence {
     pub svg_title: Option<String>,
     /// SVG description (from `!option svgDesc`).
     pub svg_desc: Option<String>,
-    /// PlantUML title (from `title` command).
+    /// `PlantUML` title (from `title` command).
     pub title: Option<String>,
     /// Source line number of the title (1-indexed).
     pub title_line: Option<usize>,
@@ -3902,7 +3879,7 @@ impl ParsedSequence {
         )
     }
 }
-/// Parses a simple PlantUML sequence diagram from text, including SVG options.
+/// Parses a simple `PlantUML` sequence diagram from text, including SVG options.
 #[must_use]
 pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut in_diagram = false;
@@ -3929,7 +3906,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut footer_text: Option<String> = None;
     let mut footer_line: Option<usize> = None;
     let mut legend_text: Option<String> = None;
-    let mut legend_line: Option<usize> = None;
+    let mut _legend_line: Option<usize> = None;
     let mut caption_text: Option<String> = None;
     let mut caption_line: Option<usize> = None;
     let mut style_rules: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
@@ -4039,7 +4016,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         }
         // Handle !pragma, comments, skin, !theme (ignore — simplified renderer)
         if trimmed.starts_with("!pragma ")
-            || trimmed.starts_with("'")
+            || trimmed.starts_with('\'')
             || trimmed.starts_with("skin ")
             || trimmed.starts_with("!theme ")
             || trimmed.starts_with("!include ")
@@ -4125,10 +4102,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             // Parse leading `#color` from the comment (e.g., `group #ffa Title`).
             // Java's CommandGrouping regex captures `#color` as COLORS[0] separately.
             // The color becomes the group's background; the rest is the title.
-            let (comment, backcolor) = if raw_comment.starts_with('#') {
-                let rest = &raw_comment[1..];
+            let (comment, backcolor) = if let Some(rest) = raw_comment.strip_prefix('#') {
                 let color_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-                let color = &raw_comment[..1 + color_end]; // includes '#'
+                let color = &raw_comment[..=color_end]; // includes '#'
                 let title = rest[color_end..].trim().to_string();
                 (title, Some(color.to_ascii_uppercase()))
             } else {
@@ -4282,7 +4258,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         }
         if let Some(val) = trimmed.strip_prefix("legend ") {
             legend_text = Some(val.trim().to_string());
-            legend_line = Some(line_num - startuml_line.unwrap_or(0));
+            _legend_line = Some(line_num - startuml_line.unwrap_or(0));
             continue;
         }
         if let Some(val) = trimmed.strip_prefix("caption ") {
@@ -4302,7 +4278,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 let name = trimmed[kw.len() + 1..].trim();
                 let (code, display) = if name.starts_with('"') {
                     if let Some(end) = name[1..].find('"') {
-                        let display = &name[1..1 + end];
+                        let display = &name[1..=end];
                         let after = name[2 + end..].trim();
                         if let Some(alias) = after.strip_prefix("as ") {
                             (alias.trim().to_string(), display.to_string())
@@ -4409,28 +4385,24 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             let exo = if is_left_exo {
                 if p1_code == "]" {
                     if is_reverse_arrow { Some(ExoType::ToRight) } else { Some(ExoType::FromRight) }
-                } else {
-                    if is_reverse_arrow { Some(ExoType::ToLeft) } else { Some(ExoType::FromLeft) }
-                }
+                } else if is_reverse_arrow { Some(ExoType::ToLeft) } else { Some(ExoType::FromLeft) }
             } else if is_right_exo {
                 if p2_code == "[" {
                     if is_reverse_arrow { Some(ExoType::FromLeft) } else { Some(ExoType::ToLeft) }
-                } else {
-                    if is_reverse_arrow { Some(ExoType::FromRight) } else { Some(ExoType::ToRight) }
-                }
+                } else if is_reverse_arrow { Some(ExoType::FromRight) } else { Some(ExoType::ToRight) }
             } else {
                 None
             };
             // For exo arrows, use the real participant as both p1 and p2
             let (real_p1, real_p2) = match exo {
-                Some(ExoType::ToRight) | Some(ExoType::FromRight) => {
+                Some(ExoType::ToRight | ExoType::FromRight) => {
                     let real_code = &p1_code;
                     last_p1 = Some(real_code.clone());
                     last_p2 = Some(p2_code.clone());
                     let p1 = diagram.get_or_create_participant(real_code);
                     (p1.clone(), p1)
                 }
-                Some(ExoType::FromLeft) | Some(ExoType::ToLeft) => {
+                Some(ExoType::FromLeft | ExoType::ToLeft) => {
                     let real_code = &p2_code;
                     last_p1 = Some(p1_code.clone());
                     last_p2 = Some(real_code.clone());
@@ -4477,12 +4449,10 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     } else {
                         deacts.push(p1_code.clone());
                     }
+                } else if is_reverse_arrow {
+                    acts.push(p1_code.clone());
                 } else {
-                    if is_reverse_arrow {
-                        acts.push(p1_code.clone());
-                    } else {
-                        acts.push(p2_code.clone());
-                    }
+                    acts.push(p2_code.clone());
                 }
             }
             // Create LifeEvents for inline and autoactivate activations/deactivations
@@ -4656,7 +4626,7 @@ fn build_arrow_config(
     config
 }
 
-/// Parses a PlantUML sequence arrow line, extracting participants, label, and arrow configuration.
+/// Parses a `PlantUML` sequence arrow line, extracting participants, label, and arrow configuration.
 ///
 /// Ported from: `net/sourceforge/plantuml/sequencediagram/command/CommandArrow.java`
 ///
@@ -4676,7 +4646,7 @@ fn parse_arrow_line(
     // e.g., "B -[hidden]-> C" becomes "B -> C"
     let line = if let Some(bracket_start) = line.find("-[") {
         if let Some(bracket_end) = line[bracket_start..].find(']') {
-            let before = &line[..bracket_start + 1]; // includes the first '-'
+            let before = &line[..=bracket_start]; // includes the first '-'
             let after = &line[bracket_start + bracket_end + 1..];
             format!("{before}{after}")
         } else {

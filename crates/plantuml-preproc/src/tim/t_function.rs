@@ -1,4 +1,4 @@
-//! TFunction trait — interface for preprocessor functions.
+//! `TFunction` trait — interface for preprocessor functions.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.TFunction`.
 

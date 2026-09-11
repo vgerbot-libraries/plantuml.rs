@@ -1,4 +1,4 @@
-//! RegexComposed — abstract base for composite regex patterns.
+//! `RegexComposed` — abstract base for composite regex patterns.
 //!
 //! Ported from `net.sourceforge.plantuml.regex.RegexComposed` (Java).
 //!
@@ -20,6 +20,7 @@ use super::regex_result::RegexResult;
 /// Ported from `net.sourceforge.plantuml.regex.RegexComposed`.
 pub struct RegexComposed {
     partials: Vec<Box<dyn IRegex>>,
+    #[allow(dead_code)]
     full_cached: Mutex<Option<Pattern2>>,
 }
 
@@ -44,7 +45,8 @@ impl RegexComposed {
     /// Returns the compiled pattern, compiling it lazily on first access.
     ///
     /// Ported from `RegexComposed.getPattern2()`.
-    fn get_pattern2(&self, pattern_as_string: &str) -> &Pattern2 {
+    #[allow(dead_code)]
+    fn get_pattern2(&self, _pattern_as_string: &str) -> &Pattern2 {
         // We can't return a reference through the Mutex, so we use a different
         // approach: store the Pattern2 in a OnceLock-like pattern.
         // Actually, we need to restructure. Let's use a different approach.

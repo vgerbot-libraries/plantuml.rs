@@ -1,7 +1,6 @@
-/// ubrex regex engine using Unicode bracket notation.
-///
-/// Ported from: `com/plantuml/ubrex/`
-
+//! ubrex regex engine using Unicode bracket notation.
+//!
+//! Ported from: `com/plantuml/ubrex/`
 pub mod atomic_parser;
 pub mod capture;
 pub mod capture_entry;

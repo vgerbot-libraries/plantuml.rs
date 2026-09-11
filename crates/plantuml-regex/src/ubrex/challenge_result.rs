@@ -1,10 +1,9 @@
-/// Result of a `Challenge::run_challenge` call.
-///
-/// `full_capture_length` is the number of characters consumed (≥ 0 on success,
-/// negative on no match).  `capture` holds named-group captures.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeResult.java`
-
+//! Result of a `Challenge::run_challenge` call.
+//!
+//! `full_capture_length` is the number of characters consumed (≥ 0 on success,
+//! negative on no match).  `capture` holds named-group captures.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeResult.java`
 use super::capture::Capture;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,40 +14,40 @@ pub struct ChallengeResult {
 
 impl ChallengeResult {
     /// Creates a no-match result.
-    pub fn no_match() -> ChallengeResult {
-        ChallengeResult {
+    pub const fn no_match() -> Self {
+        Self {
             full_capture_length: super::challenge::NO_MATCH,
             capture: Capture::empty(),
         }
     }
 
     /// Creates a zero-length match (e.g. for lookarounds).
-    pub fn zero() -> ChallengeResult {
-        ChallengeResult {
+    pub const fn zero() -> Self {
+        Self {
             full_capture_length: 0,
             capture: Capture::empty(),
         }
     }
 
     /// Creates a one-character match.
-    pub fn one() -> ChallengeResult {
-        ChallengeResult {
+    pub const fn one() -> Self {
+        Self {
             full_capture_length: 1,
             capture: Capture::empty(),
         }
     }
 
     /// Creates a result with the given length and empty capture.
-    pub fn new(length: i32) -> ChallengeResult {
-        ChallengeResult {
+    pub const fn new(length: i32) -> Self {
+        Self {
             full_capture_length: length,
             capture: Capture::empty(),
         }
     }
 
     /// Creates a result with the given length and capture.
-    pub fn with_capture(length: i32, capture: Capture) -> ChallengeResult {
-        ChallengeResult {
+    pub const fn with_capture(length: i32, capture: Capture) -> Self {
+        Self {
             full_capture_length: length,
             capture,
         }

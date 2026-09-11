@@ -1,10 +1,9 @@
-/// Repetition specification parsed from `{...}` quantifier syntax.
-///
-/// Supports exact counts (`{3}`), ranges (`{2-5}`), minimum-or-more (`{3+}`),
-/// and semicolon-separated combinations (`{1;3;5-8;10+}`).
-///
-/// Ported from: `com/plantuml/ubrex/Repetition.java`
-
+//! Repetition specification parsed from `{...}` quantifier syntax.
+//!
+//! Supports exact counts (`{3}`), ranges (`{2-5}`), minimum-or-more (`{3+}`),
+//! and semicolon-separated combinations (`{1;3;5-8;10+}`).
+//!
+//! Ported from: `com/plantuml/ubrex/Repetition.java`
 use std::collections::BTreeSet;
 
 use super::text_navigator::TextNavigator;
@@ -14,9 +13,15 @@ pub struct Repetition {
     min_inclusive: i32,
 }
 
+impl Default for Repetition {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Repetition {
-    pub fn new() -> Self {
-        Repetition {
+    pub const fn new() -> Self {
+        Self {
             values: BTreeSet::new(),
             min_inclusive: i32::MAX,
         }
@@ -24,8 +29,8 @@ impl Repetition {
 
     /// Parses a repetition spec from `input`, consuming characters until `}`.
     /// The `}` is also consumed.
-    pub fn parse(input: &mut TextNavigator) -> Repetition {
-        let mut result = Repetition::new();
+    pub fn parse(input: &mut TextNavigator) -> Self {
+        let mut result = Self::new();
         let mut token = String::new();
         loop {
             let ch = input.char_at(0);
@@ -44,11 +49,9 @@ impl Repetition {
     }
 
     fn add_token(&mut self, token: &str) {
-        if token.is_empty() {
-            panic!("empty repetition token");
-        }
-        if token.ends_with('+') {
-            let min: i32 = token[..token.len() - 1]
+        assert!(!token.is_empty(), "empty repetition token");
+        if let Some(stripped) = token.strip_suffix('+') {
+            let min: i32 = stripped
                 .parse()
                 .unwrap_or_else(|_| panic!("invalid repetition token: {token}"));
             self.min_inclusive = min;

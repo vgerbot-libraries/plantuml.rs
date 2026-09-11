@@ -1,10 +1,9 @@
-/// Base trait for ubrex builder parts.
-///
-/// Each builder part wraps a `Challenge` and provides `match` via
-/// `UnicodeBracketedExpression`.
-///
-/// Ported from: `com/plantuml/ubrex/builder/UBrexPart.java`
-
+//! Base trait for ubrex builder parts.
+//!
+//! Each builder part wraps a `Challenge` and provides `match` via
+//! `UnicodeBracketedExpression`.
+//!
+//! Ported from: `com/plantuml/ubrex/builder/UBrexPart.java`
 use std::rc::Rc;
 
 use crate::ubrex::challenge::Challenge;
@@ -17,7 +16,7 @@ pub struct UBrexPart {
 
 impl UBrexPart {
     pub fn new(challenge: Rc<dyn Challenge>) -> Self {
-        UBrexPart { challenge }
+        Self { challenge }
     }
 
     pub fn get_challenge(&self) -> &Rc<dyn Challenge> {

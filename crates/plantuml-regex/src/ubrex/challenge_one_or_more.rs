@@ -1,7 +1,6 @@
-/// One-or-more quantifier: matches `origin` one or more times (greedy).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeOneOrMore.java`
-
+//! One-or-more quantifier: matches `origin` one or more times (greedy).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeOneOrMore.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -16,7 +15,7 @@ pub struct ChallengeOneOrMore {
 
 impl ChallengeOneOrMore {
     pub fn new(origin: Rc<dyn Challenge>) -> Self {
-        ChallengeOneOrMore { origin }
+        Self { origin }
     }
 }
 
@@ -33,13 +32,10 @@ impl Challenge for ChallengeOneOrMore {
                         (current_pos - position) as i32,
                         capture,
                     );
-                } else {
-                    return ChallengeResult::no_match();
                 }
+                return ChallengeResult::no_match();
             }
-            if shall_we_pass.full_capture_length == 0 {
-                panic!("infinite loop in ChallengeOneOrMore");
-            }
+            assert!(shall_we_pass.full_capture_length != 0, "infinite loop in ChallengeOneOrMore");
             capture = capture.merge(&shall_we_pass.capture);
             current_pos += shall_we_pass.full_capture_length as usize;
         }

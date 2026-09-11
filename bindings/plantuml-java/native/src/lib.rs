@@ -19,7 +19,7 @@ pub extern "system" fn Java_com_vgerbot_plantuml_PlantUml_renderSvg(
     let source: String = env.get_string(&source).unwrap().into();
     let svg = plantuml_engine::render_svg(&source).unwrap_or_default();
     env.new_string(svg)
-        .map(|s| s.into_raw())
+        .map(jni::objects::JString::into_raw)
         .unwrap_or(std::ptr::null_mut())
 }
 
@@ -33,6 +33,6 @@ pub extern "system" fn Java_com_vgerbot_plantuml_PlantUml_renderPreproc(
     let source: String = env.get_string(&source).unwrap().into();
     let text = plantuml_engine::render_preproc(&source).unwrap_or_default();
     env.new_string(text)
-        .map(|s| s.into_raw())
+        .map(jni::objects::JString::into_raw)
         .unwrap_or(std::ptr::null_mut())
 }

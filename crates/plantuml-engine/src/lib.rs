@@ -1,8 +1,27 @@
-//! plantuml-engine — the main PlantUML engine.
+#![allow(
+    clippy::suboptimal_flops,
+    clippy::imprecise_flops,
+    clippy::missing_const_for_fn,
+    clippy::manual_midpoint,
+    clippy::items_after_statements,
+    clippy::similar_names,
+    clippy::option_if_let_else,
+    clippy::or_fun_call,
+    clippy::match_same_arms,
+    clippy::implicit_hasher,
+    clippy::branches_sharing_code,
+    clippy::if_same_then_else,
+    clippy::manual_strip,
+    clippy::manual_memcpy,
+    clippy::explicit_iter_loop,
+    clippy::too_many_arguments,
+    clippy::collection_is_never_read,
+)]
+//! plantuml-engine — the main `PlantUML` engine.
 //!
 //! Ported from `net.sourceforge.plantuml` package.
 //!
-//! This crate provides the entry point for parsing and rendering PlantUML
+//! This crate provides the entry point for parsing and rendering `PlantUML`
 //! diagrams. For Phase 4, only PREPROC format is supported.
 
 pub mod block_uml;

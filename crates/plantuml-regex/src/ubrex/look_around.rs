@@ -14,18 +14,18 @@ pub enum LookAround {
 impl LookAround {
     /// Parses a look-around definition from the start of `input`.
     /// Returns `None` if the syntax is unrecognised.
-    pub fn from(input: &super::text_navigator::TextNavigator) -> Option<LookAround> {
+    pub fn from(input: &super::text_navigator::TextNavigator) -> Option<Self> {
         let ch0 = input.char_at(0);
         match ch0 {
-            '$' => Some(LookAround::EndOfText),
-            '=' => Some(LookAround::LookAheadPositive),
-            '!' => Some(LookAround::LookAheadNegative),
+            '$' => Some(Self::EndOfText),
+            '=' => Some(Self::LookAheadPositive),
+            '!' => Some(Self::LookAheadNegative),
             '<' => {
                 if input.length() > 1 {
                     let ch1 = input.char_at(1);
                     match ch1 {
-                        '=' => Some(LookAround::LookBehindPositive),
-                        '!' => Some(LookAround::LookBehindNegative),
+                        '=' => Some(Self::LookBehindPositive),
+                        '!' => Some(Self::LookBehindNegative),
                         _ => None,
                     }
                 } else {
@@ -36,22 +36,19 @@ impl LookAround {
         }
     }
 
-    pub fn is_look_behind(&self) -> bool {
-        matches!(self, LookAround::LookBehindPositive | LookAround::LookBehindNegative)
+    pub const fn is_look_behind(&self) -> bool {
+        matches!(self, Self::LookBehindPositive | Self::LookBehindNegative)
     }
 
-    pub fn is_look_ahead(&self) -> bool {
-        matches!(self, LookAround::LookAheadPositive | LookAround::LookAheadNegative)
+    pub const fn is_look_ahead(&self) -> bool {
+        matches!(self, Self::LookAheadPositive | Self::LookAheadNegative)
     }
 
     /// Returns the number of characters consumed by the definition.
-    pub fn definition_size(&self) -> usize {
+    pub const fn definition_size(&self) -> usize {
         match self {
-            LookAround::LookAheadPositive => 1, // "="
-            LookAround::LookAheadNegative => 1, // "!"
-            LookAround::LookBehindPositive => 2, // "<="
-            LookAround::LookBehindNegative => 2, // "<!"
-            LookAround::EndOfText => 1,         // "$"
+            Self::LookBehindPositive | Self::LookBehindNegative => 2,
+            Self::LookAheadPositive | Self::LookAheadNegative | Self::EndOfText => 1,
         }
     }
 }

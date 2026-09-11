@@ -1,3 +1,4 @@
+#![allow(clippy::suboptimal_flops, clippy::imprecise_flops, clippy::manual_midpoint)]
 //! Real constraint system — 1D constraint solver for layout positioning.
 //!
 //! Ported from: `net/sourceforge/plantuml/real/` package (13 files)
@@ -24,7 +25,7 @@ pub struct RealLine {
 impl RealLine {
     /// Creates a new empty constraint line.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             forces: Vec::new(),
             min: 0.0,
@@ -54,9 +55,7 @@ impl RealLine {
                 return;
             }
             cpt += 1;
-            if cpt > 99_999 {
-                panic!("Infinite Loop in RealLine::compile?");
-            }
+            assert!(cpt <= 99_999, "Infinite Loop in RealLine::compile?");
         }
     }
 
@@ -133,12 +132,12 @@ pub trait Real: std::fmt::Debug {
     /// Returns the name (for debugging).
     fn get_name(&self) -> &str;
 
-    /// Moves this real by `delta`. Only effective for movable reals (RealImpl).
+    /// Moves this real by `delta`. Only effective for movable reals (`RealImpl`).
     ///
     /// Ported from: `RealMoveable.move(double)`.
     fn move_value(&self, _delta: f64) {}
 
-    /// Returns the RealLine this real belongs to.
+    /// Returns the `RealLine` this real belongs to.
     fn get_line(&self) -> &Rc<RefCell<RealLine>>;
 
     /// If this is a `RealDelta`, returns the delegated real and the diff.
@@ -225,7 +224,7 @@ impl Real for RealDelta {
         self.delegated.get_current_value() + self.diff
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self) -> &'static str {
         "[Delegated]"
     }
 
@@ -257,7 +256,7 @@ impl std::fmt::Debug for RealDeltaLive {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RealDeltaLive")
             .field("delegated", &self.delegated)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -278,7 +277,7 @@ impl Real for RealDeltaLive {
         self.delegated.get_current_value() + (self.delta)()
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self) -> &'static str {
         "[DelegatedLive]"
     }
 
@@ -318,7 +317,7 @@ impl Real for RealMin {
             .fold(f64::MAX, f64::min)
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self) -> &'static str {
         "min"
     }
 
@@ -354,7 +353,7 @@ impl Real for RealMax {
             .fold(f64::MIN, f64::max)
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self) -> &'static str {
         "max"
     }
 
@@ -388,7 +387,7 @@ impl Real for RealMiddle2 {
         (self.p1.get_current_value() + self.p2.get_current_value()) / 2.0
     }
 
-    fn get_name(&self) -> &str {
+    fn get_name(&self) -> &'static str {
         "middle"
     }
 
@@ -518,7 +517,7 @@ impl F64Ulp for f64 {
         }
         // Math.ulp(x) in Java: the distance to the next representable value.
         let bits = self.to_bits();
-        let next = f64::from_bits(bits + 1);
+        let next = Self::from_bits(bits + 1);
         Some((next - self).abs())
     }
 }

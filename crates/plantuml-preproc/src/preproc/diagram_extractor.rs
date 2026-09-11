@@ -11,6 +11,7 @@ use crate::StringLocated;
 use crate::preproc::read_line::ReadLine;
 use crate::stubs::StartUtils;
 
+#[allow(clippy::trivial_regex)]
 static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d+$").unwrap_or_else(|_| Regex::new("$").unwrap_or_else(|_| Regex::new("$").unwrap())));
 
 /// A `ReadLine` that skips to a specific `@start` block (by index or uid)
@@ -44,19 +45,13 @@ impl DiagramExtractor {
             block = 0;
         }
 
-        let mut finished = false;
         let mut s: Option<StringLocated>;
         loop {
-            s = match raw.read_line() {
-                Ok(line) => line,
-                Err(_) => {
-                    finished = true;
-                    break;
-                }
+            s = if let Ok(line) = raw.read_line() { line } else {
+                break;
             };
             match &s {
                 None => {
-                    finished = true;
                     break;
                 }
                 Some(line) => {
@@ -70,18 +65,15 @@ impl DiagramExtractor {
             }
         }
 
-        Self { raw, finished }
+        Self { raw, finished: true }
     }
 
     fn check_uid(uid: Option<&str>, s: &StringLocated) -> bool {
-        match uid {
-            None => true,
-            Some(u) => {
-                let pattern = format!(".*id={}\\W.*", regex::escape(u));
-                Regex::new(&pattern)
-                    .map_or(false, |re| re.is_match(&s.to_string()))
-            }
-        }
+        uid.is_none_or(|u| {
+            let pattern = format!(".*id={}\\W.*", regex::escape(u));
+            Regex::new(&pattern)
+                .is_ok_and(|re| re.is_match(&s.to_string()))
+        })
     }
 }
 

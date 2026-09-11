@@ -33,7 +33,7 @@ impl StdlibSprite {
         if self.sprite.is_none() {
             let mut sprite = SpriteMonochrome::new(self.width, self.height, 16);
             if let Some(ref data) = self.data {
-                let nb_lines = (self.height + 1) / 2;
+                let nb_lines = self.height.div_ceil(2);
                 let mut pos = 0;
                 for j in 0..nb_lines {
                     for i in 0..self.width {

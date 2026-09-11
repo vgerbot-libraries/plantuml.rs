@@ -25,9 +25,6 @@ crate::impl_simple_return_function!(
     execute = |_self, _context, _memory, _location, values, _named| {
         let name = values[0].to_string();
         // TODO: implement SecurityUtils check for server deployments.
-        match std::env::var(&name) {
-            Ok(v) => Ok(TValue::from_string(&v)),
-            Err(_) => Ok(TValue::from_string("")),
-        }
+        std::env::var(&name).map_or_else(|_| Ok(TValue::from_string("")), |v| Ok(TValue::from_string(&v)))
     },
 );

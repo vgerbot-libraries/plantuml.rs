@@ -1,4 +1,4 @@
-//! PlantUML command framework — Command pattern with regex-based parsing.
+//! `PlantUML` command framework — Command pattern with regex-based parsing.
 //!
 //! Ported from: `net/sourceforge/plantuml/command/` package.
 

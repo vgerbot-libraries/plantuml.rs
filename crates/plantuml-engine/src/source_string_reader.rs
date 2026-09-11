@@ -10,7 +10,7 @@ use plantuml_preproc::preproc::Defines;
 use crate::block_uml::BlockUml;
 use crate::block_uml_builder::BlockUmlBuilder;
 
-/// The programmatic entry point for PlantUML.
+/// The programmatic entry point for `PlantUML`.
 ///
 /// Ported from `net.sourceforge.plantuml.SourceStringReader`.
 ///

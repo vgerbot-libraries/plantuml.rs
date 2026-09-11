@@ -1,4 +1,5 @@
-//! PlantUML preprocessor crate.
+#![allow(clippy::missing_const_for_fn)]
+//! `PlantUML` preprocessor crate.
 //!
 //! Ported from `net.sourceforge.plantuml.tim`, `net.sourceforge.plantuml.preproc`,
 //! and `net.sourceforge.plantuml.preproc2` packages.

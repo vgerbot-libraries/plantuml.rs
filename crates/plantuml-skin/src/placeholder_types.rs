@@ -350,18 +350,15 @@ impl ConditionEndStyle {
 
 /// Rank direction placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Default)]
 pub enum Rankdir {
+    #[default]
     TopToBottom,
     LeftToRight,
     BottomToTop,
     RightToLeft,
 }
 
-impl Default for Rankdir {
-    fn default() -> Self {
-        Self::TopToBottom
-    }
-}
 
 /// Guillemet character style placeholder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

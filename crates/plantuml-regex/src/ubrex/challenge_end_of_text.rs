@@ -1,7 +1,6 @@
-/// End-of-text assertion: matches zero-width at the end of the text.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeEndOfText.java`
-
+//! End-of-text assertion: matches zero-width at the end of the text.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeEndOfText.java`
 use std::any::Any;
 
 use super::challenge::Challenge;

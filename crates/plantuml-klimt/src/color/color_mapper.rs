@@ -1,4 +1,4 @@
-//! ColorMapper — maps colors for different rendering modes.
+//! `ColorMapper` — maps colors for different rendering modes.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/color/ColorMapper.java`
 

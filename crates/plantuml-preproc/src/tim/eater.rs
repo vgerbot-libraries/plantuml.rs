@@ -113,10 +113,7 @@ impl Eater {
         let mut last_token: Option<Token> = None;
         loop {
             let token = TokenType::eat_one_token(last_token.as_ref(), self, stop_at_colon)?;
-            let token = match token {
-                Some(t) => t,
-                None => return Ok(()),
-            };
+            let Some(token) = token else { return Ok(()) };
             let is_spaces = token.get_token_type() == TokenType::Spaces;
             token_stack.add(token.clone());
             if !is_spaces {

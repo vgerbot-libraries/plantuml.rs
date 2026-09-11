@@ -14,6 +14,7 @@ use crate::stubs::LineLocation;
 /// Ported from `net.sourceforge.plantuml.preproc.ReadLineReader`.
 pub struct ReadLineReader {
     reader: Box<dyn BufRead>,
+    #[allow(dead_code)]
     location: LineLocation,
     description: String,
     line_number: u32,

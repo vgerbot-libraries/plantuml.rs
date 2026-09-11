@@ -22,7 +22,7 @@ impl Participant {
     #[must_use]
     pub fn new(ptype: ParticipantType, code: impl Into<String>, display: impl Into<String>, order: i32) -> Self {
         let code = code.into();
-        let uid = format!("part_{}", code);
+        let uid = format!("part_{code}");
         Self {
             code,
             display: display.into(),
@@ -51,7 +51,7 @@ impl Participant {
     }
 
     /// Sets the participant type.
-    pub fn set_ptype(&mut self, ptype: ParticipantType) {
+    pub const fn set_ptype(&mut self, ptype: ParticipantType) {
         self.ptype = ptype;
     }
 

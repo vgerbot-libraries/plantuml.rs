@@ -1,4 +1,4 @@
-//! CodeIterator trait for iterating over preprocessor lines.
+//! `CodeIterator` trait for iterating over preprocessor lines.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.iterator.CodeIterator`.
 

@@ -28,7 +28,7 @@ impl RegexResult {
     /// Creates a result from a map of named partial matches.
     ///
     /// Ported from `RegexResult(Map<String, RegexPartialMatch> data)`.
-    pub fn from_data(data: HashMap<String, RegexPartialMatch>) -> Self {
+    pub const fn from_data(data: HashMap<String, RegexPartialMatch>) -> Self {
         Self::Data(data)
     }
 
@@ -67,7 +67,7 @@ impl RegexResult {
             }
             Self::Data(data) => {
                 let reg = data.get(key)?;
-                reg.get(num).map(|s| s.to_string())
+                reg.get(num).map(std::string::ToString::to_string)
             }
         }
     }
@@ -80,11 +80,7 @@ impl RegexResult {
         match self {
             Self::UMatcher(matcher) => {
                 let list = matcher.find_first_values_by_key_prefix(key);
-                if let Some(list) = list {
-                    list.get(num).cloned()
-                } else {
-                    None
-                }
+                list.and_then(|list| list.get(num).cloned())
             }
             Self::Data(data) => {
                 for (k, match_) in data {

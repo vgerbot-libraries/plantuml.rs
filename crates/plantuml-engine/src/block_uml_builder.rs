@@ -15,7 +15,7 @@ use crate::start_utils::StartUtils;
 ///
 /// Splits the source into blocks at `@start`/`@end` directives.
 /// For Phase 4, the Preprocessor (file inclusion) is not yet wired;
-/// lines are passed directly to the TimLoader.
+/// lines are passed directly to the `TimLoader`.
 pub struct BlockUmlBuilder {
     blocks: Vec<BlockUml>,
 }
@@ -54,9 +54,7 @@ impl BlockUmlBuilder {
             }
 
             if let Some(current_block) = &mut current {
-                if !paused {
-                    current_block.push(s);
-                } else {
+                if paused {
                     // Check for @append directive
                     if let Some(append) = Self::get_possible_append(&line_str) {
                         current_block.push(StringLocated::new(
@@ -64,6 +62,8 @@ impl BlockUmlBuilder {
                             LineLocation::new(None, 0),
                         ));
                     }
+                } else {
+                    current_block.push(s);
                 }
             }
 

@@ -1,8 +1,7 @@
-//! UText — text shape.
+//! `UText` — text shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/UText.java`
 
-use crate::ushape::UShape;
 use plantuml_core::u_font::UFont;
 
 /// A text string with position, font, and text length.
@@ -47,7 +46,7 @@ impl UText {
     }
 
     #[must_use]
-    pub fn font(&self) -> &UFont {
+    pub const fn font(&self) -> &UFont {
         &self.font
     }
 

@@ -12,7 +12,6 @@ use crate::StringLocated;
 
 use super::knowledge::Knowledge;
 use super::t_value::TValue;
-use super::token::Token;
 use super::token_iterator::TokenIterator;
 use super::token_stack::TokenStack;
 use super::token_type::TokenType;
@@ -40,10 +39,7 @@ impl ReversePolishInterpretor {
         let mut it = queue.token_iterator();
 
         while it.has_more_tokens() {
-            let token = match it.next_token() {
-                Some(t) => t,
-                None => break,
-            };
+            let Some(token) = it.next_token() else { break };
             let tt = token.get_token_type();
 
             if tt == TokenType::Number {
@@ -61,41 +57,32 @@ impl ReversePolishInterpretor {
                     (Some(v1), Some(v2)) => {
                         named.insert(v1.to_string_value(), v2);
                     }
-                    _ => return Err(EaterException::new("rpn42", &location)),
+                    _ => return Err(EaterException::new("rpn42", location)),
                 }
             } else if tt == TokenType::Operator {
                 let v2 = stack.pop_front();
                 let v1 = stack.pop_front();
                 let op = token.get_token_operator();
-                let op = match op {
-                    Some(o) => o,
-                    None => return Err(EaterException::new("bad op", &location)),
-                };
+                let Some(op) = op else { return Err(EaterException::new("bad op", location)) };
                 match (v1, v2) {
                     (Some(v1), Some(v2)) => {
                         let tmp = op.operate(&v1, &v2);
                         stack.push_front(tmp);
                     }
-                    _ => return Err(EaterException::new("rpn42", &location)),
+                    _ => return Err(EaterException::new("rpn42", location)),
                 }
             } else if tt == TokenType::OpenParenFunc {
                 let nb = token.get_surface().parse::<i32>().unwrap_or(0) - named.len() as i32;
-                let token2 = match it.next_token() {
-                    Some(t) => t,
-                    None => return Err(EaterException::new("rpn43", &location)),
-                };
+                let Some(token2) = it.next_token() else { return Err(EaterException::new("rpn43", location)) };
                 if token2.get_token_type() != TokenType::FunctionName {
-                    return Err(EaterException::new("rpn43", &location));
+                    return Err(EaterException::new("rpn43", location));
                 }
                 let signature = TFunctionSignature::new(token2.get_surface(), nb);
-                let function = match knowledge.get_function(&signature) {
-                    Some(f) => f,
-                    None => {
-                        return Err(EaterException::new(
-                            format!("Unknown built-in function {}", token2.get_surface()),
-                            &location,
-                        ));
-                    }
+                let Some(function) = knowledge.get_function(&signature) else {
+                    return Err(EaterException::new(
+                        format!("Unknown built-in function {}", token2.get_surface()),
+                        location,
+                    ));
                 };
                 let empty_set = std::collections::HashSet::new();
                 if !function.can_cover(nb, &empty_set) {
@@ -104,7 +91,7 @@ impl ReversePolishInterpretor {
                             "Bad number of arguments for {}",
                             function.get_signature().get_function_name()
                         ),
-                        &location,
+                        location,
                     ));
                 }
                 let mut args: Vec<TValue> = Vec::new();
@@ -117,7 +104,7 @@ impl ReversePolishInterpretor {
                 named.clear();
                 stack.push_front(r);
             } else {
-                return Err(EaterException::new("rpn41", &location));
+                return Err(EaterException::new("rpn41", location));
             }
         }
 

@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::eater_exception::EaterException;
-use super::expression::{Knowledge, TValue};
+use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_function::TFunction;
 use super::t_function_argument::TFunctionArgument;
@@ -51,7 +51,7 @@ impl TFunctionImpl {
 
     /// Adds a body line.
     pub fn add_body(&mut self, s: StringLocated) -> Result<(), EaterException> {
-        let mut s = s;
+
         let t = s.get_type();
         if t == TLineType::Return {
             self.contains_return = true;
@@ -105,9 +105,7 @@ impl TFunctionImpl {
         let mut result: HashMap<String, TValue> = HashMap::new();
         let mut ivalue = 0;
         for arg in &self.args {
-            let value = if let Some(named) = named_arguments.get(arg.get_name()) {
-                named.clone()
-            } else if ivalue < values.len() {
+            let value = named_arguments.get(arg.get_name()).map_or_else(|| if ivalue < values.len() {
                 let v = values[ivalue].clone();
                 ivalue += 1;
                 v
@@ -115,26 +113,27 @@ impl TFunctionImpl {
                 def.clone()
             } else {
                 TValue::from_string("")
-            };
+            }, std::clone::Clone::clone);
             result.insert(arg.get_name().to_string(), value);
         }
         memory.fork_from_global(result)
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)]
     fn execute_return_legacy_define(
         &self,
         location: &LineLocation,
         context: &mut TContext,
         memory: &mut dyn TMemory,
         args: &[TValue],
-    ) -> Result<TValue, EaterException> {
+    ) -> TValue {
         let legacy_def = self.legacy_definition.as_deref().unwrap_or("");
         let mut copy = self.get_new_memory(memory, args, &HashMap::new());
         let tmp = context.apply_functions_and_variables(
             copy.as_mut(),
             &StringLocated::new(legacy_def, location.clone()),
         );
-        Ok(TValue::from_string(tmp.unwrap_or_default()))
+        TValue::from_string(tmp.unwrap_or_default())
     }
 }
 
@@ -177,29 +176,29 @@ impl TFunction for TFunctionImpl {
         named: &HashMap<String, TValue>,
     ) -> Result<TValue, EaterException> {
         if self.function_type == TFunctionType::LegacyDefine {
-            return self.execute_return_legacy_define(location.get_location(), context, memory, args);
+            return Ok(self.execute_return_legacy_define(location.get_location(), context, memory, args));
         }
         if self.function_type != TFunctionType::ReturnFunction {
             return Err(EaterException::new(
                 "Illegal call here. Is there a return directive in your function?",
-                &location,
+                location,
             ));
         }
         let mut copy = self.get_new_memory(memory, args, named);
         let result = context.execute_lines(copy.as_mut(), &self.body, Some(TFunctionType::ReturnFunction), true)?;
-        result.ok_or_else(|| EaterException::new("No return directive found in your function", &location))
+        result.ok_or_else(|| EaterException::new("No return directive found in your function", location))
     }
 
     fn execute_procedure_internal(
         &self,
         context: &mut TContext,
         memory: &mut dyn TMemory,
-        _location: &StringLocated,
+        location: &StringLocated,
         args: &[TValue],
         named: &HashMap<String, TValue>,
     ) -> Result<(), EaterException> {
         if self.function_type != TFunctionType::Procedure && self.function_type != TFunctionType::LegacyDefineLong {
-            return Err(EaterException::new("Illegal call", &_location));
+            return Err(EaterException::new("Illegal call", location));
         }
         let mut copy = self.get_new_memory(memory, args, named);
         context.execute_lines(copy.as_mut(), &self.body, Some(TFunctionType::Procedure), false)?;

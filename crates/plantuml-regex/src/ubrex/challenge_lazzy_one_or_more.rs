@@ -1,8 +1,7 @@
-/// Lazy one-or-more quantifier: matches `origin` one or more times, stopping
-/// as soon as `stop_condition` matches (without consuming it).
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeLazzyOneOrMore.java`
-
+//! Lazy one-or-more quantifier: matches `origin` one or more times, stopping
+//! as soon as `stop_condition` matches (without consuming it).
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeLazzyOneOrMore.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,7 +17,7 @@ pub struct ChallengeLazzyOneOrMore {
 
 impl ChallengeLazzyOneOrMore {
     pub fn new(origin: Rc<dyn Challenge>, stop_condition: Rc<dyn Challenge>) -> Self {
-        ChallengeLazzyOneOrMore {
+        Self {
             origin,
             stop_condition,
         }
@@ -35,9 +34,7 @@ impl Challenge for ChallengeLazzyOneOrMore {
             if match1.full_capture_length < 0 {
                 return ChallengeResult::no_match();
             }
-            if match1.full_capture_length == 0 {
-                panic!("infinite loop in ChallengeLazzyOneOrMore");
-            }
+            assert!(match1.full_capture_length != 0, "infinite loop in ChallengeLazzyOneOrMore");
             capture = capture.merge(&match1.capture);
             current_pos += match1.full_capture_length as usize;
 

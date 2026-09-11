@@ -27,13 +27,11 @@ impl Define {
     /// Ported from `net.sourceforge.plantuml.preproc.Define.Define`.
     #[must_use]
     pub fn new(key: &str, lines: Option<&[String]>, empty_parentheses: bool) -> Self {
-        let (definition, definition_quoted) = if let Some(lines) = lines {
+        let (definition, definition_quoted) = lines.map_or((None, None), |lines| {
             let joined = lines.join("\n");
             let quoted = regex::escape(&joined);
             (Some(joined), Some(quoted))
-        } else {
-            (None, None)
-        };
+        });
 
         let signature = DefineSignature::new(key, definition_quoted.as_deref().unwrap_or(""));
 

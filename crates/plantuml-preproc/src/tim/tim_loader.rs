@@ -1,8 +1,7 @@
-//! TimLoader — the preprocessor entry point.
+//! `TimLoader` — the preprocessor entry point.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.TimLoader`.
 
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory_global::TMemoryGlobal;
 use crate::preproc::PreprocessingArtifact;

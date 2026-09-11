@@ -6,9 +6,11 @@
 ///
 /// Ported from `net.sourceforge.plantuml.preproc2.PreprocessorIncludeStrategy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum PreprocessorIncludeStrategy {
     Once,
     Many,
+    #[default]
     Default,
 }
 
@@ -26,8 +28,3 @@ impl PreprocessorIncludeStrategy {
     }
 }
 
-impl Default for PreprocessorIncludeStrategy {
-    fn default() -> Self {
-        Self::Default
-    }
-}

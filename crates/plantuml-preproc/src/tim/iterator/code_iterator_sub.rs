@@ -4,7 +4,6 @@
 
 use super::code_iterator::CodeIterator;
 use super::code_position::CodePosition;
-use crate::preproc::Sub;
 use crate::{StringLocated, TLineType};
 
 /// A code iterator that handles `!startsub`/`!endsub` directives.

@@ -36,7 +36,7 @@ static FOX_DATA: LazyLock<FoxSignatureData> = LazyLock::new(|| {
             masks[idx] = m;
         }
         // Uppercase letters also set the same bit for their lowercase equivalent.
-        if ('A'..='Z').contains(&ch) {
+        if ch.is_ascii_uppercase() {
             let lower = (ch as u8 + (b'a' - b'A')) as usize;
             if lower < 127 {
                 masks[lower] = m;

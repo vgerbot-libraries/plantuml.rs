@@ -1,10 +1,9 @@
-/// Entry point for the ubrex regex engine.
-///
-/// Build a pattern with `UnicodeBracketedExpression::build(pattern)` then call
-/// `match(text)` to get a `UMatcher`.
-///
-/// Ported from: `com/plantuml/ubrex/UnicodeBracketedExpression.java`
-
+//! Entry point for the ubrex regex engine.
+//!
+//! Build a pattern with `UnicodeBracketedExpression::build(pattern)` then call
+//! `match(text)` to get a `UMatcher`.
+//!
+//! Ported from: `com/plantuml/ubrex/UnicodeBracketedExpression.java`
 use std::rc::Rc;
 
 use super::capture::Capture;

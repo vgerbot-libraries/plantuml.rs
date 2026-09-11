@@ -1,4 +1,4 @@
-//! HColorSet — named color registry.
+//! `HColorSet` — named color registry.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/color/HColorSet.java`
 

@@ -1,9 +1,8 @@
-/// Composite challenge: a sequence of challenges matched left-to-right.
-///
-/// Also serves as the top-level parser via `parse_and_build`.
-///
-/// Ported from: `com/plantuml/ubrex/CompositeList.java`
-
+//! Composite challenge: a sequence of challenges matched left-to-right.
+//!
+//! Also serves as the top-level parser via `parse_and_build`.
+//!
+//! Ported from: `com/plantuml/ubrex/CompositeList.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,9 +17,15 @@ pub struct CompositeList {
     challenges: Vec<Rc<dyn Challenge>>,
 }
 
+impl Default for CompositeList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CompositeList {
     pub fn new() -> Self {
-        CompositeList {
+        Self {
             challenges: Vec::new(),
         }
     }
@@ -29,22 +34,20 @@ impl CompositeList {
         self.challenges.push(p);
     }
 
-    pub fn create_empty() -> CompositeList {
-        CompositeList::new()
+    pub fn create_empty() -> Self {
+        Self::new()
     }
 
     /// Parses a ubrex pattern string into a `CompositeList`.
-    pub fn parse_and_build(input: &str) -> CompositeList {
-        if input.is_empty() {
-            panic!("Cannot parse empty pattern");
-        }
+    pub fn parse_and_build(input: &str) -> Self {
+        assert!(!input.is_empty(), "Cannot parse empty pattern");
         let mut nav = TextNavigator::build(input);
-        CompositeList::parse_and_build_from_text_navigator(&mut nav)
+        Self::parse_and_build_from_text_navigator(&mut nav)
     }
 
     /// Parses from a mutable `TextNavigator`, consuming characters.
-    pub fn parse_and_build_from_text_navigator(input: &mut TextNavigator) -> CompositeList {
-        let mut result = CompositeList::new();
+    pub fn parse_and_build_from_text_navigator(input: &mut TextNavigator) -> Self {
+        let mut result = Self::new();
         result.parse_and_consume_now(input);
         result
     }
@@ -98,7 +101,7 @@ impl std::fmt::Display for CompositeList {
             if i > 0 {
                 write!(f, ", ")?;
             }
-            write!(f, "{}", c)?;
+            write!(f, "{c}")?;
         }
         write!(f, "]")
     }

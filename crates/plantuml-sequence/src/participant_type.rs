@@ -17,7 +17,7 @@ pub enum ParticipantType {
 
 impl ParticipantType {
     /// Returns the participant type from a string keyword.
-    #[must_use]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "participant" => Some(Self::Participant),

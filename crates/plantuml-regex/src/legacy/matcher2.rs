@@ -14,6 +14,7 @@ use regex::{Captures, Regex};
 pub struct Matcher2<'a> {
     captures: Option<Captures<'a>>,
     input: &'a str,
+    #[allow(dead_code)]
     pos: usize,
     found: bool,
 }
@@ -22,11 +23,8 @@ impl<'a> Matcher2<'a> {
     /// Builds a matcher from a compiled pattern and input.
     ///
     /// Ported from `Matcher2.build(Pattern, CharSequence, int)`.
-    pub fn build(pattern: &Result<Regex, regex::Error>, input: &'a str, pos: usize) -> Matcher2<'a> {
-        let captures = match pattern {
-            Ok(re) => re.captures_at(input, pos),
-            Err(_) => None,
-        };
+    pub fn build(pattern: &Result<Regex, regex::Error>, input: &'a str, pos: usize) -> Self {
+        let captures = pattern.as_ref().map_or(None, |re| re.captures_at(input, pos));
         Matcher2 {
             captures,
             input,
@@ -38,7 +36,7 @@ impl<'a> Matcher2<'a> {
     /// Attempts to find a match. Returns `true` if a match was found.
     ///
     /// Ported from `Matcher2.find()`.
-    pub fn find(&mut self) -> bool {
+    pub const fn find(&mut self) -> bool {
         if self.captures.is_some() {
             self.found = true;
             true
@@ -51,10 +49,7 @@ impl<'a> Matcher2<'a> {
     ///
     /// Ported from `Matcher2.matches()`.
     pub fn matches(&self) -> bool {
-        match &self.captures {
-            Some(c) => c.get(0).is_some_and(|m| m.start() == 0 && m.end() == self.input.len()),
-            None => false,
-        }
+        self.captures.as_ref().is_some_and(|c| c.get(0).is_some_and(|m| m.start() == 0 && m.end() == self.input.len()))
     }
 
     /// Returns the captured group at index `n`, or `None`.
@@ -80,8 +75,7 @@ impl<'a> Matcher2<'a> {
     pub fn group_count(&self) -> usize {
         self.captures
             .as_ref()
-            .map(|c| c.len().saturating_sub(1))
-            .unwrap_or(0)
+            .map_or(0, |c| c.len().saturating_sub(1))
     }
 
     /// Returns the start position of the match.
@@ -91,8 +85,7 @@ impl<'a> Matcher2<'a> {
         self.captures
             .as_ref()
             .and_then(|c| c.get(0))
-            .map(|m| m.start())
-            .unwrap_or(0)
+            .map_or(0, |m| m.start())
     }
 
     /// Returns the end position of the match.
@@ -102,7 +95,6 @@ impl<'a> Matcher2<'a> {
         self.captures
             .as_ref()
             .and_then(|c| c.get(0))
-            .map(|m| m.end())
-            .unwrap_or(0)
+            .map_or(0, |m| m.end())
     }
 }

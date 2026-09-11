@@ -1,8 +1,7 @@
-/// Lookbehind assertion: zero-width check that `origin` matches (or doesn't)
-/// when the text before the current position is reversed.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeLookBehind.java`
-
+//! Lookbehind assertion: zero-width check that `origin` matches (or doesn't)
+//! when the text before the current position is reversed.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeLookBehind.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,7 +17,7 @@ pub struct ChallengeLookBehind {
 
 impl ChallengeLookBehind {
     pub fn new(origin: Rc<dyn Challenge>, ahead: LookAround) -> Self {
-        ChallengeLookBehind { origin, ahead }
+        Self { origin, ahead }
     }
 }
 

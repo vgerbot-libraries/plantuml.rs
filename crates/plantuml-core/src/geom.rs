@@ -1,3 +1,4 @@
+#![allow(clippy::suboptimal_flops, clippy::imprecise_flops, clippy::manual_midpoint, clippy::manual_range_contains)]
 //! Geometry types ported from `klimt/geom`.
 //!
 //! Ported from: net/sourceforge/plantuml/klimt/geom/XPoint2D.java
@@ -273,32 +274,32 @@ impl XLine2D {
     }
 
     #[must_use]
-    pub fn line(p1: &XPoint2D, p2: &XPoint2D) -> Self {
+    pub const fn line(p1: &XPoint2D, p2: &XPoint2D) -> Self {
         Self::new(p1.x, p1.y, p2.x, p2.y)
     }
 
     #[must_use]
-    pub fn middle(&self) -> XPoint2D {
+    pub const fn middle(&self) -> XPoint2D {
         XPoint2D::new((self.x1 + self.x2) / 2.0, (self.y1 + self.y2) / 2.0)
     }
 
     #[must_use]
-    pub fn p1(&self) -> XPoint2D {
+    pub const fn p1(&self) -> XPoint2D {
         XPoint2D::new(self.x1, self.y1)
     }
 
     #[must_use]
-    pub fn p2(&self) -> XPoint2D {
+    pub const fn p2(&self) -> XPoint2D {
         XPoint2D::new(self.x2, self.y2)
     }
 
     #[must_use]
-    pub fn with_point1(&self, other: &XPoint2D) -> Self {
+    pub const fn with_point1(&self, other: &XPoint2D) -> Self {
         Self::new(other.x, other.y, self.x2, self.y2)
     }
 
     #[must_use]
-    pub fn with_point2(&self, other: &XPoint2D) -> Self {
+    pub const fn with_point2(&self, other: &XPoint2D) -> Self {
         Self::new(self.x1, self.y1, other.x, other.y)
     }
 

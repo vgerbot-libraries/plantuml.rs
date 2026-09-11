@@ -1,8 +1,7 @@
-/// Lookahead assertion: zero-width check that `origin` matches (or doesn't)
-/// at the current position.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeLookAhead.java`
-
+//! Lookahead assertion: zero-width check that `origin` matches (or doesn't)
+//! at the current position.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeLookAhead.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -18,7 +17,7 @@ pub struct ChallengeLookAhead {
 
 impl ChallengeLookAhead {
     pub fn new(origin: Rc<dyn Challenge>, ahead: LookAround) -> Self {
-        ChallengeLookAhead { origin, ahead }
+        Self { origin, ahead }
     }
 }
 

@@ -21,9 +21,6 @@ crate::impl_simple_return_function!(
     can_cover = |nb_arg, _named| nb_arg == 1,
     execute = |_self, _context, _memory, _location, values, _named| {
         let s = values[0].to_string();
-        match i32::from_str_radix(&s, 16) {
-            Ok(n) => Ok(TValue::from_int(n)),
-            Err(_) => Ok(TValue::from_int(0)),
-        }
+        i32::from_str_radix(&s, 16).map_or_else(|_| Ok(TValue::from_int(0)), |n| Ok(TValue::from_int(n)))
     },
 );

@@ -1,8 +1,7 @@
-//! URectangle — rectangle shape.
+//! `URectangle` — rectangle shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/URectangle.java`
 
-use crate::ushape::UShape;
 
 /// A rectangle shape with position, dimensions, and corner radius.
 ///
@@ -20,7 +19,7 @@ pub struct URectangle {
 impl URectangle {
     /// Creates a new `URectangle` at (x, y) with the given width and height.
     #[must_use]
-    pub fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
+    pub const fn new(x: f64, y: f64, width: f64, height: f64) -> Self {
         Self {
             x,
             y,
@@ -33,7 +32,7 @@ impl URectangle {
 
     /// Creates a new `URectangle` with corner radius.
     #[must_use]
-    pub fn with_corners(x: f64, y: f64, width: f64, height: f64, rx: f64, ry: f64) -> Self {
+    pub const fn with_corners(x: f64, y: f64, width: f64, height: f64, rx: f64, ry: f64) -> Self {
         Self { x, y, width, height, rx, ry }
     }
 

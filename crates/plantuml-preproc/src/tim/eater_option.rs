@@ -4,7 +4,6 @@
 
 use super::eater::Eater;
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use crate::preproc::OptionKey;
@@ -33,10 +32,7 @@ impl EaterOption {
         self.eater.skip_spaces();
         let key = self.eater.eat_and_get_varname()?;
         self.eater.skip_spaces();
-        let value = match self.eater.eat_expression(context, memory) {
-            Ok(v) => Some(v),
-            Err(_) => None,
-        };
+        let value = self.eater.eat_expression(context, memory).ok();
         self.eater.skip_spaces();
         let option_key = OptionKey::lazy_from(&key);
         match option_key {

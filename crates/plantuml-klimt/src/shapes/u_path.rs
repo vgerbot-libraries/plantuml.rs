@@ -1,8 +1,7 @@
-//! UPath — path shape.
+//! `UPath` — path shape.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/shape/UPath.java`
 
-use crate::ushape::UShape;
 
 /// A path segment type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +22,7 @@ pub struct USegment {
 
 impl USegment {
     #[must_use]
-    pub fn new(segment_type: USegmentType, coords: Vec<f64>) -> Self {
+    pub const fn new(segment_type: USegmentType, coords: Vec<f64>) -> Self {
         Self { segment_type, coords }
     }
 
@@ -51,7 +50,7 @@ pub struct UPath {
 impl UPath {
     /// Creates a new empty `UPath` at (0, 0).
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             segments: Vec::new(),
             x: 0.0,
@@ -61,7 +60,7 @@ impl UPath {
 
     /// Creates a new `UPath` at the given position.
     #[must_use]
-    pub fn at(x: f64, y: f64) -> Self {
+    pub const fn at(x: f64, y: f64) -> Self {
         Self {
             segments: Vec::new(),
             x,
@@ -111,13 +110,13 @@ impl UPath {
 
     /// Returns the number of segments.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.segments.len()
     }
 
     /// Returns `true` if the path has no segments.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.segments.is_empty()
     }
 }

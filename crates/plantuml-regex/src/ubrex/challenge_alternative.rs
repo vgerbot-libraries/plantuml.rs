@@ -1,7 +1,6 @@
-/// Alternation challenge: matches the first alternative that succeeds.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeAlternative.java`
-
+//! Alternation challenge: matches the first alternative that succeeds.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeAlternative.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -13,9 +12,15 @@ pub struct ChallengeAlternative {
     alternatives: Vec<Rc<dyn Challenge>>,
 }
 
+impl Default for ChallengeAlternative {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChallengeAlternative {
     pub fn new() -> Self {
-        ChallengeAlternative {
+        Self {
             alternatives: Vec::new(),
         }
     }

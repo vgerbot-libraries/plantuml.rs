@@ -1,7 +1,6 @@
-/// Optional quantifier: matches `origin` zero or one times.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeOptional.java`
-
+//! Optional quantifier: matches `origin` zero or one times.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeOptional.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -15,7 +14,7 @@ pub struct ChallengeOptional {
 
 impl ChallengeOptional {
     pub fn new(origin: Rc<dyn Challenge>) -> Self {
-        ChallengeOptional { origin }
+        Self { origin }
     }
 }
 

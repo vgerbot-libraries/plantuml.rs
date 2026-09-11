@@ -1,7 +1,6 @@
-/// Up-to challenge: skips characters until `origin` matches.
-///
-/// Ported from: `com/plantuml/ubrex/ChallengeUpTo.java`
-
+//! Up-to challenge: skips characters until `origin` matches.
+//!
+//! Ported from: `com/plantuml/ubrex/ChallengeUpTo.java`
 use std::any::Any;
 use std::rc::Rc;
 
@@ -15,7 +14,7 @@ pub struct ChallengeUpTo {
 
 impl ChallengeUpTo {
     pub fn new(origin: Rc<dyn Challenge>) -> Self {
-        ChallengeUpTo { origin }
+        Self { origin }
     }
 }
 

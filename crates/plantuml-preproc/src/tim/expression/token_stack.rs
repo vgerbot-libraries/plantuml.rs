@@ -1,4 +1,4 @@
-//! TokenStack — a stack of tokens for expression evaluation.
+//! `TokenStack` — a stack of tokens for expression evaluation.
 //!
 //! Ported from `net.sourceforge.plantuml.tim.expression.TokenStack`.
 
@@ -10,7 +10,6 @@ use crate::tim::t_context::TContext;
 use crate::tim::t_memory::TMemory;
 use crate::StringLocated;
 
-use super::knowledge::Knowledge;
 use super::reverse_polish_interpretor::ReversePolishInterpretor;
 use super::shunting_yard::ShuntingYard;
 use super::token::Token;
@@ -42,8 +41,8 @@ impl TokenStack {
     ///
     /// Ported from `TokenStack.subTokenStack`.
     #[must_use]
-    pub fn sub_token_stack(&self, i: usize) -> TokenStack {
-        TokenStack {
+    pub fn sub_token_stack(&self, i: usize) -> Self {
+        Self {
             tokens: self.tokens[i..].to_vec(),
         }
     }
@@ -57,8 +56,8 @@ impl TokenStack {
     ///
     /// Ported from `TokenStack.withoutSpace`.
     #[must_use]
-    pub fn without_space(&self) -> TokenStack {
-        let mut result = TokenStack::new();
+    pub fn without_space(&self) -> Self {
+        let mut result = Self::new();
         for token in &self.tokens {
             if token.get_token_type() != TokenType::Spaces {
                 result.add(token.clone());
@@ -72,8 +71,8 @@ impl TokenStack {
     /// Ported from `TokenStack.eatUntilCloseParenthesisOrComma(Eater)`.
     pub fn eat_until_close_parenthesis_or_comma(
         eater: &mut Eater,
-    ) -> Result<TokenStack, EaterException> {
-        let mut result = TokenStack::new();
+    ) -> Result<Self, EaterException> {
+        let mut result = Self::new();
         let mut level = 0i32;
         let mut last_token: Option<Token> = None;
         loop {
@@ -85,10 +84,7 @@ impl TokenStack {
             if level == 0 && (ch == ',' || ch == ')') {
                 return Ok(result);
             }
-            let token = match TokenType::eat_one_token(last_token.as_ref(), eater, false)? {
-                Some(t) => t,
-                None => continue,
-            };
+            let Some(token) = TokenType::eat_one_token(last_token.as_ref(), eater, false)? else { continue };
             let tt = token.get_token_type();
             if tt == TokenType::OpenParenMath {
                 level += 1;
@@ -112,10 +108,7 @@ impl TokenStack {
     ) -> Result<(), EaterException> {
         let mut level = 0i32;
         loop {
-            let ch = match it.peek_token() {
-                Some(t) => t,
-                None => return Err(EaterException::new("until002", &location)),
-            };
+            let Some(ch) = it.peek_token() else { return Err(EaterException::new("until002", location)) };
             let typech = ch.get_token_type();
             if (level == 0
                 && (typech == TokenType::Comma || typech == TokenType::CloseParenMath))
@@ -123,10 +116,7 @@ impl TokenStack {
             {
                 return Ok(());
             }
-            let token = match it.next_token() {
-                Some(t) => t,
-                None => return Err(EaterException::new("until002", &location)),
-            };
+            let Some(token) = it.next_token() else { return Err(EaterException::new("until002", location)) };
             let tt = token.get_token_type();
             if tt == TokenType::OpenParenMath || tt == TokenType::OpenParenFunc {
                 level += 1;
@@ -139,6 +129,7 @@ impl TokenStack {
     /// Counts the number of function arguments in the token stream.
     ///
     /// Ported from `TokenStack.countFunctionArg`.
+    #[allow(clippy::unused_self)]
     fn count_function_arg(
         &self,
         it: &mut dyn TokenIterator,
@@ -146,7 +137,7 @@ impl TokenStack {
     ) -> Result<i32, EaterException> {
         let type1 = match it.peek_token() {
             Some(t) => t.get_token_type(),
-            None => return Err(EaterException::new("count12", &location)),
+            None => return Err(EaterException::new("count12", location)),
         };
         if type1 == TokenType::CloseParenMath || type1 == TokenType::CloseParenFunc {
             return Ok(0);
@@ -154,10 +145,7 @@ impl TokenStack {
         let mut result = 1;
         while it.has_more_tokens() {
             Self::eat_until_close_parenthesis_or_comma_it(it, location)?;
-            let token = match it.next_token() {
-                Some(t) => t,
-                None => return Err(EaterException::new("count12", &location)),
-            };
+            let Some(token) = it.next_token() else { return Err(EaterException::new("count12", location)) };
             let tt = token.get_token_type();
             if tt == TokenType::CloseParenMath || tt == TokenType::CloseParenFunc {
                 return Ok(result);
@@ -165,10 +153,10 @@ impl TokenStack {
             if tt == TokenType::Comma {
                 result += 1;
             } else {
-                return Err(EaterException::new("count13", &location));
+                return Err(EaterException::new("count13", location));
             }
         }
-        Err(EaterException::new("count12", &location))
+        Err(EaterException::new("count12", location))
     }
 
     /// Converts `PLAIN_TEXT` tokens before `(` to `FUNCTION_NAME`,

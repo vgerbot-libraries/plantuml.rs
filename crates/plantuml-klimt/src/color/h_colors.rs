@@ -1,4 +1,4 @@
-//! HColors — factory for common colors.
+//! `HColors` — factory for common colors.
 //!
 //! Ported from: `net/sourceforge/plantuml/klimt/color/HColors.java`
 
@@ -13,49 +13,49 @@ pub struct HColors;
 impl HColors {
     /// Black color.
     #[must_use]
-    pub fn black() -> HColor {
+    pub const fn black() -> HColor {
         HColor::Simple(HColorSimple::rgb(0, 0, 0))
     }
 
     /// White color.
     #[must_use]
-    pub fn white() -> HColor {
+    pub const fn white() -> HColor {
         HColor::Simple(HColorSimple::rgb(255, 255, 255))
     }
 
     /// Transparent color.
     #[must_use]
-    pub fn transparent() -> HColor {
+    pub const fn transparent() -> HColor {
         HColor::Transparent
     }
 
     /// Red color.
     #[must_use]
-    pub fn red() -> HColor {
+    pub const fn red() -> HColor {
         HColor::Simple(HColorSimple::rgb(255, 0, 0))
     }
 
     /// Green color.
     #[must_use]
-    pub fn green() -> HColor {
+    pub const fn green() -> HColor {
         HColor::Simple(HColorSimple::rgb(0, 128, 0))
     }
 
     /// Blue color.
     #[must_use]
-    pub fn blue() -> HColor {
+    pub const fn blue() -> HColor {
         HColor::Simple(HColorSimple::rgb(0, 0, 255))
     }
 
     /// Light gray color (#E2E2F0 — used in sequence diagram headers).
     #[must_use]
-    pub fn light_gray() -> HColor {
+    pub const fn light_gray() -> HColor {
         HColor::Simple(HColorSimple::rgb(0xE2, 0xE2, 0xF0))
     }
 
     /// Dark gray color (#181818 — used for strokes).
     #[must_use]
-    pub fn dark_gray() -> HColor {
+    pub const fn dark_gray() -> HColor {
         HColor::Simple(HColorSimple::rgb(0x18, 0x18, 0x18))
     }
 

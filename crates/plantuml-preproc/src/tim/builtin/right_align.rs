@@ -21,6 +21,6 @@ crate::impl_simple_return_function!(
     &*SIGNATURE,
     can_cover = |nb_arg, _named| nb_arg == 0,
     execute = |_self, _context, _memory, _location, _values, _named| {
-        Ok(TValue::from_string(&jaws::BLOCK_E1_NEWLINE_RIGHT_ALIGN.to_string()))
+        Ok(TValue::from_string(jaws::BLOCK_E1_NEWLINE_RIGHT_ALIGN.to_string()))
     },
 );

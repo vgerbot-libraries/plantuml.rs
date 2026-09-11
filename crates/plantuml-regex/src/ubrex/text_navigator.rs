@@ -1,15 +1,14 @@
-/// Navigator over a character sequence with reverse/search/jump support for
-/// lookbehind and parsing.
-///
-/// The Java original wraps a `CharSequence` and shares it across derived
-/// navigators (sub-sequence, reverse, copy).  In Rust we store the characters
-/// in an `Rc<Vec<char>>` so that derived navigators are cheap to create.
-///
-/// `p1` and `p2` are `isize` to match Java's signed `int` semantics: `jump`
-/// can make `p2 < p1` in reversed mode, producing a negative `length()`.
-///
-/// Ported from: `com/plantuml/ubrex/TextNavigator.java`
-
+//! Navigator over a character sequence with reverse/search/jump support for
+//! lookbehind and parsing.
+//!
+//! The Java original wraps a `CharSequence` and shares it across derived
+//! navigators (sub-sequence, reverse, copy).  In Rust we store the characters
+//! in an `Rc<Vec<char>>` so that derived navigators are cheap to create.
+//!
+//! `p1` and `p2` are `isize` to match Java's signed `int` semantics: `jump`
+//! can make `p2 < p1` in reversed mode, producing a negative `length()`.
+//!
+//! Ported from: `com/plantuml/ubrex/TextNavigator.java`
 use std::any::Any;
 use std::fmt;
 use std::rc::Rc;
@@ -25,10 +24,10 @@ pub struct TextNavigator {
 
 impl TextNavigator {
     /// Creates a navigator over the full `content`.
-    pub fn build(content: &str) -> TextNavigator {
+    pub fn build(content: &str) -> Self {
         let chars: Vec<char> = content.chars().collect();
         let len = chars.len() as isize;
-        TextNavigator {
+        Self {
             chars: Rc::new(chars),
             p1: 0,
             p2: len,
@@ -37,11 +36,9 @@ impl TextNavigator {
     }
 
     /// Creates a reversed navigator covering characters `[0, p1 + pos)`.
-    pub fn reverse(&self, pos: usize) -> TextNavigator {
-        if self.reversed {
-            panic!("Cannot reverse an already reversed navigator");
-        }
-        TextNavigator {
+    pub fn reverse(&self, pos: usize) -> Self {
+        assert!(!self.reversed, "Cannot reverse an already reversed navigator");
+        Self {
             chars: Rc::clone(&self.chars),
             p1: 0,
             p2: self.p1 + pos as isize,
@@ -50,8 +47,8 @@ impl TextNavigator {
     }
 
     /// Returns a deep copy of this navigator.
-    pub fn copy(&self) -> TextNavigator {
-        TextNavigator {
+    pub fn copy(&self) -> Self {
+        Self {
             chars: Rc::clone(&self.chars),
             p1: self.p1,
             p2: self.p2,
@@ -61,33 +58,26 @@ impl TextNavigator {
 
     /// Returns the index of the first occurrence of `ch`, or `None`.
     pub fn index_of(&self, ch: char) -> Option<usize> {
-        for i in 0..self.length() {
-            if self.char_at(i) == ch {
-                return Some(i);
-            }
-        }
-        None
+        (0..self.length()).find(|&i| self.char_at(i) == ch)
     }
 
     /// Returns a sub-sequence navigator `[begin, end)`.
-    pub fn sub_sequence(&self, begin: usize, end: usize) -> TextNavigator {
-        if begin > end || end > self.length() {
-            panic!(
-                "subSequence({}, {}) out of bounds for length {}",
-                begin,
-                end,
-                self.length()
-            );
-        }
+    pub fn sub_sequence(&self, begin: usize, end: usize) -> Self {
+        assert!(!(begin > end || end > self.length()), 
+            "subSequence({}, {}) out of bounds for length {}",
+            begin,
+            end,
+            self.length()
+        );
         if self.reversed {
-            TextNavigator {
+            Self {
                 chars: Rc::clone(&self.chars),
                 p1: self.p2 - end as isize,
                 p2: self.p2 - begin as isize,
                 reversed: self.reversed,
             }
         } else {
-            TextNavigator {
+            Self {
                 chars: Rc::clone(&self.chars),
                 p1: self.p1 + begin as isize,
                 p2: self.p1 + end as isize,
@@ -99,7 +89,7 @@ impl TextNavigator {
     /// Returns the length of the visible window.
     /// May be negative when `jump` has shrunk the window past `p1` in reversed
     /// mode, matching Java's signed `int` arithmetic.
-    pub fn length(&self) -> usize {
+    pub const fn length(&self) -> usize {
         let len = self.p2 - self.p1;
         if len < 0 {
             0
@@ -109,15 +99,13 @@ impl TextNavigator {
     }
 
     /// Returns the raw (possibly negative) length, matching Java's `int` return.
-    pub fn raw_length(&self) -> isize {
+    pub const fn raw_length(&self) -> isize {
         self.p2 - self.p1
     }
 
     /// Returns the character at `index` within the visible window.
     pub fn char_at(&self, index: usize) -> char {
-        if index >= self.length() {
-            panic!("Index {} out of bounds for length {}", index, self.length());
-        }
+        assert!(index < self.length(), "Index {} out of bounds for length {}", index, self.length());
         if self.reversed {
             self.chars[(self.p2 - index as isize - 1) as usize]
         } else {
@@ -126,7 +114,7 @@ impl TextNavigator {
     }
 
     /// Advances the start (or end if reversed) of the visible window by `step`.
-    pub fn jump(&mut self, step: usize) {
+    pub const fn jump(&mut self, step: usize) {
         if self.reversed {
             self.p2 -= step as isize;
         } else {
@@ -155,12 +143,7 @@ impl TextNavigator {
             return Some(ahead);
         }
         let max = self.length().saturating_sub(searched_len);
-        for i in ahead..=max {
-            if self.starts_with(searched, i) {
-                return Some(i);
-            }
-        }
-        None
+        (ahead..=max).find(|&i| self.starts_with(searched, i))
     }
 
     /// Searches for a position where `pattern` matches, starting at `ahead`.

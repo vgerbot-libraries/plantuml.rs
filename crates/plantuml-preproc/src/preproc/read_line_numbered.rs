@@ -2,9 +2,7 @@
 //!
 //! Ported from `net.sourceforge.plantuml.preproc.ReadLineNumbered`.
 
-use std::io;
 
-use crate::StringLocated;
 use crate::preproc::read_line::ReadLine;
 
 /// Trait for `ReadLine`s that track line numbers.

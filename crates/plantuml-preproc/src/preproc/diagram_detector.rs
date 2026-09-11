@@ -27,9 +27,9 @@ impl DiagramDetector {
         s: StringLocated,
         uid: Option<&str>,
     ) -> io::Result<Option<Box<dyn ReadLine>>> {
-        let raw = Self::new_read_line_from_url(url, &s)?;
+        let raw = Self::new_read_line_from_url(url, &s);
         if Self::contains_start_diagram(raw)? {
-            let raw2 = Self::new_read_line_from_url(url, &s)?;
+            let raw2 = Self::new_read_line_from_url(url, &s);
             return Ok(Some(Box::new(DiagramExtractor::new(raw2, uid))));
         }
         Ok(None)
@@ -66,14 +66,14 @@ impl DiagramDetector {
         Self::uncomment_and_merge(Box::new(raw))
     }
 
-    fn new_read_line_from_url(url: &SURL, s: &StringLocated) -> io::Result<Box<dyn ReadLine>> {
-        match url.open_stream() {
-            Some(data) => {
+    fn new_read_line_from_url(url: &SURL, s: &StringLocated) -> Box<dyn ReadLine> {
+        url.open_stream().map_or_else(
+            || Box::new(ReadLineSimple::new(s.clone(), "Cannot connect")) as Box<dyn ReadLine>,
+            |data| {
                 let raw = ReadLineReader::from_bytes(&data, &url.to_string());
-                Ok(Self::uncomment_and_merge(Box::new(raw)))
-            }
-            None => Ok(Box::new(ReadLineSimple::new(s.clone(), "Cannot connect"))),
-        }
+                Self::uncomment_and_merge(Box::new(raw))
+            },
+        )
     }
 
     fn uncomment_and_merge(reader: Box<dyn ReadLine>) -> Box<dyn ReadLine> {

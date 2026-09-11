@@ -2,7 +2,6 @@
 
 use std::sync::LazyLock;
 
-use crate::string_located::StringLocated;
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
@@ -30,7 +29,7 @@ crate::impl_simple_return_function!(
         if !data1.is_json() {
             return Err(EaterException::new("Not JSON data".to_string(), location));
         }
-        let json0 = data0.to_json().clone();
+        let json0 = data0.to_json();
         let json1 = data1.to_json();
         match (json0, json1) {
             (serde_json::Value::Array(mut a0), serde_json::Value::Array(a1)) => {

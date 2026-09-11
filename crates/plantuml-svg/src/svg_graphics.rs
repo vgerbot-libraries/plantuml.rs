@@ -3,7 +3,7 @@
 //! Ported from: `net/sourceforge/plantuml/klimt/drawing/svg/SvgGraphics.java`
 
 use crate::svg_option::{LengthAdjust, SvgOption};
-use crate::xml::{XmlDocument, XmlNode, XmlWriter};
+use crate::xml::{XmlDocument, XmlNode};
 
 const DEFAULT_FONT_FAMILY: &str = "sans-serif";
 const DEFAULT_LENGTH_ADJUST: &str = "spacing";
@@ -11,6 +11,7 @@ const DEFAULT_LENGTH_ADJUST: &str = "spacing";
 /// Central SVG builder that creates XML elements for all shape types.
 ///
 /// Ported from: `net/sourceforge/plantuml/klimt/drawing/svg/SvgGraphics.java`
+#[allow(dead_code)]
 pub struct SvgGraphics {
     document: XmlDocument,
     root: XmlNode,
@@ -53,7 +54,7 @@ impl SvgGraphics {
         }
 
         // Create <defs> and <g> elements
-        let mut defs = XmlNode::new("defs");
+        let defs = XmlNode::new("defs");
         let mut g_root = XmlNode::new("g");
         g_root.set_attribute("font-family", DEFAULT_FONT_FAMILY);
         if option.length_adjust() == LengthAdjust::Spacing {
@@ -199,6 +200,7 @@ impl SvgGraphics {
     /// Draws a rectangle.
     ///
     /// Ported from: `SvgGraphics.svgRectangle(double, double, double, double, double, double, double)`.
+    #[allow(clippy::too_many_arguments)]
     pub fn svg_rectangle(
         &mut self,
         x: f64,
@@ -321,6 +323,7 @@ impl SvgGraphics {
     /// Draws text.
     ///
     /// Ported from: `SvgGraphics.text(String, double, double, String, int, String, String, String, double, Map, String)`.
+    #[allow(clippy::too_many_arguments)]
     pub fn text(
         &mut self,
         text: &str,
@@ -371,7 +374,7 @@ impl SvgGraphics {
 
             elt.set_attribute(
                 "font-size",
-                &format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
+                format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
             );
 
             if text.chars().count() > 1
@@ -380,7 +383,7 @@ impl SvgGraphics {
             {
                 elt.set_attribute(
                     "textLength",
-                    &format_number(text_length, self.option.scale(), self.option.decimal()),
+                    format_number(text_length, self.option.scale(), self.option.decimal()),
                 );
             }
 
@@ -444,7 +447,7 @@ impl SvgGraphics {
             if orientation == 90 {
                 elt.set_attribute(
                     "transform",
-                    &format!(
+                    format!(
                         "rotate(-90 {} {})",
                         format_number(x, self.option.scale(), self.option.decimal()),
                         format_number(y, self.option.scale(), self.option.decimal())
@@ -453,7 +456,7 @@ impl SvgGraphics {
             } else if orientation == 270 {
                 elt.set_attribute(
                     "transform",
-                    &format!(
+                    format!(
                         "rotate(90 {} {})",
                         format_number(x, self.option.scale(), self.option.decimal()),
                         format_number(y, self.option.scale(), self.option.decimal())
@@ -463,7 +466,7 @@ impl SvgGraphics {
 
             elt.set_attribute(
                 "font-size",
-                &format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
+                format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
             );
 
             // textLength: only for multi-char text with length adjust enabled
@@ -473,7 +476,7 @@ impl SvgGraphics {
             {
                 elt.set_attribute(
                     "textLength",
-                    &format_number(text_length, self.option.scale(), self.option.decimal()),
+                    format_number(text_length, self.option.scale(), self.option.decimal()),
                 );
             }
 
@@ -598,28 +601,28 @@ impl SvgGraphics {
             self.root.set_attribute("style", &style);
             self.root.set_attribute(
                 "width",
-                &format!("{}px", format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal())),
+                format!("{}px", format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal())),
             );
             self.root.set_attribute(
                 "height",
-                &format!("{}px", format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal())),
+                format!("{}px", format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal())),
             );
         }
-        self.root.set_attribute("viewBox", &format!("0 0 {max_x_scaled} {max_y_scaled}"));
+        self.root.set_attribute("viewBox", format!("0 0 {max_x_scaled} {max_y_scaled}"));
         self.root.set_attribute("zoomAndPan", "magnify");
         self.root.set_attribute("preserveAspectRatio", self.option.preserve_aspect_ratio());
         self.root.set_attribute("contentStyleType", "text/css");
 
         // Resize pending background rect to match final SVG dimensions
         if let Some(ref mut bg) = self.pending_background {
-            bg.set_attribute("width", &format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
-            bg.set_attribute("height", &format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
+            bg.set_attribute("width", format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
+            bg.set_attribute("height", format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
         }
         // Update the first child of g_root if it's the pending background
         if self.pending_background.is_some() {
             if let Some(first_child) = self.g_root.children_mut().next() {
-                first_child.set_attribute("width", &format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
-                first_child.set_attribute("height", &format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
+                first_child.set_attribute("width", format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
+                first_child.set_attribute("height", format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
             }
         }
         // Rebuild the document tree: clear stale children and append title, desc, defs, g_root
@@ -942,12 +945,12 @@ fn shorten_color(color: &str) -> String {
 fn fill_me(elt: &mut XmlNode, fill: &str, _scale: f64, _decimal: usize) {
     // Check for #RRGGBBAA format (8 hex digits after #)
     if fill.len() == 9 && fill.starts_with('#') && fill[1..].chars().all(|c| c.is_ascii_hexdigit()) {
-        elt.set_attribute("fill", &shorten_color(&fill[..7]));
+        elt.set_attribute("fill", shorten_color(&fill[..7]));
         let alpha = u8::from_str_radix(&fill[7..9], 16).unwrap_or(255);
         let opacity = f64::from(alpha) / 255.0;
-        elt.set_attribute("fill-opacity", &format_opacity(opacity));
+        elt.set_attribute("fill-opacity", format_opacity(opacity));
     } else {
-        elt.set_attribute("fill", &shorten_color(fill));
+        elt.set_attribute("fill", shorten_color(fill));
     }
 }
 
@@ -992,13 +995,13 @@ fn create_rectangle_internal(
     height: f64,
     option: &SvgOption,
     fill: &str,
-    stroke: &str,
+    _stroke: &str,
 ) -> XmlNode {
     let mut elt = XmlNode::new("rect");
-    elt.set_attribute("x", &format_number(x, option.scale(), option.decimal()));
-    elt.set_attribute("y", &format_number(y, option.scale(), option.decimal()));
-    elt.set_attribute("width", &format_number(width, option.scale(), option.decimal()));
-    elt.set_attribute("height", &format_number(height, option.scale(), option.decimal()));
+    elt.set_attribute("x", format_number(x, option.scale(), option.decimal()));
+    elt.set_attribute("y", format_number(y, option.scale(), option.decimal()));
+    elt.set_attribute("width", format_number(width, option.scale(), option.decimal()));
+    elt.set_attribute("height", format_number(height, option.scale(), option.decimal()));
     fill_me(&mut elt, fill, option.scale(), option.decimal());
     // Note: style_me is called by the caller (svg_rectangle) with the actual stroke_width.
     elt

@@ -4,7 +4,6 @@
 
 use super::eater::Eater;
 use super::eater_exception::EaterException;
-use super::expression::TValue;
 use super::t_context::TContext;
 use super::t_memory::TMemory;
 use crate::StringLocated;
