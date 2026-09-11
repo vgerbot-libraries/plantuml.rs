@@ -1,0 +1,14 @@
+---
+title: Playground
+description: Interactive PlantUML playground with live WASM rendering
+---
+
+import Playground from '../../components/Playground.astro';
+
+# Playground
+
+Edit PlantUML source on the left and see the rendered SVG on the right. Rendering runs entirely in your browser via the WASM build of plantuml.rs — no server round-trip.
+
+Only sequence diagrams are currently supported. If a render returns empty, check that your source uses `@startuml` / `@enduml` and sequence diagram syntax.
+
+<Playground />

@@ -1,0 +1,148 @@
+---
+// Server-side: just render the HTML shell
+const examples = [
+  { label: 'Basic Sequence', source: '@startuml\nAlice -> Bob: hello\nBob --> Alice: hi\n@enduml' },
+  { label: 'Sequence with Participants', source: '@startuml\nparticipant Alice\nparticipant Bob\nAlice -> Bob: Request\nBob --> Alice: Response\n@enduml' },
+  { label: 'Sequence with Notes', source: '@startuml\nAlice -> Bob: hello\nnote right of Alice: says hello\nBob --> Alice: hi\nnote right of Bob: replies\n@enduml' },
+  { label: 'Sequence with Styling', source: '@startuml\nskinparam backgroundColor #EEF\nAlice -> Bob: styled message\n@enduml' },
+];
+---
+
+<div class="playground">
+  <div class="playground-toolbar">
+    <label for="example-select">Examples:</label>
+    <select id="example-select">
+      <option value="">— Select —</option>
+      {examples.map((ex, i) => (
+        <option value={i}>{ex.label}</option>
+      ))}
+    </select>
+    <button id="copy-btn" type="button">Copy Source</button>
+    <button id="download-btn" type="button">Download SVG</button>
+  </div>
+  <div class="playground-body">
+    <div class="playground-editor" id="editor"></div>
+    <div class="playground-preview" id="preview">
+      <div class="playground-loading">Loading WASM…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Client-side playground logic — runs in browser
+  // Import CodeMirror
+  import { basicSetup, EditorView } from 'codemirror';
+  import { EditorState } from '@codemirror/state';
+  import { StreamLanguage } from '@codemirror/language';
+
+  // Simple PlantUML syntax highlighter via StreamLanguage
+  const plantumlHighlight = StreamLanguage.define({
+    token(stream, state) {
+      if (stream.match(/@start\w+|@end\w+/)) return 'keyword';
+      if (stream.match(/!\w+/)) return 'meta';      // preprocessor directives
+      if (stream.match(/skinparam|note|participant|actor|activate|deactivate|autonumber|title|legend|footer|header/)) return 'keyword';
+      if (stream.match(/->|-->|->>|-->>|-[^>]|\.->|\.-->|o->|\*->/)) return 'operator';
+      if (stream.match(/"[^"]*"/)) return 'string';
+      if (stream.match(/#[0-9a-fA-F]{3,8}/)) return 'number'; // color
+      if (stream.match(/\/\/.*/)) return 'comment';
+      if (stream.match(/\/.*/)) return 'comment';
+      stream.next();
+      return null;
+    }
+  });
+
+  const examples = [
+    { source: '@startuml\nAlice -> Bob: hello\nBob --> Alice: hi\n@enduml' },
+    { source: '@startuml\nparticipant Alice\nparticipant Bob\nAlice -> Bob: Request\nBob --> Alice: Response\n@enduml' },
+    { source: '@startuml\nAlice -> Bob: hello\nnote right of Alice: says hello\nBob --> Alice: hi\nnote right of Bob: replies\n@enduml' },
+    { source: '@startuml\nskinparam backgroundColor #EEF\nAlice -> Bob: styled message\n@enduml' },
+  ];
+
+  let editorView: EditorView;
+  let wasmReady: Promise<any> | null = null;
+  let renderTimer: number | null = null;
+
+  // Use `new Function` to create a dynamic import that Vite cannot statically analyze.
+  // This bypasses Vite's restriction on importing files from the public/ directory.
+  const dynImport = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
+
+  async function ensureWasm(): Promise<any> {
+    if (!wasmReady) {
+      wasmReady = (async () => {
+        const mod = await dynImport('/wasm/plantuml_wasm.js');
+        await mod.default('/wasm/plantuml_wasm_bg.wasm');
+        return mod;
+      })();
+    }
+    return wasmReady;
+  }
+
+  async function render() {
+    const source = editorView.state.doc.toString();
+    const preview = document.getElementById('preview')!;
+    try {
+      const mod = await ensureWasm();
+      const svg = mod.render_svg(source);
+      if (svg) {
+        preview.innerHTML = svg;
+      } else {
+        preview.innerHTML = '<div class="playground-error">Rendering returned empty output. Check your syntax — only sequence diagrams are currently supported.</div>';
+      }
+    } catch (e: any) {
+      preview.innerHTML = `<div class="playground-error">Error: ${e?.message || e}</div>`;
+    }
+  }
+
+  function debouncedRender() {
+    if (renderTimer) clearTimeout(renderTimer);
+    renderTimer = window.setTimeout(render, 300);
+  }
+
+  // Initialize editor
+  const initialSource = '@startuml\nAlice -> Bob: hello\nBob --> Alice: hi\n@enduml';
+  const state = EditorState.create({
+    doc: initialSource,
+    extensions: [
+      basicSetup,
+      plantumlHighlight,
+      EditorView.updateListener.of(debouncedRender),
+    ],
+  });
+  editorView = new EditorView({ state, parent: document.getElementById('editor')! });
+
+  // Initial render
+  render();
+
+  // Example selector
+  document.getElementById('example-select')!.addEventListener('change', (e) => {
+    const idx = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (isNaN(idx) || !examples[idx]) return;
+    editorView.dispatch({
+      changes: { from: 0, to: editorView.state.doc.length, insert: examples[idx].source }
+    });
+    render();
+  });
+
+  // Copy button
+  document.getElementById('copy-btn')!.addEventListener('click', () => {
+    navigator.clipboard.writeText(editorView.state.doc.toString());
+  });
+
+  // Download SVG button
+  document.getElementById('download-btn')!.addEventListener('click', async () => {
+    const mod = await ensureWasm();
+    const svg = mod.render_svg(editorView.state.doc.toString());
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'diagram.svg';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+
+<style>
+  /* Playground-specific styles — see custom.css for full styling */
+</style>
