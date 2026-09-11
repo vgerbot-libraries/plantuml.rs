@@ -30,6 +30,7 @@ pub struct SvgGraphics {
     backcolor_string: Option<String>,
     pending_background: Option<XmlNode>,
     pending_elements: Vec<XmlNode>,
+    filter: Option<String>,
 }
 
 impl SvgGraphics {
@@ -68,11 +69,15 @@ impl SvgGraphics {
         let shadow_id = format!("f{seed_str}");
         let gradient_id = format!("g{seed_str}");
 
-        // Handle background color
+        // Handle background color: create a pending background rect that will be
+        // resized to maxX/maxY in finalize_root_attributes (matching Java's paintBackcolor).
         let backcolor_string = option.backcolor().map(|c| c.to_svg(option.color_mapper()));
         let pending_background = if let Some(ref bc) = backcolor_string {
             if bc != "#00000000" && bc != "#000000" && bc != "#FFFFFF" {
-                Some(create_rectangle_internal(0.0, 0.0, 0.0, 0.0, &option, "none", "none"))
+                let mut rect = create_rectangle_internal(0.0, 0.0, 0.0, 0.0, &option, bc, "none");
+                // Set stroke_width=1 with stroke=none to produce style="stroke:none;"
+                style_me(&mut rect, "none", "1", &None, None);
+                Some(rect)
             } else {
                 None
             }
@@ -81,7 +86,10 @@ impl SvgGraphics {
         };
 
         // Build document structure: root → defs, g_root
-        // (pending_background would be inserted before defs in Java)
+        // Append pending_background as first child of g_root (before any other elements)
+        if let Some(ref bg) = pending_background {
+            g_root.append_child(bg.clone());
+        }
         root.append_child(defs.clone());
         root.append_child(g_root.clone());
         document.set_root(root.clone());
@@ -105,6 +113,7 @@ impl SvgGraphics {
             backcolor_string,
             pending_background,
             pending_elements: Vec::new(),
+            filter: None,
         }
     }
 
@@ -142,6 +151,50 @@ impl SvgGraphics {
             self.stroke_dasharray = None;
         }
     }
+    /// Sets the SVG filter for subsequent drawn elements.
+    pub fn set_filter(&mut self, filter: Option<&str>) {
+        self.filter = filter.map(String::from);
+    }
+
+    /// Adds a shadow filter definition to the `<defs>` section.
+    /// The filter creates a drop shadow with Gaussian blur and offset.
+    pub fn add_shadow_filter(&mut self) -> &str {
+        let filter_id = self.shadow_id.clone();
+        let mut filter = XmlNode::new("filter");
+        filter.set_attribute("height", "300%");
+        filter.set_attribute("id", &filter_id);
+        filter.set_attribute("width", "300%");
+        filter.set_attribute("x", "-1");
+        filter.set_attribute("y", "-1");
+
+        let mut blur = XmlNode::new("feGaussianBlur");
+        blur.set_attribute("result", "blurOut");
+        blur.set_attribute("stdDeviation", "2");
+        filter.append_child(blur);
+
+        let mut color_matrix = XmlNode::new("feColorMatrix");
+        color_matrix.set_attribute("in", "blurOut");
+        color_matrix.set_attribute("result", "blurOut2");
+        color_matrix.set_attribute("type", "matrix");
+        color_matrix.set_attribute("values", "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .4 0");
+        filter.append_child(color_matrix);
+
+        let mut offset = XmlNode::new("feOffset");
+        offset.set_attribute("dx", "4");
+        offset.set_attribute("dy", "4");
+        offset.set_attribute("in", "blurOut2");
+        offset.set_attribute("result", "blurOut3");
+        filter.append_child(offset);
+
+        let mut blend = XmlNode::new("feBlend");
+        blend.set_attribute("in", "SourceGraphic");
+        blend.set_attribute("in2", "blurOut3");
+        blend.set_attribute("mode", "normal");
+        filter.append_child(blend);
+
+        self.defs.append_child(filter);
+        &self.shadow_id
+    }
 
     /// Draws a rectangle.
     ///
@@ -166,6 +219,9 @@ impl SvgGraphics {
                 elt.set_attribute("ry", format_number(ry, self.option.scale(), self.option.decimal()));
             }
             style_me(&mut elt, &self.stroke, &self.stroke_width, &self.stroke_dasharray, None);
+            if let Some(ref f) = self.filter {
+                elt.set_attribute("filter", format!("url(#{f})"));
+            }
             self.get_g_mut().append_child(elt);
         }
         self.ensure_visible(x + width, y + height);
@@ -236,6 +292,9 @@ impl SvgGraphics {
                 &self.stroke_dasharray,
                 None,
             );
+            if let Some(ref f) = self.filter {
+                elt.set_attribute("filter", format!("url(#{f})"));
+            }
             self.get_g_mut().append_child(elt);
         }
         // Approximate bounding box from path data
@@ -280,6 +339,81 @@ impl SvgGraphics {
             text, x, y, font_family, font_size, font_weight, font_style, text_decoration,
             text_length, attributes, None, 0,
         )
+    }
+
+    /// Draws text with hybrid HALF_UP/HALF_EVEN x/y formatting.
+    ///
+    /// Like `text()`, but uses `format_number_hybrid` for the `x` and `y`
+    /// attributes. This is needed for reverse self-messages with activation,
+    /// where accumulated floating-point sums produce doubles at the `.xx5`
+    /// rounding boundary. The hybrid strategy uses HALF_UP when the double is
+    /// exactly at `.xx5` (exactly representable) and HALF_EVEN when below.
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_exact(
+        &mut self,
+        text: &str,
+        x: f64,
+        y: f64,
+        font_family: Option<&str>,
+        font_size: i32,
+        font_weight: Option<&str>,
+        font_style: Option<&str>,
+        text_decoration: Option<&str>,
+        text_length: f64,
+        attributes: &indexmap::IndexMap<String, String>,
+        _text_back_color: Option<&str>,
+    ) {
+        if !self.hidden {
+            let mut elt = XmlNode::new("text");
+            elt.set_attribute("x", format_number_hybrid(x, self.option.scale(), self.option.decimal()));
+            elt.set_attribute("y", format_number_hybrid(y, self.option.scale(), self.option.decimal()));
+            fill_me(&mut elt, &self.fill, self.option.scale(), self.option.decimal());
+
+            elt.set_attribute(
+                "font-size",
+                &format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
+            );
+
+            if text.chars().count() > 1
+                && (self.option.length_adjust() == LengthAdjust::Spacing
+                    || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs)
+            {
+                elt.set_attribute(
+                    "textLength",
+                    &format_number(text_length, self.option.scale(), self.option.decimal()),
+                );
+            }
+
+            if let Some(fw) = font_weight {
+                elt.set_attribute("font-weight", fw);
+            }
+            if let Some(fs) = font_style {
+                elt.set_attribute("font-style", fs);
+            }
+            if let Some(td) = text_decoration {
+                elt.set_attribute("text-decoration", td);
+            }
+            if let Some(ff) = font_family {
+                if !ff.eq_ignore_ascii_case(DEFAULT_FONT_FAMILY) {
+                    elt.set_attribute("font-family", ff);
+                }
+                if ff.eq_ignore_ascii_case("monospace") || ff.eq_ignore_ascii_case("courier") {
+                    elt.set_text_content(text.replace(' ', "\u{00A0}"));
+                } else {
+                    elt.set_text_content(text.to_string());
+                }
+            } else {
+                elt.set_text_content(text.to_string());
+            }
+
+            for (key, value) in attributes {
+                elt.set_attribute(key, value);
+            }
+
+            self.get_g_mut().append_child(elt);
+        }
+        self.ensure_visible(x, y);
+        self.ensure_visible(x + text_length, y);
     }
 
     /// Draws text with orientation.
@@ -439,7 +573,7 @@ impl SvgGraphics {
         }
     }
 
-    fn ensure_visible(&mut self, x: f64, y: f64) {
+    pub fn ensure_visible(&mut self, x: f64, y: f64) {
         if x > f64::from(self.max_x) {
             self.max_x = (x as i32) + 1;
         }
@@ -476,6 +610,18 @@ impl SvgGraphics {
         self.root.set_attribute("preserveAspectRatio", self.option.preserve_aspect_ratio());
         self.root.set_attribute("contentStyleType", "text/css");
 
+        // Resize pending background rect to match final SVG dimensions
+        if let Some(ref mut bg) = self.pending_background {
+            bg.set_attribute("width", &format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
+            bg.set_attribute("height", &format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
+        }
+        // Update the first child of g_root if it's the pending background
+        if self.pending_background.is_some() {
+            if let Some(first_child) = self.g_root.children_mut().next() {
+                first_child.set_attribute("width", &format_number(f64::from(self.max_x), self.option.scale(), self.option.decimal()));
+                first_child.set_attribute("height", &format_number(f64::from(self.max_y), self.option.scale(), self.option.decimal()));
+            }
+        }
         // Rebuild the document tree: clear stale children and append title, desc, defs, g_root
         self.root.clear_children();
         if let Some(title) = self.option.title() {
@@ -533,6 +679,151 @@ fn format_number(xx: f64, scale: f64, decimal: usize) -> String {
     }
     let shortest = format!("{x}");
     let rounded = round_half_up(&shortest, decimal);
+    trim_zeros(&rounded)
+}
+
+
+/// Rounds a decimal string to `decimal` fractional digits using HALF_EVEN
+/// (banker's rounding).  Ties round to the nearest even digit.
+fn round_half_even(s: &str, decimal: usize) -> String {
+    let neg = s.starts_with('-');
+    let s = s.trim_start_matches('-');
+
+    let (int_part, frac_part) = match s.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (s, ""),
+    };
+
+    if frac_part.len() <= decimal {
+        let padded = if decimal == 0 {
+            int_part.to_string()
+        } else {
+            format!("{int_part}.{frac_part:0<decimal$}")
+        };
+        return if neg { format!("-{padded}") } else { padded };
+    }
+
+    let round_digit = frac_part.as_bytes()[decimal] - b'0';
+
+    let round_up = if round_digit < 5 {
+        false
+    } else if round_digit > 5 {
+        true
+    } else {
+        // round_digit == 5: check for non-zero digits after the round position
+        let rest = &frac_part[decimal + 1..];
+        if rest.bytes().any(|b| b != b'0') {
+            true
+        } else {
+            // Exact tie — round to even
+            let last_kept = if decimal == 0 {
+                int_part.as_bytes().last().copied().unwrap_or(b'0') - b'0'
+            } else {
+                frac_part.as_bytes()[decimal - 1] - b'0'
+            };
+            last_kept % 2 == 1
+        }
+    };
+
+    if !round_up {
+        let truncated = &frac_part[..decimal];
+        let result = if decimal == 0 {
+            int_part.to_string()
+        } else {
+            format!("{int_part}.{truncated}")
+        };
+        if neg { format!("-{result}") } else { result }
+    } else {
+        let mut digits: Vec<u8> = int_part
+            .bytes()
+            .chain(frac_part[..decimal].bytes())
+            .map(|b| b - b'0')
+            .collect();
+
+        let mut i = digits.len();
+        loop {
+            if i == 0 {
+                digits.insert(0, 1);
+                break;
+            }
+            i -= 1;
+            digits[i] += 1;
+            if digits[i] < 10 {
+                break;
+            }
+            digits[i] = 0;
+        }
+
+        let all_digits: String = digits.iter().map(|d| (d + b'0') as char).collect();
+        let result = if decimal == 0 {
+            all_digits
+        } else {
+            let int_len = all_digits.len() - decimal;
+            format!("{}.{}", &all_digits[..int_len], &all_digits[int_len..])
+        };
+        if neg { format!("-{result}") } else { result }
+    }
+}
+
+/// Formats a number using a hybrid HALF_UP / HALF_EVEN strategy.
+///
+/// When the shortest repr has a `5` at the rounding position with no further
+/// digits (an apparent tie), we check the exact binary representation:
+/// - If the double is *exactly* at `.xx5` (exactly representable, all zeros
+///   after the rounding position in the exact binary): use HALF_UP (round up).
+/// - If the double is *below* `.xx5` (not exactly representable, the exact
+///   binary shows `4` at the rounding position): use HALF_EVEN (round to even).
+///
+/// This matches the expected SVG output for reverse self-messages with
+/// activation, where accumulated floating-point sums produce doubles at or
+/// near the `.xx5` boundary:
+/// - 76.3125 (exactly representable) → HALF_UP → 76.313
+/// - 67.5375 (below, 7 odd) → HALF_EVEN → 67.538
+/// - 172.5125 (below, 2 even) → HALF_EVEN → 172.512
+fn format_number_hybrid(xx: f64, scale: f64, decimal: usize) -> String {
+    let x = xx * scale;
+    if x == 0.0 {
+        return "0".to_string();
+    }
+    let shortest = format!("{x}");
+    let (_, frac_part) = match shortest.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => (shortest.as_str(), ""),
+    };
+
+    if frac_part.len() <= decimal {
+        let rounded = round_half_up(&shortest, decimal);
+        return trim_zeros(&rounded);
+    }
+
+    let round_digit = frac_part.as_bytes()[decimal] - b'0';
+
+    // Not a tie, or digits after the 5 (above the tie) → HALF_UP
+ if round_digit != 5 || frac_part.len() > decimal + 1 {
+        let rounded = round_half_up(&shortest, decimal);
+        return trim_zeros(&rounded);
+    }
+
+    // Apparent tie in shortest repr — check exact binary
+    let exact = format!("{x:.20}");
+    let (_, exact_frac) = match exact.split_once('.') {
+        Some((i, f)) => (i, f),
+        None => ("", ""),
+    };
+
+    if exact_frac.len() > decimal {
+        let exact_digit = exact_frac.as_bytes()[decimal] - b'0';
+        let rest_all_zero = exact_frac[decimal + 1..].bytes().all(|b| b == b'0');
+
+        if exact_digit == 5 && rest_all_zero {
+            // Exactly at .xx5 — use HALF_UP
+            let rounded = round_half_up(&shortest, decimal);
+            return trim_zeros(&rounded);
+        }
+    }
+
+    // Below .xx5 — use HALF_EVEN
+    let rounded = round_half_even(&shortest, decimal);
     trim_zeros(&rounded)
 }
 

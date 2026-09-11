@@ -398,6 +398,16 @@ fn run_sequence_svg_test(name: &str) {
         parsed.max_message_size,
         &parsed.msg_exo,
         &parsed.msg_hidden,
+        parsed.skin_rose,
+        parsed.arrow_color.as_deref(),
+        parsed.header_text.as_deref(),
+        parsed.header_line,
+        parsed.footer_text.as_deref(),
+        parsed.footer_line,
+        parsed.legend_text.as_deref(),
+        parsed.caption_text.as_deref(),
+        parsed.caption_line,
+        &parsed.style_rules,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);

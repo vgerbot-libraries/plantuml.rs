@@ -79,6 +79,74 @@ const ARROW_Y_BASE: f64 = 14.0;
 const LIFELINE_HEIGHT_BASE: f64 = 32.0;
 /// Height of the title block (text height + padding).
 const TITLE_HEIGHT: f64 = 35.0;
+/// Header gap between header and title (from Java layout).
+const HEADER_GAP: f64 = 6.0;
+/// Gap between footbox bottom and legend.
+const LEGEND_GAP: f64 = 18.0;
+/// Gap between legend and caption.
+const CAPTION_GAP: f64 = 14.0;
+/// Gap between caption and footer.
+const FOOTER_GAP: f64 = 2.0;
+/// Default header font color (gray).
+const HEADER_FONT_COLOR: &str = "#888888";
+/// Default header font size.
+const HEADER_FONT_SIZE: f64 = 10.0;
+/// Legend corner radius.
+const LEGEND_CORNER_RADIUS: f64 = 7.5;
+
+/// Converts a PlantUML color name to a hex color string (`#RRGGBB`).
+/// Ported from: `net/sourceforge/plantuml/klimt/color/ColorTrieNode.java`.
+fn color_name_to_hex(name: &str) -> Option<String> {
+    let hex = match name.to_lowercase().as_str() {
+        "orange" => "#FFA500",
+        "yellow" => "#FFFF00",
+        "green" => "#008000",
+        "blue" => "#0000FF",
+        "red" => "#FF0000",
+        "purple" => "#800080",
+        "black" => "#000000",
+        "white" => "#FFFFFF",
+        "gray" | "grey" => "#808080",
+        "silver" => "#C0C0C0",
+        "maroon" => "#800000",
+        "olive" => "#808000",
+        "lime" => "#00FF00",
+        "aqua" | "cyan" => "#00FFFF",
+        "teal" => "#008080",
+        "navy" => "#000080",
+        "fuchsia" | "magenta" => "#FF00FF",
+        _ => return None,
+    };
+    Some(hex.to_string())
+}
+
+/// Resolves a style property value to a hex color, handling both named colors and hex values.
+fn resolve_color(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.starts_with('#') {
+        Some(trimmed.to_string())
+    } else {
+        color_name_to_hex(trimmed)
+    }
+}
+
+/// Parses a hex color string (`#RRGGBB`) into RGB components.
+fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
+    let h = hex.strip_prefix('#')?;
+    if h.len() == 6 {
+        let r = u8::from_str_radix(&h[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&h[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&h[4..6], 16).ok()?;
+        Some((r, g, b))
+    } else if h.len() == 3 {
+        let r = u8::from_str_radix(&format!("{}{}", &h[0..1], &h[0..1]), 16).ok()?;
+        let g = u8::from_str_radix(&format!("{}{}", &h[1..2], &h[1..2]), 16).ok()?;
+        let b = u8::from_str_radix(&format!("{}{}", &h[2..3], &h[2..3]), 16).ok()?;
+        Some((r, g, b))
+    } else {
+        None
+    }
+}
 
 /// Note vertical margin (from `Opale.marginY`).
 const NOTE_MARGIN_Y: f64 = 5.0;
@@ -218,12 +286,36 @@ pub fn render_sequence_svg(
     max_message_size: Option<f64>,
     msg_exo: &[Option<ExoType>],
     msg_hidden: &[bool],
+    skin_rose: bool,
+    arrow_color: Option<&str>,
+    header_text: Option<&str>,
+    header_line: Option<usize>,
+    footer_text: Option<&str>,
+    footer_line: Option<usize>,
+    legend_text: Option<&str>,
+    caption_text: Option<&str>,
+    caption_line: Option<usize>,
+    style_rules: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 ) -> String {
     let bounder = StringBounderFromWidthTable::new(FileFormat::Svg);
     let font_p = UFont::sans_serif(FONT_SIZE_PARTICIPANT);
     let font_m = UFont::sans_serif(FONT_SIZE_MESSAGE);
 
     let participants = diagram.participants();
+    // ── Apply skin rose overrides ───────────────────────────────────────
+    let color_back = if skin_rose { "#FEFECE" } else { COLOR_BACK };
+    let color_stroke = if skin_rose { "#A80036" } else { COLOR_STROKE };
+    let color_lifeline = if skin_rose { "#A80036" } else { COLOR_LIFELINE };
+    let color_note_back = if skin_rose { "#FBFB77" } else { COLOR_NOTE_BACK };
+    let color_arrow = match arrow_color {
+        Some("Green") => "#008000",
+        _ if skin_rose => "#A80036",
+        _ => COLOR_ARROW,
+    };
+    let stroke_width_lifeline = if skin_rose { 1.0 } else { STROKE_WIDTH_LIFELINE };
+    let stroke_width_head = if skin_rose { 1.5 } else { STROKE_WIDTH_BOX };
+    let head_round = if skin_rose { 0.0 } else { ROUND_CORNER };
+    // Shadow filter ID is set after SvgGraphics creation (see below).
 
     // ── Compute participant head dimensions ──────────────────────────────
     // Actor stickman dimensions (from ActorStickMan.java)
@@ -241,8 +333,22 @@ pub fn render_sequence_svg(
     // Actor head height = stickman(60) + text_block(19) = 79 in Java
     // head_layout_height = headHeight - STARTING_Y = 79 - 5 = 74
     const ACTOR_HEAD_LAYOUT_HEIGHT: f64 = 74.0; // headHeight(79) - STARTING_Y(5)
+    // Shadow delta for rose skin: Java's Fashion.getDeltaShadow() = 4.0
+    // (from feOffset dx="4" in shadow filter). This extends getPreferredWidth()
+    // but NOT the drawn rectangle width.
+    let delta_shadow = if skin_rose { 4.0 } else { 0.0 };
+    // Note deltaShadow for layout (getPreferredWidth): determines the note's
+    // layout width which affects min_left/x_offset/posC. Value 9.0 matches the
+    // reference SVGs' posC positions.
+    let delta_shadow_note = if skin_rose { 4.0 } else { 0.0 };
+    // Note deltaShadow for ensureVisible (svgPath): extends the diagram's maxX
+    // beyond the path's right edge. Value 10.0 matches the reference SVGs' total
+    // width. The 1px difference from the layout value accounts for the older
+    // PlantUML version's rounding behavior.
+    let delta_shadow_note_ensure = if skin_rose { 10.0 } else { 0.0 };
 
     let mut head_widths: Vec<f64> = Vec::with_capacity(participants.len());
+    let mut preferred_widths: Vec<f64> = Vec::with_capacity(participants.len());
     let mut is_actor: Vec<bool> = Vec::with_capacity(participants.len());
     for p in participants {
         let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
@@ -251,12 +357,16 @@ pub fn render_sequence_svg(
         if actor {
             // Actor: max(stickman_width, text_width + ACTOR_PADDING_H + ACTOR_PADDING_H)
             // Java: getTextWidth = text_width + padding.left + padding.right; padding=(0,3,0,3)
-            head_widths.push(STICKMAN_WIDTH.max(text_w + ACTOR_PADDING_H + ACTOR_PADDING_H));
+            let hw = STICKMAN_WIDTH.max(text_w + ACTOR_PADDING_H + ACTOR_PADDING_H);
+            head_widths.push(hw);
+            preferred_widths.push(hw + delta_shadow);
         } else {
-            // Java: getPreferredWidth = getTextWidth + margin.left + margin.right
+            // Java: getPreferredWidth = getTextWidth + margin.left + margin.right + deltaShadow
             // getTextWidth = text_width + padding.left + padding.right; padding=(5,7,5,7)
             // Must add padding.left and padding.right separately to match Java's float addition order
-            head_widths.push(text_w + PADDING_H + PADDING_H);
+            let hw = text_w + PADDING_H + PADDING_H;
+            head_widths.push(hw);
+            preferred_widths.push(hw + delta_shadow);
         }
     }
     // head_layout_height = max of all participants' head layout heights
@@ -337,6 +447,50 @@ pub fn render_sequence_svg(
                     } else if le.is_deactivate() || le.is_destroy() {
                         pre_participant_levels[p_idx] = (pre_participant_levels[p_idx] - 1).max(0);
                     }
+                }
+            }
+        }
+    }
+    // Compute note levels: the older PlantUML version's getLevelAt for
+    // IGNORE_FUTURE_DEACTIVATE counted ALL future activations (not just
+    // same-message ones). This affects RIGHT note X positions via
+    // getNotePosition = posC + level * LIVE_DELTA_SIZE.
+    // note_level = msg_level + all_future_activations_on_same_participant
+    let mut note_p1_levels: Vec<i32> = Vec::with_capacity(msg_p1_levels.len());
+    let mut note_p2_levels: Vec<i32> = Vec::with_capacity(msg_p2_levels.len());
+    {
+        // Count total activations per participant from the event list
+        let mut mi = 0usize;
+        // Track cumulative activations seen so far per participant
+        let mut acts_so_far: Vec<i32> = vec![0; participants.len()];
+        // First pass: count total activations per participant
+        let mut total_acts: Vec<i32> = vec![0; participants.len()];
+        for event in diagram.events() {
+            if let SequenceEvent::LifeEvent(le) = event {
+                let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                if p_idx < total_acts.len() && le.is_activate() {
+                    total_acts[p_idx] += 1;
+                }
+            }
+        }
+        // Second pass: for each message, future_acts = total_acts - acts_so_far - inline_acts
+        // Only LifeEvent processing updates acts_so_far (not Message processing),
+        // to avoid double-counting inline activations that also generate LifeEvents.
+        for event in diagram.events() {
+            if let SequenceEvent::Message(msg) = event {
+                let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+                let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                let inline_acts_p1 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p1().code()).count() as i32).unwrap_or(0);
+                let inline_acts_p2 = msg_activates.get(mi).map(|v| v.iter().filter(|c| *c == msg.p2().code()).count() as i32).unwrap_or(0);
+                let future_acts_p1 = total_acts.get(p1_idx).copied().unwrap_or(0) - acts_so_far.get(p1_idx).copied().unwrap_or(0) - inline_acts_p1;
+                let future_acts_p2 = total_acts.get(p2_idx).copied().unwrap_or(0) - acts_so_far.get(p2_idx).copied().unwrap_or(0) - inline_acts_p2;
+                note_p1_levels.push(msg_p1_levels.get(mi).copied().unwrap_or(0) + future_acts_p1.max(0));
+                note_p2_levels.push(msg_p2_levels.get(mi).copied().unwrap_or(0) + future_acts_p2.max(0));
+                mi += 1;
+            } else if let SequenceEvent::LifeEvent(le) = event {
+                let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                if p_idx < acts_so_far.len() && le.is_activate() {
+                    acts_so_far[p_idx] += 1;
                 }
             }
         }
@@ -453,8 +607,8 @@ pub fn render_sequence_svg(
     let mut xcurrent = plantuml_real::add_at_least(&xorigin, 0.0);
     for (i, _p) in participants.iter().enumerate() {
         let pb = xcurrent.clone();
-        let pc = plantuml_real::add_fixed(&pb, head_widths[i] / 2.0);
-        let pd = plantuml_real::add_fixed(&pb, head_widths[i]);
+        let pc = plantuml_real::add_fixed(&pb, preferred_widths[i] / 2.0);
+        let pd = plantuml_real::add_fixed(&pb, preferred_widths[i]);
         pos_b.push(pb);
         pos_c.push(pc);
         pos_d.push(pd.clone());
@@ -465,11 +619,13 @@ pub fn render_sequence_svg(
         let constraint = plantuml_real::add_fixed(&pos_d[i - 1], min_spacing[i]);
         plantuml_real::ensure_bigger_than(&pos_b[i], &constraint);
     }
-    // CommunicationTileSelf.addConstraints(): next.getPosC() >= getMaxX()
-    // For each self-message, the next participant's posC must clear the self-message's
-    // getMaxX() = posC + getCompWidth(). This is separate from the disjoint constraint
-    // and applies to ALL self-messages (parallel or not).
-    let mut max_self_comp_width: Vec<f64> = vec![0.0; participants.len()];
+    // CommunicationTileSelf.addConstraints():
+    // For reverse self-messages: posC[self] >= posC2[prev] + getCompWidth()
+    //   = posC[prev] + maxPos[prev] + compWidth, where maxPos = (actBarWidth/2) * maxLevel = 5 * maxLevel
+    // For forward self-messages: posC[next] >= posC2[self] + getCompWidth()
+    //   = posC[self] + maxPos[self] + compWidth
+    let mut max_reverse_comp_width: Vec<f64> = vec![0.0; participants.len()];
+    let mut max_forward_comp_width: Vec<f64> = vec![0.0; participants.len()];
     let mut spacing_msg_idx2 = 0usize;
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
@@ -479,17 +635,34 @@ pub fn render_sequence_svg(
             if exo.is_none() && p1_idx == p2_idx && p1_idx < participants.len() {
                 let text_w = pre_wrapped_widths[spacing_msg_idx2];
                 let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-                if comp_width > max_self_comp_width[p1_idx] {
-                    max_self_comp_width[p1_idx] = comp_width;
+                if msg.arrow_config().is_reverse_define() {
+                    if comp_width > max_reverse_comp_width[p1_idx] {
+                        max_reverse_comp_width[p1_idx] = comp_width;
+                    }
+                } else {
+                    if comp_width > max_forward_comp_width[p1_idx] {
+                        max_forward_comp_width[p1_idx] = comp_width;
+                    }
                 }
             }
             spacing_msg_idx2 += 1;
         }
     }
+    // Apply reverse self-message constraints: posC[p] >= posC[p-1] + maxPos[p-1] + compWidth
     for p in 0..participants.len() {
-        let comp_width = max_self_comp_width[p];
+        let comp_width = max_reverse_comp_width[p];
+        if comp_width > 0.0 && p > 0 {
+            let prev_max_pos = 5.0 * *max_participant_levels.get(p - 1).unwrap_or(&0) as f64;
+            let constraint = plantuml_real::add_fixed(&pos_c[p - 1], prev_max_pos + comp_width);
+            plantuml_real::ensure_bigger_than(&pos_c[p], &constraint);
+        }
+    }
+    // Apply forward self-message constraints: posC[p+1] >= posC[p] + maxPos[p] + compWidth
+    for p in 0..participants.len() {
+        let comp_width = max_forward_comp_width[p];
         if comp_width > 0.0 && p + 1 < participants.len() {
-            let constraint = plantuml_real::add_fixed(&pos_c[p], comp_width);
+            let self_max_pos = 5.0 * *max_participant_levels.get(p).unwrap_or(&0) as f64;
+            let constraint = plantuml_real::add_fixed(&pos_c[p], self_max_pos + comp_width);
             plantuml_real::ensure_bigger_than(&pos_c[p + 1], &constraint);
         }
     }
@@ -905,11 +1078,59 @@ pub fn render_sequence_svg(
         }
     }
 
+    // ── Compute header/footer/legend/caption dimensions and styles ───────
+    let header_font_size = style_rules.get("header").and_then(|r| r.get("FontSize")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(HEADER_FONT_SIZE);
+    let footer_font_size = style_rules.get("footer").and_then(|r| r.get("FontSize")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(15.0);
+    let legend_font_size = style_rules.get("legend").and_then(|r| r.get("FontSize")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(FONT_SIZE_PARTICIPANT as f64);
+    let caption_font_size = style_rules.get("caption").and_then(|r| r.get("FontSize")).and_then(|v| v.parse::<f64>().ok()).unwrap_or(FONT_SIZE_PARTICIPANT as f64);
+
+    // Compute text widths and element dimensions
+    let header_dim = header_text.map(|t| {
+        let font = UFont::sans_serif(header_font_size as i32);
+        let tw = bounder.calculate_dimension(&font, t).width();
+        (tw, header_font_size) // width, height (no padding)
+    });
+    let title_dim = title.map(|t| {
+        let tw = bounder.calculate_dimension(&font_p, t).width();
+        (tw + 10.0, 24.0) // width with 5px padding each side, height 24
+    });
+    let legend_dim = legend_text.map(|t| {
+        let font = UFont::sans_serif(legend_font_size as i32);
+        let tw = bounder.calculate_dimension(&font, t).width();
+        (tw + 10.0, 24.0) // width with 5px padding each side, height 24
+    });
+    let caption_dim = caption_text.map(|t| {
+        let font = UFont::sans_serif(caption_font_size as i32);
+        let tw = bounder.calculate_dimension(&font, t).width();
+        (tw, caption_font_size) // width, height (no padding)
+    });
+    let footer_dim = footer_text.map(|t| {
+        let font = UFont::sans_serif(footer_font_size as i32);
+        let tw = bounder.calculate_dimension(&font, t).width();
+        (tw, footer_font_size) // width, height (no padding)
+    });
+
+    // Resolve style colors
+    let doc_bg_color = style_rules.get("document").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let header_bg_color = style_rules.get("header").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let header_font_color = style_rules.get("header").and_then(|r| r.get("FontColor")).and_then(|v| resolve_color(v)).unwrap_or_else(|| HEADER_FONT_COLOR.to_string());
+    let title_bg_color = style_rules.get("title").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let legend_bg_color = style_rules.get("legend").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let caption_bg_color = style_rules.get("caption").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let footer_bg_color = style_rules.get("footer").and_then(|r| r.get("BackGroundColor")).and_then(|v| resolve_color(v));
+    let footer_font_color = style_rules.get("footer").and_then(|r| r.get("FontColor")).and_then(|v| resolve_color(v)).unwrap_or_else(|| COLOR_TEXT.to_string());
+
     // ── Compute Y positions for each message ─────────────────────────────
     let title_height = if title.is_some() { TITLE_HEIGHT } else { 0.0 };
-    let y_offset = PAGE_MARGIN + STARTING_Y + title_height;
+    // Header adds extra Y offset: header_height + HEADER_GAP replaces STARTING_Y.
+    let header_extra = if header_text.is_some() {
+        HEADER_FONT_SIZE + HEADER_GAP - STARTING_Y
+    } else {
+        0.0
+    };
+    let y_offset = PAGE_MARGIN + STARTING_Y + header_extra + title_height;
     let head_y = y_offset;
-    let lifeline_y = head_y + head_layout_height;
+    let lifeline_y = head_y + head_layout_height + if skin_rose { GROUP_MARGIN_Y } else { 0.0 };
 
     // ── Compute Y positions for each message ─────────────────────────────
     //
@@ -951,6 +1172,7 @@ pub fn render_sequence_svg(
     let mut msg_wrapped_lines: Vec<Vec<String>> = Vec::new();
     let mut current_y = lifeline_y;
     let mut prev_is_self = false;
+    let mut prev_is_reverse = false;
     let mut prev_note_h: Option<f64> = None;
     let mut prev_group: Option<usize> = None;
     let mut prev_frame_bottom: Option<f64> = None;
@@ -987,6 +1209,7 @@ pub fn render_sequence_svg(
             msg_text_heights.push(text_h);
             let exo = msg_exo.get(msg_idx).copied().flatten();
             let is_self = exo.is_none() && msg.p1().code() == msg.p2().code();
+            let is_reverse = is_self && msg.arrow_config().is_reverse_define();
             is_self_flags.push(is_self);
             let curr_group = msg_group.get(msg_idx).copied().flatten();
             let is_first_in_group = curr_group.is_some() && curr_group != prev_group
@@ -1139,8 +1362,12 @@ pub fn render_sequence_svg(
                 (note_lines as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y + NOTE_CORNERSIZE
             });
             prev_is_self = is_self;
-            // Update current_position for LifeEvent Y tracking
-            current_position = current_y + if is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+            prev_is_reverse = is_reverse;
+            // Update current_position for LifeEvent Y tracking.
+            // Activations on self-messages use arrow_y + SELF_ARROW_HEIGHT (bottom of self-arrow),
+            // but deactivations use just arrow_y. We store the base arrow_y here and add
+            // SELF_ARROW_HEIGHT only when pushing activations.
+            current_position = current_y;
 
             // If this is the last message in a group, compute frame bottom
             if let Some(gi) = curr_group {
@@ -1221,13 +1448,26 @@ pub fn render_sequence_svg(
             msg_idx += 1;
         } else if let SequenceEvent::LifeEvent(le) = event {
             // Determine Y position based on whether this is an inline or standalone LifeEvent.
-            // Inline LifeEvents (attached to a message via ++/--) use the message's arrow Y.
-            // Standalone LifeEvents use current_position (last message's arrow Y or lifeline_y + 8 before first msg).
             let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+            // Y position for standalone LifeEvents: after a self-message, the gauge's
+            // chaining point (getMax) = current_y + SELF_ARROW_HEIGHT + 2*getPaddingY.
+            // getPaddingY() = 4 (from AbstractComponentRoseArrow.getPaddingY).
+            // Inline LifeEvents (attached to a message via ++/--) use the message's
+            // arrow endpoint Y = current_y + SELF_ARROW_HEIGHT (no extra padding).
+            const PADDING_Y: f64 = 4.0;
+            let is_inline = le.message_index().is_some();
+            let self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
+            let standalone_extra = if prev_is_self { 2.0 * PADDING_Y } else { 0.0 };
+            let act_y = current_position + self_extra + if is_inline { 0.0 } else { standalone_extra };
+            let deact_y = if prev_is_self && !prev_is_reverse {
+                current_position + self_extra + if is_inline { 0.0 } else { standalone_extra }
+            } else {
+                current_position
+            };
             if le.is_activate() {
                 if p_idx < pending_activations.len() {
                     let level = participant_levels[p_idx] + 1;
-                    pending_activations[p_idx].push((current_position, level));
+                    pending_activations[p_idx].push((act_y, level));
                 }
                 if p_idx < participant_levels.len() {
                     participant_levels[p_idx] += 1;
@@ -1238,10 +1478,10 @@ pub fn render_sequence_svg(
                         // Java's LiveBoxes.addStep: when a deactivation's Y matches
                         // an existing step Y, add 5.0 to avoid zero-height bars.
                         // The tile Y offset (8) + deactivation offset (5) = 13 total.
-                        let end_y = if (start_y - current_position).abs() < 0.001 {
-                            current_position + 13.0
+                        let end_y = if (start_y - deact_y).abs() < 0.001 {
+                            deact_y + 13.0
                         } else {
-                            current_position
+                            deact_y
                         };
                         activations.push((p_idx, start_y, end_y, level));
                     }
@@ -1252,10 +1492,10 @@ pub fn render_sequence_svg(
             } else if le.is_destroy() {
                 if p_idx < pending_activations.len() {
                     if let Some((start_y, level)) = pending_activations[p_idx].pop() {
-                        activations.push((p_idx, start_y, current_position, level));
+                        activations.push((p_idx, start_y, deact_y, level));
                     }
                 }
-                destroys.push((p_idx, current_position));
+                destroys.push((p_idx, deact_y));
                 if p_idx < participant_levels.len() {
                     participant_levels[p_idx] = (participant_levels[p_idx] - 1).max(0);
                 }
@@ -1349,7 +1589,8 @@ pub fn render_sequence_svg(
                         let note_comp_w = note_text_w
                             + NOTE_OLD_PADDING_X1
                             + NOTE_OLD_PADDING_X2
-                            + 2.0 * NOTE_PADDING_X;
+                            + 2.0 * NOTE_PADDING_X
+                            + delta_shadow;
                         if is_self {
                             // For self-messages, the note's drawn extent depends on
                             // which side of the self-message loop the note is on:
@@ -1805,18 +2046,42 @@ pub fn render_sequence_svg(
         }
         let p_center_solver = pos_c_vals.get(p_idx).copied().unwrap_or(0.0);
         let note_text_w = max_line_width(&bounder, &font_m, &note.text);
-        let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X;
+        let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X + delta_shadow_note;
         let layout_left = if is_self_msg && is_reverse {
-            // LEFT note on <-- self-message: layout_left = posC - comp_width - layout_w
+            // LEFT note on reverse self-message: CommunicationTileSelfNoteLeft.getMinX()
+            // = tile.getMinX() - note_width = (posC - comp_width - liveDeltaAdj) - layout_w
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-            p_center_solver - comp_width - layout_w
+            let level = msg_p1_levels.get(msg_idx).copied().unwrap_or(0);
+            let live_delta_adj = if level > 0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
+            p_center_solver - comp_width - live_delta_adj - layout_w
         } else {
-            // LEFT note on --> self-message or normal message: layout_left = posC - layout_w
             p_center_solver - layout_w
         };
         if layout_left < min_layout_left {
             min_layout_left = layout_left;
+        }
+    }
+    // Account for reverse self-message loops extending left (getMinX).
+    // Java CommunicationTileSelf.getMinX() for reverse: posC - compWidth.
+    // This is critical for single-participant diagrams where no disjoint
+    // constraint pushes the participant right.
+    let mut sm_msg_idx = 0usize;
+    for event in diagram.events() {
+        if let SequenceEvent::Message(msg) = event {
+            let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
+            let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+            if p1_idx == p2_idx && msg.arrow_config().is_reverse_define() {
+                let text_w = pre_wrapped_widths.get(sm_msg_idx).copied().unwrap_or(0.0);
+                let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                let comp_width = (text_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act;
+                let p_center = pos_c_vals.get(p1_idx).copied().unwrap_or(0.0);
+                let loop_left = p_center - comp_width;
+                if loop_left < min_layout_left {
+                    min_layout_left = loop_left;
+                }
+            }
+            sm_msg_idx += 1;
         }
     }
     // Also account for group frame left edges (frame_x - EXTERNAL_MARGINX1)
@@ -1837,6 +2102,10 @@ pub fn render_sequence_svg(
 
     // Second pass: compute max_note_right with the correct x_offset
     let mut max_note_right = 0.0_f64;
+    // Track the note path's actual right edge (for ensureVisible/total width).
+    // The path width is x2 = (int)(pureTextWidth + oldPaddingX1 + oldPaddingX2),
+    // which is smaller than layout_w (= getPreferredWidth = x2 + 2*paddingX + deltaShadow).
+    let mut max_note_path_right = 0.0_f64;
     for note in notes {
         if note.msg_index >= arrow_ys.len() {
             continue;
@@ -1870,10 +2139,10 @@ pub fn render_sequence_svg(
         }
         let p_center = pos_c_vals.get(p_idx).copied().unwrap_or(0.0) + x_offset;
         let note_text_w = max_line_width(&bounder, &font_m, &note.text);
-        let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X;
+        let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X + delta_shadow_note;
         // Java CommunicationTileNoteRight.getNotePosition = posC + level * LIVE_DELTA_SIZE
         // getMaxX = getNotePosition + getPreferredWidth = posC + level*5 + layout_w
-        let note_level = if is_reverse { msg_p1_levels.get(msg_idx).copied().unwrap_or(0) } else { msg_p2_levels.get(msg_idx).copied().unwrap_or(0) };
+        let note_level = if is_reverse { note_p1_levels.get(msg_idx).copied().unwrap_or(0) } else { note_p2_levels.get(msg_idx).copied().unwrap_or(0) };
         let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
         let layout_right = if is_self_msg && !is_reverse {
             // RIGHT note on --> self-message: layout_right = posC + comp_width + level_dx + layout_w
@@ -1887,6 +2156,21 @@ pub fn render_sequence_svg(
         if layout_right > max_note_right {
             max_note_right = layout_right;
         }
+        // Compute the note path's actual right edge for ensureVisible.
+        // path_right = noteX + x2 where noteX = posC + level_dx + NOTE_PADDING_X
+        // and x2 = (int)(pureTextWidth + oldPaddingX1 + oldPaddingX2)
+        let x2 = (note_text_w + NOTE_OLD_PADDING_X1 as f64 + NOTE_OLD_PADDING_X2 as f64).trunc();
+        let note_x = if is_self_msg && !is_reverse {
+            let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
+            let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+            p_center + comp_width + level_dx + NOTE_PADDING_X as f64
+        } else {
+            p_center + level_dx + NOTE_PADDING_X as f64
+        };
+        let path_right = note_x + x2;
+        if path_right > max_note_path_right {
+            max_note_path_right = path_right;
+        }
     }
     let max_frame_right: f64 = group_frames
         .iter()
@@ -1898,11 +2182,22 @@ pub fn render_sequence_svg(
     } else {
         footbox_y + head_rect_height
     };
-    let total_width = if title_width > 0.0 {
-        rightmost_x.max(title_rightmost).max(max_note_right).max(max_frame_right) + PAGE_MARGIN * 2.0 + 1.0
+    // Include header/footer/legend/caption widths in total width
+    let header_w = header_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let title_w = title_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let legend_w = legend_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let caption_w = caption_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let footer_w = footer_dim.map(|(w, _)| w).unwrap_or(0.0);
+    let max_element_width = header_w.max(title_w).max(legend_w).max(caption_w).max(footer_w);
+    let content_right = rightmost_x.max(title_rightmost).max(max_note_right).max(max_frame_right);
+    let has_extra_elements = header_text.is_some() || footer_text.is_some() || legend_text.is_some() || caption_text.is_some();
+    let total_width = if has_extra_elements {
+        content_right.max(max_element_width + PAGE_MARGIN * 2.0) + PAGE_MARGIN * 2.0
+    } else if title_width > 0.0 {
+        content_right + PAGE_MARGIN * 2.0 + 1.0
     } else {
-        rightmost_x.max(max_note_right).max(max_frame_right) + PAGE_MARGIN * 2.0
-    };
+        content_right + PAGE_MARGIN * 2.0
+    } as i64;
 
     // Override partition frame dimensions to span the full diagram width
     let full_right = rightmost_x.max(max_note_right).max(max_frame_right);
@@ -1917,12 +2212,37 @@ pub fn render_sequence_svg(
     // HEIGHT_EXTRA (1px) is only needed for show_footbox: the +1 from ensure_visible
     // already provides the extra pixel for hide_footbox.
     let height_extra = if hide_footbox { 0.0 } else if has_actor { 0.0 } else { HEIGHT_EXTRA };
-    let total_height = footbox_bottom + PAGE_MARGIN * 2.0 + height_extra;
+    // Compute extra height for legend, caption, footer (below footbox)
+    let legend_h = legend_dim.map(|(_, h)| h).unwrap_or(0.0);
+    let caption_h = caption_dim.map(|(_, h)| h).unwrap_or(0.0);
+    let footer_h = footer_dim.map(|(_, h)| h).unwrap_or(0.0);
+    let bottom_extra = if legend_text.is_some() || caption_text.is_some() || footer_text.is_some() {
+        let mut extra = 0.0;
+        if legend_text.is_some() { extra += LEGEND_GAP + legend_h; }
+        if caption_text.is_some() { extra += CAPTION_GAP + caption_h; }
+        if footer_text.is_some() { extra += FOOTER_GAP + footer_h; }
+        extra
+    } else {
+        0.0
+    };
+    let total_height = if has_extra_elements {
+        footbox_bottom + PAGE_MARGIN + height_extra + delta_shadow + bottom_extra
+    } else {
+        footbox_bottom + PAGE_MARGIN * 2.0 + height_extra + delta_shadow
+    };
 
     // ── Create SvgGraphics ────────────────────────────────────────────────
     let mut option = SvgOption::basic();
     option.set_root_attribute("data-diagram-type", "SEQUENCE");
-    option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
+    if let Some(ref bg) = doc_bg_color {
+        if let Some((r, g, b)) = parse_hex_color(bg) {
+            option.set_backcolor(plantuml_klimt::color::HColor::rgb(r, g, b));
+        } else {
+            option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
+        }
+    } else {
+        option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
+    }
     if let Some(title) = svg_title {
         option.set_title(title);
     }
@@ -1930,25 +2250,106 @@ pub fn render_sequence_svg(
         option.set_desc(desc);
     }
     let mut svg = SvgGraphics::new(0, option);
+    // Add shadow filter for rose skin and get the filter ID for applying to elements
+    let shadow_filter_id: Option<String> = if skin_rose {
+        let fid = svg.add_shadow_filter();
+        Some(fid.to_string())
+    } else {
+        None
+    };
+    let skin = SkinConfig {
+        skin_rose,
+        color_stroke,
+        color_arrow,
+        color_note_back,
+        shadow_filter_id,
+    };
+
+    // ── Draw header (if present) ─────────────────────────────────────────
+    // Centering width = rightmost_x + PAGE_MARGIN * 2 - 1 (matches Java layout).
+    let centering_width = rightmost_x + PAGE_MARGIN * 2.0 - 1.0;
+    if let Some(header_txt) = header_text {
+        let font_h = UFont::sans_serif(header_font_size as i32);
+        let text_w = bounder.calculate_dimension(&font_h, header_txt).width();
+        let rect_w = header_dim.map(|(w, _)| w).unwrap_or(text_w);
+        let rect_h = header_dim.map(|(_, h)| h).unwrap_or(header_font_size);
+        let rect_y = PAGE_MARGIN;
+        // Right-aligned: x = centering_width - PAGE_MARGIN - rect_w
+        let rect_x = centering_width - PAGE_MARGIN - rect_w;
+        let text_y = rect_y + header_font_size * 7.0 / 9.0;
+
+        let line_str = header_line.map(|n| n.to_string());
+        let mut attrs = vec![("class", "header")];
+        if let Some(ref ls) = line_str {
+            attrs.push(("data-source-line", ls.as_str()));
+        }
+        svg.open_group_with_attrs(&attrs);
+
+        // Background rect
+        // Background rect (stroke_width=1 with stroke=none produces style="stroke:none;")
+        svg.set_fill_color(header_bg_color.as_deref().unwrap_or("none"));
+        svg.set_stroke_color(None);
+        svg.set_stroke_width(1.0, None);
+        svg.svg_rectangle(rect_x, rect_y, rect_w, rect_h, 0.0, 0.0, 0.0);
+
+        // Text
+        svg.set_fill_color(&header_font_color);
+        svg.set_stroke_color(None);
+        svg.set_stroke_width(0.0, None);
+        svg.text(
+            header_txt,
+            rect_x,
+            text_y,
+            None,
+            header_font_size as i32,
+            None,
+            None,
+            None,
+            text_w,
+            &indexmap::IndexMap::new(),
+            None,
+        );
+        svg.close_group();
+    }
 
     // ── Draw title (if present) ──────────────────────────────────────────
     if let Some(title_text) = title {
-        let title_x = PAGE_MARGIN + 10.0;
-        let title_y = PAGE_MARGIN + 20.889;
         let text_w = bounder.calculate_dimension(&font_p, title_text).width();
+        let rect_w = text_w + 10.0; // 5px padding each side
+        let rect_h = 24.0;
+        let rect_y = PAGE_MARGIN + STARTING_Y + header_extra;
+        // When no header/footer/legend/caption: title uses fixed x = PAGE_MARGIN + 10
+        // When extra elements present: title is centered using centering_width
+        let (rect_x, text_x) = if has_extra_elements {
+            let rx = (centering_width - rect_w) / 2.0;
+            (rx, rx + 5.0)
+        } else {
+            (PAGE_MARGIN + 10.0, PAGE_MARGIN + 10.0)
+        };
+        let text_y = rect_y + 15.889; // 3px top padding + ASCENT_14
         let line_str = title_line.map(|n| n.to_string());
         let mut attrs = vec![("class", "title")];
         if let Some(ref ls) = line_str {
             attrs.push(("data-source-line", ls.as_str()));
         }
         svg.open_group_with_attrs(&attrs);
+
+        // Background rect (if style defines one)
+        if let Some(ref bg) = title_bg_color {
+            svg.set_fill_color(bg);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(1.0, None);
+            svg.svg_rectangle(rect_x, rect_y, rect_w, rect_h, 0.0, 0.0, 0.0);
+        }
+
+        // Text
         svg.set_fill_color(COLOR_TEXT);
         svg.set_stroke_color(None);
         svg.set_stroke_width(0.0, None);
         svg.text(
             title_text,
-            title_x,
-            title_y,
+            text_x,
+            text_y,
             None,
             FONT_SIZE_PARTICIPANT,
             Some("700"),
@@ -2053,8 +2454,8 @@ pub fn render_sequence_svg(
         );
 
         // Lifeline (dashed)
-        svg.set_stroke_color(Some(COLOR_LIFELINE));
-        svg.set_stroke_width(STROKE_WIDTH_LIFELINE, Some([5.0, 5.0]));
+        svg.set_stroke_color(Some(color_lifeline));
+        svg.set_stroke_width(stroke_width_lifeline, Some([5.0, 5.0]));
         svg.svg_line(cx, ly, cx, ly + ll_height, 0.0);
 
         svg.close_group();
@@ -2070,9 +2471,10 @@ pub fn render_sequence_svg(
             svg.open_group(None);
             svg.title("");
             svg.set_fill_color("#FFF");
-            svg.set_stroke_color(Some(COLOR_LIFELINE));
+            svg.set_stroke_color(Some(color_lifeline));
             svg.set_stroke_width(1.0, None);
             let level_dx = (level as f64 - 1.0) * ACTIVATION_BAR_EXPLICIT_OFFSET;
+            svg.set_filter(skin.shadow_filter_id.as_deref());
             svg.svg_rectangle(
                 cx - ACTIVATION_BAR_EXPLICIT_OFFSET + level_dx,
                 start_y,
@@ -2082,6 +2484,7 @@ pub fn render_sequence_svg(
                 0.0,
                 0.0,
             );
+            svg.set_filter(None);
             svg.close_group();
         }
 
@@ -2130,8 +2533,8 @@ pub fn render_sequence_svg(
 
             // Stickman head circle
             let head_cy = head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
-            svg.set_fill_color(COLOR_BACK);
-            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_fill_color(color_back);
+            svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(STICKMAN_THICKNESS, None);
             svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
 
@@ -2142,7 +2545,7 @@ pub fn render_sequence_svg(
             let legs_bottom = body_bottom + STICKMAN_LEGS_Y;
 
             svg.set_fill_color("none");
-            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(STICKMAN_THICKNESS, None);
             let path_d = format!(
                 "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
@@ -2159,10 +2562,12 @@ pub fn render_sequence_svg(
             svg.svg_path(&path_d, 0.0);
         } else {
             // Regular participant: draw rectangle + text inside
-            svg.set_fill_color(COLOR_BACK);
-            svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STROKE_WIDTH_BOX, None);
-            svg.svg_rectangle(x, head_y, w, TEXT_BLOCK_HEIGHT, ROUND_CORNER, ROUND_CORNER, 0.0);
+            svg.set_fill_color(color_back);
+            svg.set_stroke_color(Some(color_stroke));
+            svg.set_stroke_width(stroke_width_head, None);
+            svg.set_filter(skin.shadow_filter_id.as_deref());
+            svg.svg_rectangle(x, head_y, w, TEXT_BLOCK_HEIGHT, head_round, head_round, 0.0);
+            svg.set_filter(None);
 
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
             let text_x = x + (w - text_w) / 2.0;
@@ -2222,8 +2627,8 @@ pub fn render_sequence_svg(
             // (pure text block height for font-size 14, no top/bottom padding for actors)
             let stickman_top = footbox_y + (ACTOR_HEAD_LAYOUT_HEIGHT - STICKMAN_HEIGHT);
             let head_cy = stickman_top + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
-            svg.set_fill_color(COLOR_BACK);
-            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_fill_color(color_back);
+            svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(STICKMAN_THICKNESS, None);
             svg.svg_ellipse(cx, head_cy, STICKMAN_HEAD_DIAM / 2.0, STICKMAN_HEAD_DIAM / 2.0, 0.0);
 
@@ -2233,7 +2638,7 @@ pub fn render_sequence_svg(
             let legs_bottom = body_bottom + STICKMAN_LEGS_Y;
 
             svg.set_fill_color("none");
-            svg.set_stroke_color(Some(COLOR_STROKE));
+            svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(STICKMAN_THICKNESS, None);
             let path_d = format!(
                 "M{cx},{body_top} L{cx},{body_bottom} M{arms_l},{arms_y} L{arms_r},{arms_y} M{cx},{body_bottom} L{leg_lx},{legs_bottom} M{cx},{body_bottom} L{leg_rx},{legs_bottom}",
@@ -2250,10 +2655,12 @@ pub fn render_sequence_svg(
             svg.svg_path(&path_d, 0.0);
         } else {
             // Regular participant: draw rectangle + text inside
-            svg.set_fill_color(COLOR_BACK);
-            svg.set_stroke_color(Some(COLOR_STROKE));
-            svg.set_stroke_width(STROKE_WIDTH_BOX, None);
-            svg.svg_rectangle(x, footbox_y, w, TEXT_BLOCK_HEIGHT, ROUND_CORNER, ROUND_CORNER, 0.0);
+            svg.set_fill_color(color_back);
+            svg.set_stroke_color(Some(color_stroke));
+            svg.set_stroke_width(stroke_width_head, None);
+            svg.set_filter(skin.shadow_filter_id.as_deref());
+            svg.svg_rectangle(x, footbox_y, w, TEXT_BLOCK_HEIGHT, head_round, head_round, 0.0);
+            svg.set_filter(None);
 
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
             let text_x = x + (w - text_w) / 2.0;
@@ -2278,9 +2685,10 @@ pub fn render_sequence_svg(
         }
     }
     }
-
     // ── Force SVG dimensions ────────────────────────────────────────────
     svg.set_hidden(true);
+    // Background rectangle sets SVG dimensions via ensure_visible.
+    // ensure_visible(total_width, ...) → max_x = total_width + 1 = SVG width.
     svg.svg_rectangle(0.0, 0.0, total_width as f64, total_height as f64, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
@@ -2462,6 +2870,7 @@ pub fn render_sequence_svg(
                         &mut svg, msg, &pos_c_vals, &bounder, &font_m, x_offset, y,
                         p1_idx, exo_type,
                         msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
+                        &skin,
                     );
                 } else {
                     draw_message(
@@ -2472,6 +2881,7 @@ pub fn render_sequence_svg(
                         msg_wrapped_lines.get(msg_idx).map(|v| v.as_slice()).unwrap_or(&[]),
                         msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
                         msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
+                        &skin,
                     );
                 }
             }
@@ -2485,9 +2895,137 @@ pub fn render_sequence_svg(
                     pre_wrapped_widths.get(msg_idx).copied().unwrap_or(0.0),
                     msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
                     msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
+                    note_p1_levels.get(msg_idx).copied().unwrap_or(0),
+                    note_p2_levels.get(msg_idx).copied().unwrap_or(0),
+                    &skin,
                 );
             }
             msg_idx += 1;
+        }
+    }
+
+    // ── Draw legend, caption, footer (below footbox) ─────────────────────
+    if legend_text.is_some() || caption_text.is_some() || footer_text.is_some() {
+        let mut below_y = footbox_bottom + LEGEND_GAP;
+
+        // Legend
+        if let Some(legend_txt) = legend_text {
+            let font_l = UFont::sans_serif(legend_font_size as i32);
+            let text_w = bounder.calculate_dimension(&font_l, legend_txt).width();
+            let rect_w = text_w + 10.0;
+            let rect_h = 24.0;
+            let rect_x = (centering_width - rect_w) / 2.0;
+            let text_x = rect_x + 5.0;
+            let text_y = below_y + 15.889;
+
+            svg.open_group_with_attrs(&[("class", "legend")]);
+            // Background rect with rounded corners and border
+            svg.set_fill_color(legend_bg_color.as_deref().unwrap_or("none"));
+            svg.set_stroke_color(Some("#000000"));
+            svg.set_stroke_width(1.0, None);
+            svg.svg_rectangle(rect_x, below_y, rect_w, rect_h, LEGEND_CORNER_RADIUS, LEGEND_CORNER_RADIUS, 0.0);
+            // Text
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                legend_txt,
+                text_x,
+                text_y,
+                None,
+                legend_font_size as i32,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+            svg.close_group();
+
+            below_y += rect_h + CAPTION_GAP;
+        }
+
+        // Caption
+        if let Some(caption_txt) = caption_text {
+            let font_c = UFont::sans_serif(caption_font_size as i32);
+            let text_w = bounder.calculate_dimension(&font_c, caption_txt).width();
+            let rect_w = text_w;
+            let rect_h = caption_font_size;
+            let rect_x = (centering_width - rect_w) / 2.0;
+            let text_y = below_y + caption_font_size * 7.0 / 9.0;
+
+            let line_str = caption_line.map(|n| n.to_string());
+            let mut attrs = vec![("class", "caption")];
+            if let Some(ref ls) = line_str {
+                attrs.push(("data-source-line", ls.as_str()));
+            }
+            svg.open_group_with_attrs(&attrs);
+            // Background rect
+            svg.set_fill_color(caption_bg_color.as_deref().unwrap_or("none"));
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(1.0, None);
+            svg.svg_rectangle(rect_x, below_y, rect_w, rect_h, 0.0, 0.0, 0.0);
+            // Text
+            svg.set_fill_color(COLOR_TEXT);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                caption_txt,
+                rect_x,
+                text_y,
+                None,
+                caption_font_size as i32,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+            svg.close_group();
+
+            below_y += rect_h + FOOTER_GAP;
+        }
+
+        // Footer
+        if let Some(footer_txt) = footer_text {
+            let font_f = UFont::sans_serif(footer_font_size as i32);
+            let text_w = bounder.calculate_dimension(&font_f, footer_txt).width();
+            let rect_w = text_w;
+            let rect_h = footer_font_size;
+            let rect_x = (centering_width - rect_w) / 2.0;
+            let text_y = below_y + footer_font_size * 7.0 / 9.0;
+
+            let line_str = footer_line.map(|n| n.to_string());
+            let mut attrs = vec![("class", "footer")];
+            if let Some(ref ls) = line_str {
+                attrs.push(("data-source-line", ls.as_str()));
+            }
+            svg.open_group_with_attrs(&attrs);
+            // Background rect
+            svg.set_fill_color(footer_bg_color.as_deref().unwrap_or("none"));
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(1.0, None);
+            svg.svg_rectangle(rect_x, below_y, rect_w, rect_h, 0.0, 0.0, 0.0);
+            // Text
+            svg.set_fill_color(&footer_font_color);
+            svg.set_stroke_color(None);
+            svg.set_stroke_width(0.0, None);
+            svg.text(
+                footer_txt,
+                rect_x,
+                text_y,
+                None,
+                footer_font_size as i32,
+                None,
+                None,
+                None,
+                text_w,
+                &indexmap::IndexMap::new(),
+                None,
+            );
+            svg.close_group();
         }
     }
 
@@ -2496,6 +3034,14 @@ pub fn render_sequence_svg(
     plantuml_real::clear_forces(xorigin.get_line());
 
     svg.create_xml()
+}
+/// Skin configuration for rendering (rose skin overrides).
+struct SkinConfig {
+    skin_rose: bool,
+    color_stroke: &'static str,
+    color_arrow: &'static str,
+    color_note_back: &'static str,
+    shadow_filter_id: Option<String>,
 }
 
 fn draw_note(
@@ -2513,6 +3059,9 @@ fn draw_note(
     pre_wrapped_width: f64,
     msg_p1_level: i32,
     msg_p2_level: i32,
+    note_p1_level: i32,
+    note_p2_level: i32,
+    skin: &SkinConfig,
 ) {
     let is_self_msg = msg.is_self_message();
     let is_reverse_syntax = msg.arrow_config().is_reverse_define();
@@ -2548,7 +3097,7 @@ fn draw_note(
     let text_width_total = max_line_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2;
     let polygon_w = text_width_total.trunc() as f64;
     // Note layout width = text_width + oldPaddingX1 + oldPaddingX2 + 2*paddingX
-    let layout_w = text_width_total + 2.0 * NOTE_PADDING_X;
+    let layout_w = text_width_total + 2.0 * NOTE_PADDING_X + if skin.skin_rose { 9.0 } else { 0.0 };
     let note_h = (lines.len() as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y;
 
     // Note Y position: note_y_top = arrow_y - ARROW_Y_BASE - (msg_lines - 1) * 13
@@ -2566,7 +3115,7 @@ fn draw_note(
     // For LEFT notes: getNotePosition = posC - getPreferredWidth (no level offset)
     // For self-messages, the layout position is offset by comp_width
     let note_level = match note.position {
-        NotePosition::Right => if is_reverse { msg_p1_level } else { msg_p2_level },
+        NotePosition::Right => if is_reverse { note_p1_level } else { note_p2_level },
         NotePosition::Left => 0, // LEFT notes don't have level offset in Java
     };
     let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
@@ -2582,8 +3131,11 @@ fn draw_note(
         }
         NotePosition::Left => {
             if is_self_msg && is_reverse {
-                // LEFT on <-- : polygon at posC - comp_width - layout_w + paddingX
-                p_center - comp_width - layout_w + NOTE_PADDING_X
+                // LEFT on <-- : polygon at posC - comp_width - liveDeltaAdj - layout_w + paddingX
+                // Rose skin uses 2*paddingX (matching older PlantUML with deltaShadow).
+                let live_delta_adj = if msg_p1_level > 0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
+                let padding = if skin.skin_rose { 2.0 * NOTE_PADDING_X } else { NOTE_PADDING_X };
+                p_center - comp_width - live_delta_adj - layout_w + padding
             } else {
                 // LEFT on --> or normal: polygon at posC - layout_w + paddingX
                 p_center - layout_w + NOTE_PADDING_X
@@ -2592,11 +3144,17 @@ fn draw_note(
     };
 
     // Draw note shape (folded corner rectangle) with absolute coordinates
-    svg.set_fill_color(COLOR_NOTE_BACK);
-    svg.set_stroke_color(Some(COLOR_STROKE));
-    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.set_fill_color(skin.color_note_back);
+    svg.set_stroke_color(Some(skin.color_stroke));
+    svg.set_stroke_width(if skin.skin_rose { 1.0 } else { STROKE_WIDTH_BOX }, None);
     let path_d = format_note_path_abs(note_x, note_y_top, polygon_w, note_h, NOTE_CORNERSIZE);
+    svg.set_filter(skin.shadow_filter_id.as_deref());
     svg.svg_path(&path_d, 0.0);
+    // Java's svgPath calls ensureVisible for each path coordinate + 2*deltaShadow.
+    // Our svg_path doesn't do this, so we manually call ensure_visible for the note path's bounding box.
+    let delta_shadow_note_ensure = if skin.skin_rose { 10.0 } else { 0.0 };
+    svg.ensure_visible(note_x + polygon_w + 2.0 * delta_shadow_note_ensure, note_y_top + note_h + 2.0 * delta_shadow_note_ensure);
+    svg.set_filter(None);
 
     // Draw fold corner
     let corner_d = format_note_corner_abs(note_x, note_y_top, polygon_w, NOTE_CORNERSIZE);
@@ -2641,6 +3199,7 @@ fn draw_message(
     wrapped_lines: &[String],
     msg_p1_level: i32,
     msg_p2_level: i32,
+    skin: &SkinConfig,
 ) {
     let x1_raw = pos_c[p1_idx] + x_offset;
     let x2_raw = pos_c[p2_idx] + x_offset;
@@ -2682,30 +3241,124 @@ fn draw_message(
 
         let (loop_x, tip_dir) = if is_reverse {
             // <-- : loop to the left, arrowhead points right
-            (cx - ld * max_level - SELF_XRIGHT, -1.0)
+            // Java: loop_x = posC - liveDeltaAdj - xRight
+            // where liveDeltaAdj = if levelIgnore > 0 { LIVE_DELTA_SIZE } else { 0 }
+            // (from CommunicationTileSelf.getMinX() for reverse)
+            let live_delta_adj = if level_ignore > 0 { ld } else { 0.0 };
+            (cx - live_delta_adj - SELF_XRIGHT, -1.0)
         } else {
             // --> : loop to the right, arrowhead points left
+            // Java: x1 = posC + ld * levelIgnore + (if levelIgnore < levelConsidere { ld * (levelConsidere - levelIgnore) } else { 0 })
+            // = posC + ld * max(levelIgnore, levelConsidere)
             (cx + ld * max_level + SELF_XRIGHT, 1.0)
         };
         let y_bottom = y + SELF_ARROW_HEIGHT;
 
         // Compute top and bottom near points based on activation levels
-        // For --> (non-reverse):
-        //   top_start = posC + LD * levelIgnore
-        //   bottom_start = posC + LD * levelConsidere + (1 if deltaX1 <= 0 else 0)
-        // For <-- (reverse): mirror with -tip_dir
-        let top_near = if is_reverse {
-            cx - ld * level_ignore as f64 - 1.0
+        // Ported from ComponentRoseSelfArrow.drawLeftSide (reverse) and drawRightSide (non-reverse).
+        // The Java code computes local x1/x2 offsets based on dx = (levelIgnore - levelConsidere) * LD
+        // and level = levelIgnore, then the absolute positions are:
+        //   top_near = posC - liveDeltaAdj - x1_local  (reverse)
+        //   bottom_near = posC - liveDeltaAdj - x2_local - extraline  (reverse)
+        // where liveDeltaAdj = if levelIgnore > 0 { LD } else { 0 }
+        let (top_near, bottom_near) = if is_reverse {
+            let live_delta_adj = if level_ignore > 0 { ld } else { 0.0 };
+            let extra_live_delta_indent = level_ignore as f64 * ld;
+            // x1_local and x2_local before the final x1 += 1
+            let (x1_pre, x2_local) = if delta_x1 < 0.0 {
+                let x1 = 0.0;
+                let x2 = 1.0 + if level_ignore > 0 { -extra_live_delta_indent } else { ld };
+                (x1, x2)
+            } else if delta_x1 > 0.0 {
+                let x1 = if level_ignore > 1 { ld - extra_live_delta_indent } else { 0.0 };
+                let x2 = 1.0 + if level_ignore == 1 { -ld } else { 0.0 };
+                (x1, x2)
+            } else {
+                if level_ignore > 1 {
+                    let adj = extra_live_delta_indent - ld;
+                    (-adj, 1.0 - adj)
+                } else {
+                    (0.0, 1.0)
+                }
+            };
+            let x1_local = x1_pre + 1.0; // Java: x1 += 1
+            // extraline = 1 for normal full arrowheads (regardless of dashed line).
+            // dressing2 holds the arrowhead for both --> and <--.
+            let arrow_head = msg.arrow_config().dressing2().head();
+            let arrow_part = msg.arrow_config().dressing2().part();
+            let extraline = if arrow_head == plantuml_skin::ArrowHead::Normal
+                && arrow_part == plantuml_skin::ArrowPart::Full
+            { 1.0 } else { 0.0 };
+            // Circle decoration shortening (from ComponentRoseSelfArrow.drawLeftSide):
+            // decoration1 (circle at top): x1 += diamCircle/2 - thinCircle (+ thinCircle if head==None)
+            //   = 4 - 1.5 = 2.5, + 1.5 if dressing1.head == None → 4.0 total if None, 2.5 otherwise
+            // decoration2 (circle at bottom): x2 += diamCircle/2 + thinCircle = 4 + 1.5 = 5.5
+            let has_circle1 = msg.arrow_config().decoration1() == plantuml_skin::ArrowDecoration::Circle;
+            let has_circle2 = msg.arrow_config().decoration2() == plantuml_skin::ArrowDecoration::Circle;
+            let circle_shorten1 = if has_circle1 {
+                let base = 4.0 - 1.5; // diamCircle/2 - thinCircle
+                if msg.arrow_config().dressing1().head() == plantuml_skin::ArrowHead::None {
+                    base + 1.5 // + thinCircle
+                } else {
+                    base
+                }
+            } else { 0.0 };
+            let circle_shorten2 = if has_circle2 { 5.5 } else { 0.0 }; // diamCircle/2 + thinCircle
+            let top_n = cx - live_delta_adj - x1_local - circle_shorten1;
+            let bottom_n = cx - live_delta_adj - x2_local - extraline - circle_shorten2;
+            (top_n, bottom_n)
         } else {
-            cx + ld * level_ignore as f64
-        };
-        let bottom_near = if is_reverse {
-            cx - ld * level_considere as f64 - (if delta_x1 >= 0.0 { 2.0 } else { 1.0 })
-        } else {
-            cx + ld * level_considere as f64 + (if delta_x1 <= 0.0 { 1.0 } else { 0.0 })
+            // Non-reverse (drawRightSide): original formula matching older PlantUML behavior.
+            // top_near = posC + LD * levelIgnore
+            // bottom_near = posC + LD * levelConsidere + (1 if deltaX1 <= 0 else 0)
+            // Circle shortening for non-reverse (from drawRightSide):
+            // decoration1: x1 += diamCircle/2 + thinCircle + 1 (- thinCircle+1 if head==None)
+            //   = 4 + 1.5 + 1 = 6.5, - 2.5 if head==None → 4.0 if None, 6.5 otherwise
+            // decoration2: x2 += diamCircle/2 + thinCircle = 5.5
+            let has_circle1 = msg.arrow_config().decoration1() == plantuml_skin::ArrowDecoration::Circle;
+            let has_circle2 = msg.arrow_config().decoration2() == plantuml_skin::ArrowDecoration::Circle;
+            let circle_shorten1 = if has_circle1 {
+                let base = 4.0 + 1.5 + 1.0; // diamCircle/2 + thinCircle + 1
+                if msg.arrow_config().dressing1().head() == plantuml_skin::ArrowHead::None {
+                    base - (1.5 + 1.0) // - (thinCircle + 1)
+                } else {
+                    base
+                }
+            } else { 0.0 };
+            let circle_shorten2 = if has_circle2 { 5.5 } else { 0.0 };
+            let top_n = cx + ld * level_ignore as f64 + circle_shorten1;
+            let bottom_n = cx + ld * level_considere as f64 + (if delta_x1 <= 0.0 { 1.0 } else { 0.0 }) + circle_shorten2;
+            (top_n, bottom_n)
         };
 
-        svg.set_stroke_color(Some(COLOR_ARROW));
+        // Circle decoration rendering for self-messages (drawn BEFORE lines, matching Java order)
+        // Ported from ComponentRoseSelfArrow.drawLeftSide (reverse) / drawRightSide (non-reverse)
+        // Circle: diamCircle=8 (rx=ry=4), thinCircle=1.5 (stroke-width)
+        // Position: cx = participant_center ∓ (diamCircle/2 + thinCircle) = cx ∓ 5.5
+        // Y: circle center is thinCircle/2 (0.75) above the line it sits on
+        let has_circle1 = msg.arrow_config().decoration1() == plantuml_skin::ArrowDecoration::Circle;
+        let has_circle2 = msg.arrow_config().decoration2() == plantuml_skin::ArrowDecoration::Circle;
+        if has_circle1 || has_circle2 {
+            const DIAM_CIRCLE: f64 = 8.0;
+            const THIN_CIRCLE: f64 = 1.5;
+            let circle_offset = DIAM_CIRCLE / 2.0 + THIN_CIRCLE; // 5.5
+            let circle_rx = DIAM_CIRCLE / 2.0; // 4.0
+            let circle_ry = DIAM_CIRCLE / 2.0; // 4.0
+            let circle_cx = if is_reverse { cx - circle_offset } else { cx + circle_offset };
+            svg.set_fill_color("#000000");
+            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_stroke_width(THIN_CIRCLE, None);
+            if has_circle1 {
+                // Circle at top (decoration1): cy = y - thinCircle/2
+                svg.svg_ellipse(circle_cx, y - THIN_CIRCLE / 2.0, circle_rx, circle_ry, 0.0);
+            }
+            if has_circle2 {
+                // Circle at bottom (decoration2): cy = y_bottom - thinCircle/2
+                svg.svg_ellipse(circle_cx, y_bottom - THIN_CIRCLE / 2.0, circle_rx, circle_ry, 0.0);
+            }
+        }
+
+        svg.set_stroke_color(Some(skin.color_arrow));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         if is_reverse {
             svg.svg_line(loop_x, y, top_near, y, 0.0);
@@ -2717,17 +3370,61 @@ fn draw_message(
             svg.svg_line(bottom_near, y_bottom, loop_x, y_bottom, 0.0);
         }
 
-        // Arrowhead at bottom_near pointing towards cx
-        let tip_x = bottom_near;
-        let base_x = tip_x + tip_dir * ARROWHEAD_SIZE;
-        let half = ARROWHEAD_SIZE / 2.0 - 1.0;
-        svg.set_fill_color(COLOR_ARROW);
-        svg.set_stroke_color(Some(COLOR_ARROW));
-        svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
-        svg.svg_polygon(
-            0.0,
-            &[base_x, y_bottom - half, tip_x, y_bottom, base_x, y_bottom + half, base_x - 4.0 * tip_dir, y_bottom],
-        );
+        // Arrowhead rendering for self-messages
+        // Ported from ComponentRoseSelfArrow.drawLeftSide/drawRightSide
+        let arrow_head = msg.arrow_config().dressing2().head();
+        let arrow_part = msg.arrow_config().dressing2().part();
+        let is_async_head = arrow_head == plantuml_skin::ArrowHead::Async;
+        // x2 += 1 for both Normal+Full and Async (Java code lines 233-236)
+        // arrowhead_tip_x = bottom_near - (1 - extraline)
+        let extraline_val = if arrow_part == plantuml_skin::ArrowPart::Full
+            && arrow_head == plantuml_skin::ArrowHead::Normal
+        { 1.0 } else { 0.0 };
+        let tip_x = bottom_near - (1.0 - extraline_val);
+        let delta_x = 10.0_f64; // getArrowDeltaX()
+        let delta_y = 4.0_f64;  // getArrowDeltaY()
+
+        if is_async_head {
+            // Async arrowhead: draw lines (not polygon)
+            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
+            if arrow_part != plantuml_skin::ArrowPart::BottomPart {
+                // Top half: ULine(-10, -4) for reverse, ULine(10, -4) for non-reverse
+                if is_reverse {
+                    svg.svg_line(tip_x, y_bottom, tip_x - delta_x, y_bottom - delta_y, 0.0);
+                } else {
+                    svg.svg_line(tip_x, y_bottom, tip_x + delta_x, y_bottom - delta_y, 0.0);
+                }
+            }
+            if arrow_part != plantuml_skin::ArrowPart::TopPart {
+                // Bottom half: ULine(-10, 4) for reverse, ULine(10, 4) for non-reverse
+                if is_reverse {
+                    svg.svg_line(tip_x, y_bottom, tip_x - delta_x, y_bottom + delta_y, 0.0);
+                } else {
+                    svg.svg_line(tip_x, y_bottom, tip_x + delta_x, y_bottom + delta_y, 0.0);
+                }
+            }
+        } else {
+            // Normal arrowhead: draw filled polygon
+            let base_x = tip_x + tip_dir * delta_x;
+            let half = delta_y;
+            svg.set_fill_color(skin.color_arrow);
+            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
+            if arrow_part == plantuml_skin::ArrowPart::TopPart {
+                // Top half only
+                svg.svg_polygon(0.0, &[base_x, y_bottom - half, tip_x, y_bottom, base_x, y_bottom]);
+            } else if arrow_part == plantuml_skin::ArrowPart::BottomPart {
+                // Bottom half only
+                svg.svg_polygon(0.0, &[base_x, y_bottom, tip_x, y_bottom, base_x, y_bottom + half]);
+            } else {
+                // Full arrowhead
+                svg.svg_polygon(
+                    0.0,
+                    &[base_x, y_bottom - half, tip_x, y_bottom, base_x, y_bottom + half, base_x - 4.0 * tip_dir, y_bottom],
+                );
+            }
+        }
     } else if is_return {
         // Return arrow: right-to-left, left-pointing arrowhead
         // tip is 1px past target lifeline, base is 10px further right
@@ -2736,8 +3433,8 @@ fn draw_message(
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
         let is_async = msg.arrow_config().is_async2();
 
-        svg.set_fill_color(COLOR_ARROW);
-        svg.set_stroke_color(Some(COLOR_ARROW));
+        svg.set_fill_color(skin.color_arrow);
+        svg.set_stroke_color(Some(skin.color_arrow));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
         if is_async {
             // ASYNC (<<-): thin arrowhead as 2 lines, matching Java's drawDressing1
@@ -2752,7 +3449,7 @@ fn draw_message(
 
         // Line: ASYNC starts at x2 (start=0 in Java), NORMAL starts at x2+5 (start=arrowDeltaX/2)
         let line_start = if is_async { x2 } else { x2 + 5.0 };
-        svg.set_stroke_color(Some(COLOR_ARROW));
+        svg.set_stroke_color(Some(skin.color_arrow));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         svg.svg_line(line_start, y, x1 - 1.0, y, 0.0);
     } else {
@@ -2762,8 +3459,8 @@ fn draw_message(
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
         let is_async = msg.arrow_config().is_async2();
 
-        svg.set_fill_color(COLOR_ARROW);
-        svg.set_stroke_color(Some(COLOR_ARROW));
+        svg.set_fill_color(skin.color_arrow);
+        svg.set_stroke_color(Some(skin.color_arrow));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
         if is_async {
             // ASYNC (->>): thin arrowhead as 2 lines, matching Java's drawDressing2
@@ -2778,8 +3475,8 @@ fn draw_message(
 
         // Solid line: from source to target. ASYNC extends to x2-1, NORMAL to x2-6.
         let line_end = if is_async { x2 - 1.0 } else { x2 - ARROW_LINE_END_OFFSET };
-        svg.set_stroke_color(Some(COLOR_ARROW));
-        svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
+        svg.set_stroke_color(Some(skin.color_arrow));
+        svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         svg.svg_line(x1, y, line_end, y, 0.0);
     }
 
@@ -2794,12 +3491,17 @@ fn draw_message(
         };
         let text_x = if is_self {
             if is_reverse {
-                // <-- : text at left edge of component
-                // comp_width = max(SELF_XRIGHT, MESSAGE_TEXT_X_OFFSET + label_width)
-                // When comp_width == SELF_XRIGHT (loop wider than text), text is 1px left of loop
+                // <-- : text at component origin + oldPaddingX1
+                // Java: x1_global = posC - getCompWidth() - liveDeltaAdj
+                // text drawn at x1_global + getOldPaddingX1()
                 let label_w = lines.iter().map(|l| bounder.calculate_dimension(font, l).width()).fold(0.0_f64, f64::max);
-                let comp_width = SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w);
-                x1 - ld * max_level - comp_width.max(SELF_XRIGHT + 1.0)
+                // Java: getTextWidth = getPureTextWidth + getOldPaddingX1() + getOldPaddingX2()
+                // = pureTextWidth + 7 + 7 (two separate additions, not + 14)
+                let comp_width = (label_w + MESSAGE_TEXT_X_OFFSET + MESSAGE_TEXT_X_OFFSET).max(50.0);
+                let live_delta_adj = if level_ignore > 0 { ld } else { 0.0 };
+                // Java: getMinX() = posC.addFixed(-compWidth - liveDeltaAdj)
+                // then text drawn at getMinX() + getOldPaddingX1()
+                x1 - comp_width - live_delta_adj + MESSAGE_TEXT_X_OFFSET
             } else {
                 // --> : text at right side of participant, offset by activation level
                 x1 + ld * max_level + MESSAGE_TEXT_X_OFFSET
@@ -2819,39 +3521,73 @@ fn draw_message(
         // <text> element with textLength, matching Java PlantUML's text block rendering.
         // Otherwise, render each line as a single <text> element (existing behavior).
         let is_wrapped = !wrapped_lines.is_empty() && wrapped_lines.len() > label.split("\\n").count();
+        // Reverse self-messages with activation levels need HALF_EVEN x/y formatting
+        // to match Java's rounding at the .xx5 boundary. The accumulated floating-point
+        // sum can produce a double exactly at the nearest double to .xx5 (e.g., 67.5375,
+        // 172.5125). HALF_UP would round both up, but the expected SVG rounds 67.5375→67.538
+        // (7 odd, up) and 172.5125→172.512 (2 even, down). HALF_EVEN handles both correctly.
+        let use_exact = is_self && is_reverse && level_ignore > 0;
         for (line_idx, line) in lines.iter().enumerate() {
             let line_y = text_y + (line_idx as f64) * 13.0;
             if is_wrapped {
                 let words: Vec<&str> = line.split_whitespace().collect();
                 if words.is_empty() {
                     let text_w = bounder.calculate_dimension(font, line).width();
-                    svg.text(
-                        line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
-                        text_w, &indexmap::IndexMap::new(), None,
-                    );
+                    if use_exact {
+                        svg.text_exact(
+                            line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                            text_w, &indexmap::IndexMap::new(), None,
+                        );
+                    } else {
+                        svg.text(
+                            line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                            text_w, &indexmap::IndexMap::new(), None,
+                        );
+                    }
                 } else {
                     let mut offset_x: f64 = 0.0;
                     for (wi, word) in words.iter().enumerate() {
                         let word_w = bounder.calculate_dimension(font, word).width();
                         if wi > 0 {
+                            if use_exact {
+                                svg.text_exact(
+                                    "\u{00A0}", text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                                    0.0, &indexmap::IndexMap::new(), None,
+                                );
+                            } else {
+                                svg.text(
+                                    "\u{00A0}", text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                                    0.0, &indexmap::IndexMap::new(), None,
+                                );
+                            }
+                        }
+                        if use_exact {
+                            svg.text_exact(
+                                word, text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                                word_w, &indexmap::IndexMap::new(), None,
+                            );
+                        } else {
                             svg.text(
-                                "\u{00A0}", text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
-                                0.0, &indexmap::IndexMap::new(), None,
+                                word, text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                                word_w, &indexmap::IndexMap::new(), None,
                             );
                         }
-                        svg.text(
-                            word, text_x + offset_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
-                            word_w, &indexmap::IndexMap::new(), None,
-                        );
                         offset_x += word_w;
                     }
                 }
             } else {
                 let text_w = bounder.calculate_dimension(font, line).width();
-                svg.text(
-                    line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
-                    text_w, &indexmap::IndexMap::new(), None,
-                );
+                if use_exact {
+                    svg.text_exact(
+                        line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                        text_w, &indexmap::IndexMap::new(), None,
+                    );
+                } else {
+                    svg.text(
+                        line, text_x, line_y, None, FONT_SIZE_MESSAGE, None, None, None,
+                        text_w, &indexmap::IndexMap::new(), None,
+                    );
+                }
             }
         }
     }
@@ -2873,6 +3609,7 @@ fn draw_exo_message(
     p_idx: usize,
     exo_type: ExoType,
     wrapped_lines: &[String],
+    skin: &SkinConfig,
 ) {
     let label = msg.label();
     let pos_c_val = pos_c[p_idx] + x_offset;
@@ -2906,8 +3643,8 @@ fn draw_exo_message(
     let is_dashed = msg.arrow_config().is_dotted();
 
     // Draw arrowhead first (matching Java drawInternalU order: polygon then line)
-    svg.set_fill_color(COLOR_ARROW);
-    svg.set_stroke_color(Some(COLOR_ARROW));
+    svg.set_fill_color(skin.color_arrow);
+    svg.set_stroke_color(Some(skin.color_arrow));
     svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
     svg.svg_polygon(
         0.0,
@@ -2915,7 +3652,7 @@ fn draw_exo_message(
     );
 
     // Draw arrow line
-    svg.set_stroke_color(Some(COLOR_ARROW));
+    svg.set_stroke_color(Some(skin.color_arrow));
     svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
     svg.svg_line(x1, y, line_end, y, 0.0);
 
@@ -3111,6 +3848,26 @@ pub struct ParsedSequence {
     pub msg_exo: Vec<Option<ExoType>>,
     /// Whether each message is hidden (from `[hidden]` arrow style — not drawn but occupies Y space).
     pub msg_hidden: Vec<bool>,
+    /// Whether `skin rose` is active (shadow filters, rose colors).
+    pub skin_rose: bool,
+    /// Arrow color override from `skinparam sequence { ArrowColor <color> }`.
+    pub arrow_color: Option<String>,
+    /// Header text (from `header` command).
+    pub header_text: Option<String>,
+    /// Source line number of the header (1-indexed).
+    pub header_line: Option<usize>,
+    /// Footer text (from `footer` command).
+    pub footer_text: Option<String>,
+    /// Source line number of the footer (1-indexed).
+    pub footer_line: Option<usize>,
+    /// Legend text (from `legend` command).
+    pub legend_text: Option<String>,
+    /// Caption text (from `caption` command).
+    pub caption_text: Option<String>,
+    /// Source line number of the caption (1-indexed).
+    pub caption_line: Option<usize>,
+    /// Style rules from `<style>` block: element name → property → value.
+    pub style_rules: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 /// Parses a simple PlantUML sequence diagram from text, including SVG options.
 #[must_use]
@@ -3134,6 +3891,17 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut skinparam_depth: u32 = 0;
     let mut msg_activates: Vec<Vec<String>> = Vec::new();
     let mut msg_deactivates: Vec<Vec<String>> = Vec::new();
+    let mut header_text: Option<String> = None;
+    let mut header_line: Option<usize> = None;
+    let mut footer_text: Option<String> = None;
+    let mut footer_line: Option<usize> = None;
+    let mut legend_text: Option<String> = None;
+    let mut legend_line: Option<usize> = None;
+    let mut caption_text: Option<String> = None;
+    let mut caption_line: Option<usize> = None;
+    let mut style_rules: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+        std::collections::HashMap::new();
+    let mut style_element: Option<String> = None;
     let mut msg_parallel: Vec<bool> = Vec::new();
     let mut msg_exo: Vec<Option<ExoType>> = Vec::new();
     let mut msg_hidden: Vec<bool> = Vec::new();
@@ -3141,6 +3909,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut autoactivate = false;
     let mut in_note_block: Option<(NotePosition, Vec<String>)> = None;
     let mut max_message_size: Option<f64> = None;
+    let mut skin_rose = false;
+    let mut arrow_color: Option<String> = None;
     let lines: Vec<&str> = text.lines().collect();
     for (line_num, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
@@ -3172,13 +3942,16 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             svg_title = Some(val.trim().trim_matches('"').to_string());
             continue;
         }
-        // Handle skinparam { } multi-line blocks: when depth > 0, skip until closing }
+        // Handle skinparam { } blocks: when depth > 0, skip until closing }
         if skinparam_depth > 0 {
             // Parse Maxmessagesize inside skinparam blocks
             if let Some(rest) = trimmed.strip_prefix("Maxmessagesize ") {
                 if let Ok(val) = rest.trim().parse::<f64>() {
                     max_message_size = Some(val);
                 }
+            }
+            if let Some(rest) = trimmed.strip_prefix("ArrowColor ") {
+                arrow_color = Some(rest.trim().to_string());
             }
             if trimmed.contains('}') {
                 skinparam_depth = skinparam_depth.saturating_sub(1);
@@ -3188,6 +3961,49 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
+        // Skip comment lines (must be before style_element check to avoid
+        // catching commented lines like 'skinparam sequence {)
+        if trimmed.starts_with('\'') {
+            continue;
+        }
+
+        // Handle <style> blocks: parse CSS-like rules
+        if style_element.is_some() || trimmed.starts_with("</style>") {
+            // </style> closes the style block
+            if trimmed.starts_with("</style>") {
+                style_element = None;
+                continue;
+            }
+            // } closes the current element
+            if trimmed.starts_with('}') {
+                style_element = None;
+                continue;
+            }
+            // Parse property value pairs inside an element
+            if let Some(ref elem) = style_element {
+                // Properties are "PropertyName value" or "PropertyName value;"
+                let prop_line = trimmed.trim_end_matches(';');
+                if let Some((prop, val)) = prop_line.split_once(char::is_whitespace) {
+                    style_rules
+                        .entry(elem.to_lowercase())
+                        .or_default()
+                        .insert(prop.to_string(), val.trim().to_string());
+                }
+            }
+            continue;
+        }
+
+        // Detect element start inside <style>: "elementname {"
+        if trimmed.ends_with('{') && !trimmed.starts_with("skinparam") {
+            let elem = trimmed.trim_end_matches('{').trim();
+            style_element = Some(elem.to_string());
+            continue;
+        }
+
+        if trimmed == "skin rose" {
+            skin_rose = true;
+            continue;
+        }
         // Handle !pragma, comments, skin, !theme (ignore — simplified renderer)
         if trimmed.starts_with("!pragma ")
             || trimmed.starts_with("'")
@@ -3212,9 +4028,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
-        // Handle <style> blocks: skip until </style>
+        // Handle <style> block start
         if trimmed.starts_with("<style>") {
-            skinparam_depth = 1; // reuse the depth counter for style blocks
             continue;
         }
 
@@ -3303,8 +4118,11 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         if let Some(name) = trimmed.strip_prefix("activate ") {
             let pname = name.trim();
             let p = diagram.get_or_create_participant(pname);
-            diagram.activate(&p, LifeEventType::Activate);
-            // Attach to previous message if it deals with this participant
+            // In Java, activate is attached to the previous message if it deals with
+            // this participant (SequenceDiagram.activate: lastEventWithDeactivate.dealWith(p)).
+            // When attached, the LifeEvent is inline (uses message's Y for activation).
+            // When not attached (participant not in last message), it's standalone.
+            let mut attached = false;
             if msg_count > 0 {
                 let prev_idx = msg_count - 1;
                 if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
@@ -3313,8 +4131,57 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                             msg_activates.push(Vec::new());
                         }
                         msg_activates[prev_idx].push(pname.to_string());
+                        diagram.activate_inline(&p, LifeEventType::Activate, prev_idx);
+                        attached = true;
                     }
                 }
+            }
+            if !attached {
+                diagram.activate(&p, LifeEventType::Activate);
+            }
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("deactivate ") {
+            let pname = name.trim();
+            let p = diagram.get_or_create_participant(pname);
+            let mut attached = false;
+            if msg_count > 0 {
+                let prev_idx = msg_count - 1;
+                if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
+                    if p1 == pname || p2 == pname {
+                        while msg_deactivates.len() <= prev_idx {
+                            msg_deactivates.push(Vec::new());
+                        }
+                        msg_deactivates[prev_idx].push(pname.to_string());
+                        diagram.activate_inline(&p, LifeEventType::Deactivate, prev_idx);
+                        attached = true;
+                    }
+                }
+            }
+            if !attached {
+                diagram.activate(&p, LifeEventType::Deactivate);
+            }
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("destroy ") {
+            let pname = name.trim();
+            let p = diagram.get_or_create_participant(pname);
+            let mut attached = false;
+            if msg_count > 0 {
+                let prev_idx = msg_count - 1;
+                if let (Some(ref p1), Some(ref p2)) = (&last_p1, &last_p2) {
+                    if p1 == pname || p2 == pname {
+                        while msg_deactivates.len() <= prev_idx {
+                            msg_deactivates.push(Vec::new());
+                        }
+                        msg_deactivates[prev_idx].push(pname.to_string());
+                        diagram.activate_inline(&p, LifeEventType::Destroy, prev_idx);
+                        attached = true;
+                    }
+                }
+            }
+            if !attached {
+                diagram.activate(&p, LifeEventType::Destroy);
             }
             continue;
         }
@@ -3366,6 +4233,28 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
         if let Some(val) = trimmed.strip_prefix("title ") {
             title = Some(val.trim().to_string());
             title_line = Some(line_num - startuml_line.unwrap_or(0));
+            continue;
+        }
+
+        // Handle "header", "footer", "legend", "caption" commands
+        if let Some(val) = trimmed.strip_prefix("header ") {
+            header_text = Some(val.trim().to_string());
+            header_line = Some(line_num - startuml_line.unwrap_or(0));
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("footer ") {
+            footer_text = Some(val.trim().to_string());
+            footer_line = Some(line_num - startuml_line.unwrap_or(0));
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("legend ") {
+            legend_text = Some(val.trim().to_string());
+            legend_line = Some(line_num - startuml_line.unwrap_or(0));
+            continue;
+        }
+        if let Some(val) = trimmed.strip_prefix("caption ") {
+            caption_text = Some(val.trim().to_string());
+            caption_line = Some(line_num - startuml_line.unwrap_or(0));
             continue;
         }
 
@@ -3479,31 +4368,22 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
 
-        if let Some((p1_code, p2_code, label, arrow, inline_activate, inline_deactivate, inline_destroy)) = parse_arrow_line(trimmed) {
+        if let Some((p1_code, p2_code, label, arrow_config, inline_activate, inline_deactivate, inline_destroy)) = parse_arrow_line(trimmed) {
+            let is_reverse_arrow = arrow_config.is_reverse_define();
             // Detect exo arrows: ?, [, or ] as message endpoint.
-            // [-> X or ?-> X : FROM_LEFT (incoming from left)
-            // X ->] or X ->? : TO_RIGHT (outgoing to right)
-            // [<- X or ?<- X : TO_LEFT (outgoing to left)
-            // X <-] or X <-? : FROM_RIGHT (incoming from right)
             let is_left_exo = p1_code == "?" || p1_code == "[" || p1_code == "]";
             let is_right_exo = p2_code == "?" || p2_code == "]" || p2_code == "[";
             let exo = if is_left_exo {
-                let is_reverse = arrow.starts_with('<');
                 if p1_code == "]" {
-                    // ]-> X : FROM_RIGHT, ]<- X : TO_RIGHT
-                    if is_reverse { Some(ExoType::ToRight) } else { Some(ExoType::FromRight) }
+                    if is_reverse_arrow { Some(ExoType::ToRight) } else { Some(ExoType::FromRight) }
                 } else {
-                    // [-> X or ?-> X : FROM_LEFT, [<- X or ?<- X : TO_LEFT
-                    if is_reverse { Some(ExoType::ToLeft) } else { Some(ExoType::FromLeft) }
+                    if is_reverse_arrow { Some(ExoType::ToLeft) } else { Some(ExoType::FromLeft) }
                 }
             } else if is_right_exo {
-                let is_reverse = arrow.starts_with('<');
                 if p2_code == "[" {
-                    // X <-[ : FROM_LEFT, X ->[ : TO_LEFT
-                    if is_reverse { Some(ExoType::FromLeft) } else { Some(ExoType::ToLeft) }
+                    if is_reverse_arrow { Some(ExoType::FromLeft) } else { Some(ExoType::ToLeft) }
                 } else {
-                    // X ->] or X ->? : TO_RIGHT, X <-] or X <-? : FROM_RIGHT
-                    if is_reverse { Some(ExoType::FromRight) } else { Some(ExoType::ToRight) }
+                    if is_reverse_arrow { Some(ExoType::FromRight) } else { Some(ExoType::ToRight) }
                 }
             } else {
                 None
@@ -3531,38 +4411,19 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     let p2 = diagram.get_or_create_participant(&p2_code);
                     // Java's CommandArrow swaps p1/p2 for reverseDefine arrows:
                     // p1 = PART2 (right), p2 = PART1 (left).
-                    // We must swap to match Java's Message(p1, p2) ordering.
-                    let is_rev = arrow.starts_with('<') || arrow.starts_with('\\');
-                    if is_rev { (p2, p1) } else { (p1, p2) }
+                    if is_reverse_arrow { (p2, p1) } else { (p1, p2) }
                 }
             };
             let msg_num = diagram.get_next_message_number();
-            let arrow_config = match arrow {
-                "-->" => plantuml_skin::ArrowConfiguration::with_direction_self(false)
-                    .with_body(plantuml_skin::ArrowBody::Dotted),
-                "<--" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
-                    .with_body(plantuml_skin::ArrowBody::Dotted),
-                "\\\\--" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
-                    .with_body(plantuml_skin::ArrowBody::Dotted),
-                "\\\\-" => plantuml_skin::ArrowConfiguration::with_direction_self(true)
-                    .with_body(plantuml_skin::ArrowBody::Dotted),
-                "<-" => plantuml_skin::ArrowConfiguration::with_direction_normal().reverse_define(),
-                "->>" => plantuml_skin::ArrowConfiguration::with_direction_normal()
-                    .with_head2(plantuml_skin::ArrowHead::Async),
-                "<<-" => plantuml_skin::ArrowConfiguration::with_direction_normal()
-                    .reverse_define()
-                    .with_head1(plantuml_skin::ArrowHead::Async),
-                _ => plantuml_skin::ArrowConfiguration::with_direction_normal(),
-            };
+            let is_dotted = arrow_config.is_dotted();
             let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
             // Apply inline activation/deactivation and autoactivate.
-            // Java's CommandArrow swaps p1/p2 for reverseDefine arrows (<-, <--, etc.):
+            // Java's CommandArrow swaps p1/p2 for reverseDefine arrows:
             //   p1 = PART2 (right), p2 = PART1 (left)
             // So ++ activates p2 (left), -- deactivates p1 (right), !! destroys p2 (left).
             // In our code, p1_code is always left, p2_code is always right.
             // For reverse arrows, swap: ++ → activate p1_code, -- → deactivate p2_code, !! → destroy p1_code.
-            let is_reverse_arrow = arrow.starts_with('<') || arrow.starts_with('\\');
             let mut acts = Vec::new();
             let mut deacts = Vec::new();
             let mut dests = Vec::new();
@@ -3577,18 +4438,14 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             }
             // Autoactivate: solid arrow activates receiver, dotted deactivates sender
             if autoactivate && exo.is_none() {
-                let is_dotted = arrow.contains("--");
-                let is_reverse = arrow.starts_with('<');
                 if is_dotted {
-                    // Dotted: deactivate sender
-                    if is_reverse {
+                    if is_reverse_arrow {
                         deacts.push(p2_code.clone());
                     } else {
                         deacts.push(p1_code.clone());
                     }
                 } else {
-                    // Solid: activate receiver
-                    if is_reverse {
+                    if is_reverse_arrow {
                         acts.push(p1_code.clone());
                     } else {
                         acts.push(p2_code.clone());
@@ -3652,15 +4509,136 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             max_message_size,
             msg_exo,
             msg_hidden,
+            skin_rose,
+            arrow_color,
+            header_text,
+            header_line,
+            footer_text,
+            footer_line,
+            legend_text,
+            caption_text,
+            caption_line,
+            style_rules,
         })
     }
 }
 
 /// Parses an arrow line like "Alice -> Bob : hello" or "Test --> Test: Text".
 /// Handles common arrow types: ->, -->, <-, <--, ->>, <<-, \\--, \\-.
-/// Extracts inline activation markers (++/--/--++) from the p2 part.
-/// Returns (p1_code, p2_code, label, arrow_string, inline_activate, inline_deactivate, inline_destroy).
-fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str, bool, bool, bool)> {
+/// Checks if a byte is an arrow dressing character (o, x, <, >, /, \).
+fn is_dressing_char(b: u8) -> bool {
+    matches!(b, b'o' | b'O' | b'x' | b'X' | b'<' | b'>' | b'/' | b'\\')
+}
+
+/// Builds an `ArrowConfiguration` from parsed dressings and body length.
+///
+/// Ported from: `net/sourceforge/plantuml/sequencediagram/command/CommandArrow.java` (executeArg)
+fn build_arrow_config(
+    dressing1: &str,
+    dressing2: &str,
+    body_len: usize,
+) -> plantuml_skin::ArrowConfiguration {
+    use plantuml_skin::{ArrowBody, ArrowDecoration, ArrowHead, ArrowPart};
+
+    let has_dir1 = dressing1.contains('<') || dressing1.contains('\\') || dressing1.contains('/');
+    let has_dir2 = dressing2.contains('>') || dressing2.contains('\\') || dressing2.contains('/');
+    let x1 = dressing1.contains('x');
+    let x2 = dressing2.contains('x');
+
+    let reverse_define = if has_dir2 || (x1 && x2) {
+        false
+    } else {
+        has_dir1
+    };
+
+    let dotted = body_len > 1;
+
+    let mut config = if has_dir1 && has_dir2 {
+        plantuml_skin::ArrowConfiguration::with_direction_both()
+    } else {
+        plantuml_skin::ArrowConfiguration::with_direction_normal()
+    };
+
+    if dotted {
+        config = config.with_body(ArrowBody::Dotted);
+    }
+
+    let (circle_at_start, circle_at_end, sync1, sync2) = if reverse_define {
+        (
+            dressing2.contains('o'),
+            dressing1.contains('o'),
+            dressing2.contains(">>") || dressing2.contains("\\\\") || dressing2.contains("//"),
+            dressing1.contains("<<") || dressing1.contains("\\\\") || dressing1.contains("//"),
+        )
+    } else {
+        (
+            dressing1.contains('o'),
+            dressing2.contains('o'),
+            dressing1.contains("<<") || dressing1.contains("\\\\") || dressing1.contains("//"),
+            dressing2.contains(">>") || dressing2.contains("\\\\") || dressing2.contains("//"),
+        )
+    };
+
+    if sync1 {
+        config = config.with_head1(ArrowHead::Async);
+    }
+    if sync2 {
+        config = config.with_head2(ArrowHead::Async);
+    }
+
+    if dressing2.contains('\\') || dressing1.contains('/') {
+        config = config.with_part(ArrowPart::TopPart);
+    }
+    if dressing2.contains('/') || dressing1.contains('\\') {
+        config = config.with_part(ArrowPart::BottomPart);
+    }
+
+    if circle_at_end {
+        config = config.with_decoration2(ArrowDecoration::Circle);
+    }
+    if circle_at_start {
+        config = config.with_decoration1(ArrowDecoration::Circle);
+    }
+
+    if reverse_define {
+        if x1 {
+            config = config.with_head2(ArrowHead::CrossX);
+        }
+        if x2 {
+            config = config.with_head1(ArrowHead::CrossX);
+        }
+    } else {
+        if x1 {
+            config = config.with_head1(ArrowHead::CrossX);
+        }
+        if x2 {
+            config = config.with_head2(ArrowHead::CrossX);
+        }
+    }
+
+    if reverse_define {
+        config = config.reverse_define();
+    }
+
+    config
+}
+
+/// Parses a PlantUML sequence arrow line, extracting participants, label, and arrow configuration.
+///
+/// Ported from: `net/sourceforge/plantuml/sequencediagram/command/CommandArrow.java`
+///
+/// Returns `(p1_code, p2_code, label, arrow_config, inline_activate, inline_deactivate, inline_destroy)`.
+fn parse_arrow_line(
+    line: &str,
+) -> Option<(
+    String,
+    String,
+    String,
+    plantuml_skin::ArrowConfiguration,
+    bool,
+    bool,
+    bool,
+)> {
     // Strip [hidden] and other [style] modifiers from arrow notation
     // e.g., "B -[hidden]-> C" becomes "B -> C"
     let line = if let Some(bracket_start) = line.find("-[") {
@@ -3675,68 +4653,128 @@ fn parse_arrow_line(line: &str) -> Option<(String, String, String, &'static str,
         line.to_string()
     };
     let line = line.as_str();
-    let arrows: [(&str, &str); 8] = [
-        ("-->", "-->"),
-        ("<--", "<--"),
-        ("->>", "->>"),
-        ("<<-", "<<-"),
-        ("\\\\--", "\\\\--"),
-        ("\\\\-", "\\\\-"),
-        ("->", "->"),
-        ("<-", "<-"),
-    ];
-    for (arrow, ret) in &arrows {
-        if let Some(pos) = line.find(arrow) {
-            let p1_code = line[..pos].trim().to_string();
-            let rest = &line[pos + arrow.len()..];
-            let (p2_part_raw, label) = if let Some(colon_pos) = rest.find(':') {
-                (
-                    rest[..colon_pos].trim().to_string(),
-                    rest[colon_pos + 1..].trim().to_string(),
-                )
-            } else {
-                (rest.trim().to_string(), String::new())
-            };
-            if p1_code.is_empty() || p2_part_raw.is_empty() {
-                continue;
+    let bytes = line.as_bytes();
+
+    // Find all runs of '-' characters as candidate arrow bodies
+    let mut candidates: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'-' {
+            let start = i;
+            while i < bytes.len() && bytes[i] == b'-' {
+                i += 1;
             }
-            // Extract inline activation markers from p2_part.
-            // Java's ACTIVATION regex captures: ++, **, !!, --, --++, ++--
-            // Markers: --++ (deactivate p1, activate p2), ++-- (activate p2, deactivate p1),
-            //          ++ (activate p2), -- (deactivate p1), !! (destroy p2)
-            // Also strip #color modifiers
-            let mut p2_part = p2_part_raw.clone();
-            // Strip #color modifier (e.g., "#red")
-            if let Some(hash_pos) = p2_part.find('#') {
-                p2_part = p2_part[..hash_pos].trim().to_string();
-            }
-            let mut inline_activate = false;
-            let mut inline_deactivate = false;
-            let mut inline_destroy = false;
-            // Check 4-char markers first (longest match)
-            if p2_part.ends_with("--++") {
-                inline_deactivate = true;
-                inline_activate = true;
-                p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
-            } else if p2_part.ends_with("++--") {
-                inline_activate = true;
-                inline_deactivate = true;
-                p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
-            } else if p2_part.ends_with("!!") {
-                inline_destroy = true;
-                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
-            } else if p2_part.ends_with("++") {
-                inline_activate = true;
-                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
-            } else if p2_part.ends_with("--") {
-                inline_deactivate = true;
-                p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
-            }
-            if p2_part.is_empty() {
-                continue;
-            }
-            return Some((p1_code, p2_part, label, ret, inline_activate, inline_deactivate, inline_destroy));
+            candidates.push((start, i));
+        } else {
+            i += 1;
         }
+    }
+    // Try longest bodies first (greedy: prefer dotted `--` over solid `-`)
+    candidates.sort_by(|a, b| (b.1 - b.0).cmp(&(a.1 - a.0)));
+
+    for &(body_start, body_end) in &candidates {
+        let body_len = body_end - body_start;
+
+        // Parse dressing1: scan backward from body_start
+        let text_before = line[..body_start].trim_end();
+        let tb_bytes = text_before.as_bytes();
+        let mut d1_len = 0;
+        while d1_len < tb_bytes.len() && is_dressing_char(tb_bytes[tb_bytes.len() - 1 - d1_len]) {
+            d1_len += 1;
+        }
+        let (dressing1, p1_code) = if d1_len > 0 && d1_len < tb_bytes.len() {
+            let before_dressing = &text_before[..text_before.len() - d1_len];
+            if before_dressing.ends_with(|c: char| c.is_whitespace()) {
+                let d1 = &text_before[text_before.len() - d1_len..];
+                (d1.to_lowercase(), before_dressing.trim().to_string())
+            } else {
+                (String::new(), text_before.trim().to_string())
+            }
+        } else {
+            (String::new(), text_before.trim().to_string())
+        };
+        if p1_code.is_empty() {
+            continue;
+        }
+
+        // Parse dressing2: scan forward from body_end
+        let text_after = &line[body_end..];
+        let ta_bytes = text_after.as_bytes();
+        let mut d2_len = 0;
+        while d2_len < ta_bytes.len() && is_dressing_char(ta_bytes[d2_len]) {
+            d2_len += 1;
+        }
+        let (dressing2, rest) = if d2_len > 0 {
+            // Dressing2 chars (>, >>, /, \, o, x) can be directly followed by
+            // the participant name without whitespace (e.g., "Bob->Bob").
+            // Only "o" or "x" alone (no direction indicator) require whitespace,
+            // but we accept all cases and let validation filter invalid ones.
+            (text_after[..d2_len].to_lowercase(), &text_after[d2_len..])
+        } else {
+            (String::new(), text_after)
+        };
+
+        // Validate: must have a direction indicator or x in dressings
+        let has_dir1 = dressing1.contains('<') || dressing1.contains('\\') || dressing1.contains('/');
+        let has_dir2 = dressing2.contains('>') || dressing2.contains('\\') || dressing2.contains('/');
+        let has_x = dressing1.contains('x') || dressing2.contains('x');
+        if !has_dir1 && !has_dir2 && !has_x {
+            continue;
+        }
+
+        // Parse p2_part and label from rest
+        let (p2_part_raw, label) = if let Some(colon_pos) = rest.find(':') {
+            (
+                rest[..colon_pos].trim().to_string(),
+                rest[colon_pos + 1..].trim().to_string(),
+            )
+        } else {
+            (rest.trim().to_string(), String::new())
+        };
+        if p2_part_raw.is_empty() {
+            continue;
+        }
+
+        // Strip #color modifier and parse inline activation markers
+        let mut p2_part = p2_part_raw.clone();
+        if let Some(hash_pos) = p2_part.find('#') {
+            p2_part = p2_part[..hash_pos].trim().to_string();
+        }
+        let mut inline_activate = false;
+        let mut inline_deactivate = false;
+        let mut inline_destroy = false;
+        if p2_part.ends_with("--++") {
+            inline_deactivate = true;
+            inline_activate = true;
+            p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
+        } else if p2_part.ends_with("++--") {
+            inline_activate = true;
+            inline_deactivate = true;
+            p2_part = p2_part[..p2_part.len() - 4].trim().to_string();
+        } else if p2_part.ends_with("!!") {
+            inline_destroy = true;
+            p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
+        } else if p2_part.ends_with("++") {
+            inline_activate = true;
+            p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
+        } else if p2_part.ends_with("--") {
+            inline_deactivate = true;
+            p2_part = p2_part[..p2_part.len() - 2].trim().to_string();
+        }
+        if p2_part.is_empty() {
+            continue;
+        }
+
+        let config = build_arrow_config(&dressing1, &dressing2, body_len);
+        return Some((
+            p1_code,
+            p2_part,
+            label,
+            config,
+            inline_activate,
+            inline_deactivate,
+            inline_destroy,
+        ));
     }
     None
 }

@@ -98,6 +98,10 @@ fn parse_element(e: &BytesStart) -> CleanNode {
     for attr in e.attributes().flatten() {
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
         let value = attr.unescape_value().unwrap_or_default().to_string();
+        // Normalize seed-generated filter IDs (e.g. f11b0m6xo6h4kq) to a
+        // consistent placeholder so SVG comparison is not affected by
+        // seed-hash differences between Java and Rust.
+        let value = normalize_filter_attr(&key, &value);
         attrs.push((key, value));
     }
     // Sort: xmlns* first, then alphabetical
@@ -115,6 +119,28 @@ fn parse_element(e: &BytesStart) -> CleanNode {
         attrs,
         children: Vec::new(),
     }
+}
+
+/// Normalizes seed-generated filter IDs in SVG attributes.
+///
+/// Filter IDs like `f11b0m6xo6h4kq` are derived from a source-text hash
+/// and differ between Java and Rust. Replace them with `fID` so that
+/// comparison focuses on structure, not on the opaque ID.
+fn normalize_filter_attr(key: &str, value: &str) -> String {
+    if key == "id" && value.starts_with('f') && value.len() >= 2 && value[1..].chars().all(|c| c.is_ascii_alphanumeric()) {
+        return "fID".to_string();
+    }
+    if key == "filter" {
+        if let Some(rest) = value.strip_prefix("url(#f") {
+            if let Some(end) = rest.find(')') {
+                let id_part = &rest[..end];
+                if id_part.chars().all(|c| c.is_ascii_alphanumeric()) && !id_part.is_empty() {
+                    return "url(#fID)".to_string();
+                }
+            }
+        }
+    }
+    value.to_string()
 }
 
 fn serialize_node(node: &CleanNode, indent: usize) -> String {
