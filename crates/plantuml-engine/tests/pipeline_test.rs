@@ -24,7 +24,6 @@ fn assert_java_parity(source: &str, rust_svg: &str, label: &str) {
 /// Renders via the new `render_svg` (which tries PSystemBuilder pipeline first,
 /// falls back to bypass) and verifies it produces valid SVG.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
 fn test_pipeline_renders_sequence_svg() {
     let svg = render_svg(SIMPLE_SEQUENCE).expect("render_svg should succeed");
 

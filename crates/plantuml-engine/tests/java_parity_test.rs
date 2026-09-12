@@ -79,14 +79,14 @@ fn run_parity_test(name: &str, source: &str) {
 
     assert_eq!(cleaned_rust, cleaned_java, "SVG parity mismatch for {name}");
 }
-// ── Sequence diagram (currently ignored — Java 1.2026.6 SVG differs) ────
+// ── Sequence diagram ───────────────────────────────────────────────────
 
-parity_test_ignored!(sequence_basic_messages, r#"@startuml
+parity_test!(sequence_basic_messages, r#"@startuml
 Alice -> Bob: hello
 Bob --> Alice: hi
 @enduml"#);
 
-parity_test_ignored!(sequence_declare_participants, r#"@startuml
+parity_test!(sequence_declare_participants, r#"@startuml
 participant Alice
 participant Bob
 Alice -> Bob: Request
