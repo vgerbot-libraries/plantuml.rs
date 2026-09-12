@@ -18,9 +18,15 @@ plantuml-sequence.workspace = true
 plantuml-command.workspace = true
 plantuml-real.workspace = true
 plantuml-skin.workspace = true
+plantuml-json.workspace = true
+plantuml-cuca.workspace = true
+plantuml-timing.workspace = true
+plantuml-gantt.workspace = true
+plantuml-activity.workspace = true
+plantuml-mindmap.workspace = true
 thiserror.workspace = true
+serde_json = { workspace = true }
 indexmap = { workspace = true }
-log.workspace = true
 
 [dev-dependencies]
 quick-xml = { workspace = true }

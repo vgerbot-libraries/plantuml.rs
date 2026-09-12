@@ -2,8 +2,13 @@
 //!
 //! Ported from: `net/sourceforge/plantuml/abel/Entity.java`
 
+use crate::cuca_note::CucaNote;
 use crate::group_type::GroupType;
 use crate::leaf_type::LeafType;
+use crate::position::Position;
+use crate::tip::Tip;
+use crate::together::Together;
+use plantuml_klimt::Display;
 use std::collections::HashMap;
 
 /// Placeholder for Bodier — body management.
@@ -28,29 +33,6 @@ impl Quark {
     }
 }
 
-/// Placeholder for Display — rich text display.
-#[derive(Debug, Clone, Default)]
-pub struct Display {
-    text: String,
-}
-
-impl Display {
-    #[must_use]
-    pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.text
-    }
-}
-
-impl std::fmt::Display for Display {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.text)
-    }
-}
 
 /// Placeholder for Stereotype.
 #[derive(Debug, Clone, Default)]
@@ -64,21 +46,10 @@ pub struct USymbol;
 #[derive(Debug, Clone, Default)]
 pub struct Colors;
 
-/// Placeholder for `CucaNote`.
-#[derive(Debug, Clone, Default)]
-pub struct CucaNote;
-
 /// Placeholder for Url.
 #[derive(Debug, Clone, Default)]
 pub struct Url;
 
-/// Placeholder for Together.
-#[derive(Debug, Clone, Default)]
-pub struct Together;
-
-/// Placeholder for Tip.
-#[derive(Debug, Clone, Default)]
-pub struct Tip;
 
 /// Placeholder for `VisibilityModifier`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -150,6 +121,7 @@ pub struct Entity {
     style_builder: StyleBuilder,
     hidden: bool,
     removed: bool,
+    concurrent_separator: char,
 }
 
 impl Entity {
@@ -191,6 +163,7 @@ impl Entity {
             style_builder: StyleBuilder,
             hidden: false,
             removed: false,
+            concurrent_separator: '\0',
         }
     }
 
@@ -232,6 +205,7 @@ impl Entity {
             style_builder: StyleBuilder,
             hidden: false,
             removed: false,
+            concurrent_separator: '\0',
         }
     }
 
@@ -504,5 +478,74 @@ impl Entity {
     /// Sets the generic type parameter.
     pub fn set_generic(&mut self, generic: impl Into<String>) {
         self.generic = Some(generic.into());
+    }
+
+    /// Adds a note to the entity at the given position.
+    ///
+    /// Ported from: `Entity.addNote(Display, Position, Colors)`.
+    pub fn add_note(&mut self, note: Display, position: Position, colors: Colors) {
+        let cuca_note = CucaNote::build(note, position, colors);
+        match position {
+            Position::Top => self.notes_top.push(cuca_note),
+            Position::Bottom => self.notes_bottom.push(cuca_note),
+            _ => {} // Left/Right notes handled differently in Java
+        }
+    }
+
+    /// Returns notes at the given position.
+    ///
+    /// Ported from: `Entity.getNotes(Position)`.
+    #[must_use]
+    pub fn get_notes(&self, position: Position) -> &[CucaNote] {
+        match position {
+            Position::Top => &self.notes_top,
+            Position::Bottom => &self.notes_bottom,
+            _ => &[],
+        }
+    }
+
+    /// Returns the concurrent separator character.
+    ///
+    /// Ported from: `Entity.getConcurrentSeparator()`.
+    #[must_use]
+    pub const fn get_concurrent_separator(&self) -> char {
+        self.concurrent_separator
+    }
+
+    /// Sets the concurrent separator character.
+    ///
+    /// Ported from: `Entity.setConcurrentSeparator(char)`.
+    pub const fn set_concurrent_separator(&mut self, separator: char) {
+        self.concurrent_separator = separator;
+    }
+
+    /// Adds a tip for a member.
+    ///
+    /// Ported from: `Entity.putTip(String, Tip)`.
+    pub fn put_tip(&mut self, key: impl Into<String>, tip: crate::tip::Tip) {
+        self.tips.insert(key.into(), tip);
+    }
+
+    /// Returns all tips.
+    ///
+    /// Ported from: `Entity.getTips()`.
+    #[must_use]
+    pub const fn get_tips(&self) -> &HashMap<String, crate::tip::Tip> {
+        &self.tips
+    }
+
+    /// Sets the together grouping.
+    ///
+    /// Ported from: `Entity.setTogether(Together)`.
+    pub fn set_together(&mut self, together: crate::together::Together) {
+        self.together = Some(together);
+    }
+
+    /// Returns the together grouping, if any.
+    ///
+    /// Ported from: `Entity.getTogether()`.
+    #[must_use]
+    pub const fn get_together(&self) -> Option<&crate::together::Together> {
+        self.together.as_ref()
     }
 }

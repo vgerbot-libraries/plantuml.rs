@@ -333,6 +333,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plantuml-activity"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "log",
+ "plantuml-core",
+ "plantuml-svg",
+ "thiserror",
+]
+
+[[package]]
 name = "plantuml-command"
 version = "0.1.0"
 dependencies = [
@@ -353,20 +364,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "plantuml-engine"
+name = "plantuml-cuca"
 version = "0.1.0"
 dependencies = [
  "indexmap",
  "log",
- "plantuml-command",
  "plantuml-core",
  "plantuml-klimt",
+ "plantuml-model",
+ "plantuml-svg",
+ "thiserror",
+]
+
+[[package]]
+name = "plantuml-engine"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "plantuml-activity",
+ "plantuml-command",
+ "plantuml-core",
+ "plantuml-cuca",
+ "plantuml-gantt",
+ "plantuml-json",
+ "plantuml-klimt",
+ "plantuml-mindmap",
  "plantuml-preproc",
  "plantuml-real",
  "plantuml-sequence",
  "plantuml-skin",
  "plantuml-svg",
+ "plantuml-timing",
  "quick-xml",
+ "serde_json",
  "thiserror",
 ]
 
@@ -379,6 +409,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plantuml-gantt"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "log",
+ "plantuml-core",
+ "plantuml-svg",
+ "thiserror",
+]
+
+[[package]]
 name = "plantuml-jni"
 version = "0.1.0"
 dependencies = [
@@ -387,10 +428,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "plantuml-json"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "log",
+ "plantuml-core",
+ "plantuml-svg",
+ "quick-xml",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "plantuml-klimt"
 version = "0.1.0"
 dependencies = [
  "plantuml-core",
+ "thiserror",
+]
+
+[[package]]
+name = "plantuml-mindmap"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "log",
+ "plantuml-core",
+ "plantuml-svg",
+ "quick-xml",
  "thiserror",
 ]
 
@@ -470,6 +537,17 @@ dependencies = [
  "plantuml-core",
  "plantuml-klimt",
  "quick-xml",
+ "thiserror",
+]
+
+[[package]]
+name = "plantuml-timing"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "log",
+ "plantuml-core",
+ "plantuml-svg",
  "thiserror",
 ]
 
@@ -566,6 +644,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -616,6 +700,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -630,6 +715,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
 dependencies = [
  "serde_core",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -743,6 +841,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "utf8parse"

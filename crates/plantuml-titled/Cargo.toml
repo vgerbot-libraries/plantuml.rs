@@ -1,0 +1,19 @@
+[package]
+name = "plantuml-titled"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+plantuml-core = { workspace = true }
+plantuml-klimt = { workspace = true }
+plantuml-skin = { workspace = true }
+plantuml-command = { workspace = true }
+plantuml-model = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "plantuml-json"
+version = "0.1.0"
+edition = "2021"
+description = "JSON and YAML diagram rendering for plantuml.rs"
+
+[dependencies]
+plantuml-core = { path = "../plantuml-core" }
+plantuml-svg = { path = "../plantuml-svg" }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+indexmap = "2"
+thiserror = "1"
+log = "0.4"
+
+[dev-dependencies]
+quick-xml = "0.36"
+
+[lints]
+workspace = true

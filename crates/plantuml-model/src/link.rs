@@ -2,65 +2,21 @@
 //!
 //! Ported from: `net/sourceforge/plantuml/abel/Link.java`
 
+use crate::cuca_note::CucaNote;
 use crate::entity::Entity;
+use crate::link_arg::LinkArg;
+use crate::link_arrow::LinkArrow;
+use crate::entity::{LineLocation, Stereotype, StyleBuilder, Url};
 use std::sync::Arc;
-
-/// Placeholder for `LinkType`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LinkType;
-
-/// Placeholder for `LinkArg`.
-#[derive(Debug, Clone, Default)]
-pub struct LinkArg {
-    label: String,
-}
-
-impl LinkArg {
-    #[must_use]
-    pub fn new(label: impl Into<String>) -> Self {
-        Self { label: label.into() }
-    }
-
-    #[must_use]
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-}
-
-/// Placeholder for `LinkArrow`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct LinkArrow;
 
 /// Placeholder for `LinkConstraint`.
 #[derive(Debug, Clone, Default)]
 pub struct LinkConstraint;
 
-/// Placeholder for `CucaNote`.
-#[derive(Debug, Clone, Default)]
-pub struct CucaNote;
+/// Placeholder for `LinkType`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkType;
 
-/// Placeholder for Url.
-#[derive(Debug, Clone, Default)]
-pub struct Url;
-
-/// Placeholder for Stereotype.
-#[derive(Debug, Clone, Default)]
-pub struct Stereotype;
-
-/// Placeholder for `StyleBuilder`.
-#[derive(Debug, Clone, Default)]
-pub struct StyleBuilder;
-
-/// Placeholder for `LineLocation`.
-#[derive(Debug, Clone, Default)]
-pub struct LineLocation {
-    pub file: Option<String>,
-    pub line: u32,
-}
-
-/// Placeholder for `CucaDiagram`.
-#[derive(Debug, Clone, Default)]
-pub struct CucaDiagramRef;
 
 /// Relationship between two entities.
 ///
@@ -114,7 +70,7 @@ impl Link {
             weight: 0.0,
             constraint: true,
             inverted: false,
-            link_arrow: LinkArrow,
+            link_arrow: LinkArrow::default(),
             opale: false,
             horizontal_solitary: false,
             sametail: None,
@@ -272,8 +228,8 @@ impl Link {
     ///
     /// Ported from: `Link.getLabel()`.
     #[must_use]
-    pub fn get_label(&self) -> &str {
-        self.link_arg.label()
+    pub const fn get_label(&self) -> &plantuml_klimt::Display {
+        self.link_arg.get_label()
     }
 
     /// Returns the link arg.
@@ -293,7 +249,7 @@ impl Link {
     /// Adds a note to the link.
     ///
     /// Ported from: `Link.addNote()`.
-    pub const fn add_note(&mut self, note: CucaNote) {
+    pub fn add_note(&mut self, note: CucaNote) {
         self.note = Some(note);
     }
 

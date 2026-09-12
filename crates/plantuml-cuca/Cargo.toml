@@ -1,0 +1,17 @@
+[package]
+name = "plantuml-cuca"
+version = "0.1.0"
+edition = "2021"
+description = "CucaDiagram foundation for class, state, and description diagrams"
+
+[dependencies]
+plantuml-core = { path = "../plantuml-core" }
+plantuml-model = { path = "../plantuml-model" }
+plantuml-klimt = { path = "../plantuml-klimt" }
+plantuml-svg = { path = "../plantuml-svg" }
+indexmap = "2"
+thiserror = "1"
+log = "0.4"
+
+[lints]
+workspace = true

@@ -89,37 +89,12 @@ impl BlocLines {
 #[derive(Debug, Clone)]
 pub struct AbstractDiagram;
 
-/// Placeholder for `net.sourceforge.plantuml.klimt.display.Display`.
-///
-/// Rich text display. Will be properly ported from klimt in a later phase.
-#[derive(Debug, Clone, Default)]
-pub struct Display {
-    text: String,
-}
-
-impl Display {
-    /// Creates a new `Display` from a string.
-    #[must_use]
-    pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
-    }
-
-    /// Returns the display text.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.text
-    }
-}
-
-impl std::fmt::Display for Display {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.text)
-    }
-}
 
 // Re-export `StringLocated` from the preprocessor crate — the canonical
 // implementation with full location tracking.
 pub use plantuml_preproc::StringLocated;
+// Re-export `Display` from klimt (canonical implementation).
+pub use plantuml_klimt::Display;
 
 // Re-export `LineLocation` from the preprocessor crate.
 pub use plantuml_preproc::stubs::LineLocation;

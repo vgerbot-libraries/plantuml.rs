@@ -36,6 +36,14 @@ pub mod error_uml;
 pub mod source_string_reader;
 pub mod start_utils;
 pub mod sequence_renderer;
+pub mod class_object_factory;
+pub mod state_factory;
+pub mod description_factory;
+pub mod json_yaml_factory;
+pub mod timing_factory;
+pub mod gantt_factory;
+pub mod activity_factory;
+pub mod mindmap_wbs_factory;
 pub mod render;
 
 pub use block_uml::BlockUml;

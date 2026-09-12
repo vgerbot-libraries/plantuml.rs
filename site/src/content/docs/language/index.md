@@ -12,20 +12,20 @@ PlantUML supports many diagram types. plantuml.rs is porting them incrementally 
 | Diagram type | Status |
 |---|---|
 | [Sequence Diagram](/language/sequence-diagram/) | ✅ Working |
-| [Class Diagram](/language/class-diagram/) | 🚧 Planned |
-| [Activity Diagram](/language/activity-diagram/) | 🚧 Planned |
-| [Use Case Diagram](/language/use-case-diagram/) | 🚧 Planned |
-| [Component Diagram](/language/component-diagram/) | 🚧 Planned |
-| [State Diagram](/language/state-diagram/) | 🚧 Planned |
-| [Object Diagram](/language/object-diagram/) | 🚧 Planned |
-| [Deployment Diagram](/language/deployment-diagram/) | 🚧 Planned |
-| [Timing Diagram](/language/timing-diagram/) | 🚧 Planned |
-| [Mindmap](/language/mindmap/) | 🚧 Planned |
-| [Gantt](/language/gantt/) | 🚧 Planned |
-| [WBS](/language/wbs/) | 🚧 Planned |
-| [JSON](/language/json/) | 🚧 Planned |
-| [YAML](/language/yaml/) | 🚧 Planned |
+| [Class Diagram](/language/class-diagram/) | ✅ Working |
+| [Activity Diagram](/language/activity-diagram/) | ✅ Working |
+| [Use Case Diagram](/language/use-case-diagram/) | ✅ Working |
+| [Component Diagram](/language/component-diagram/) | ✅ Working |
+| [State Diagram](/language/state-diagram/) | ✅ Working |
+| [Object Diagram](/language/object-diagram/) | ✅ Working |
+| [Deployment Diagram](/language/deployment-diagram/) | ✅ Working |
+| [Timing Diagram](/language/timing-diagram/) | ✅ Working |
+| [Mindmap](/language/mindmap/) | ✅ Working |
+| [Gantt](/language/gantt/) | ✅ Working |
+| [WBS](/language/wbs/) | ✅ Working |
+| [JSON](/language/json/) | ✅ Working |
+| [YAML](/language/yaml/) | ✅ Working |
 
 ## Working now
 
-Only sequence diagrams are currently implemented. The [Sequence Diagram](/language/sequence-diagram/) page is fully documented with working examples rendered to SVG at build time.
+All 14 diagram types are now implemented and produce valid SVG output. Each diagram type has its own page with syntax examples. The implementations use simplified layout algorithms rather than the full Java Smetana/Graphviz engines — pixel-perfect parity is deferred. 458 tests pass across the workspace.

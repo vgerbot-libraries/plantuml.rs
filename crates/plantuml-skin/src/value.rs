@@ -11,6 +11,7 @@
 use plantuml_klimt::HColor;
 use plantuml_klimt::HColorSet;
 use plantuml_klimt::HColors;
+pub use plantuml_klimt::HorizontalAlignment;
 
 use crate::specificity::Specificity;
 
@@ -100,38 +101,6 @@ impl UFontFace {
     }
 }
 
-/// Horizontal alignment of text.
-///
-/// Ported from: `net/sourceforge/plantuml/klimt/geom/HorizontalAlignment.java`
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HorizontalAlignment {
-    Left,
-    Center,
-    Right,
-}
-
-impl HorizontalAlignment {
-    /// Parses an alignment from a string, case-insensitive.
-    #[must_use]
-    pub fn from_string(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "left" => Some(Self::Left),
-            "center" => Some(Self::Center),
-            "right" => Some(Self::Right),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for HorizontalAlignment {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Left => write!(f, "left"),
-            Self::Center => write!(f, "center"),
-            Self::Right => write!(f, "right"),
-        }
-    }
-}
 
 /// A string value that may carry both a light and a dark half at a given
 /// specificity.

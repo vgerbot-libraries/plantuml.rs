@@ -37,8 +37,27 @@ impl PSystemBuilder {
     #[must_use]
     pub fn default_builder() -> Self {
         let factories: Vec<Box<dyn PSystemFactory>> = vec![
-            // Position 1: Sequence (currently the only implemented factory).
+            // Position 1: Sequence (currently the only fully implemented factory).
             Box::new(crate::sequence_factory::SequenceDiagramFactory),
+            // Class and Object diagrams.
+            Box::new(crate::class_object_factory::ClassDiagramFactory),
+            Box::new(crate::class_object_factory::ObjectDiagramFactory),
+            // State diagram.
+            Box::new(crate::state_factory::StateDiagramFactory),
+            // Description diagrams (Component/Deployment/UseCase).
+            Box::new(crate::description_factory::DescriptionDiagramFactory),
+            // Timing diagram.
+            Box::new(crate::timing_factory::TimingDiagramFactory),
+            // Gantt diagram.
+            Box::new(crate::gantt_factory::GanttDiagramFactory),
+            // Activity diagram.
+            Box::new(crate::activity_factory::ActivityDiagramFactory),
+            // JSON and YAML diagrams.
+            Box::new(crate::json_yaml_factory::JsonDiagramFactory),
+            Box::new(crate::json_yaml_factory::YamlDiagramFactory),
+            // Mindmap and WBS diagrams.
+            Box::new(crate::mindmap_wbs_factory::MindMapDiagramFactory),
+            Box::new(crate::mindmap_wbs_factory::WbsDiagramFactory),
         ];
         Self::new(factories)
     }

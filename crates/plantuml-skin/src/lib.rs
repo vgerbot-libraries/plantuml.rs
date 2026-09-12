@@ -43,5 +43,7 @@ pub use arrow::{
     ArrowBody, ArrowConfiguration, ArrowDecoration, ArrowDressing, ArrowHead, ArrowPart,
 };
 pub use component::{Area, ComponentType, Context2D, SimpleContext2D};
+// Re-export alignment types from klimt (canonical implementation).
+pub use plantuml_klimt::{HorizontalAlignment, VerticalAlignment};
 pub use style_query::{StyleAtom, StyleQuery};
-pub use value::{DarkString, HorizontalAlignment, UFontFace, Value};
+pub use value::{DarkString, UFontFace, Value};

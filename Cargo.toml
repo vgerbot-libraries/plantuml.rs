@@ -11,7 +11,11 @@ members = [
     "crates/plantuml-svg",
     "crates/plantuml-skin",
     "crates/plantuml-real",
-    "crates/plantuml-sequence",
+    "crates/plantuml-cuca",
+    "crates/plantuml-timing",
+    "crates/plantuml-gantt",
+    "crates/plantuml-activity",
+    "crates/plantuml-mindmap",
     "crates/plantuml-ffi",
     "crates/plantuml-wasm",
     "bindings/plantuml-java/native",
@@ -46,7 +50,12 @@ plantuml-sequence = { path = "crates/plantuml-sequence" }
 plantuml-svg = { path = "crates/plantuml-svg" }
 plantuml-skin = { path = "crates/plantuml-skin" }
 plantuml-ffi = { path = "crates/plantuml-ffi" }
-plantuml-wasm = { path = "crates/plantuml-wasm" }
+plantuml-json = { path = "crates/plantuml-json" }
+plantuml-gantt = { path = "crates/plantuml-gantt" }
+plantuml-cuca = { path = "crates/plantuml-cuca" }
+plantuml-activity = { path = "crates/plantuml-activity" }
+plantuml-mindmap = { path = "crates/plantuml-mindmap" }
+plantuml-timing = { path = "crates/plantuml-timing" }
 cbindgen = "0.29"
 wasm-bindgen = "=0.2.93"
 jni = "0.21"
@@ -70,3 +79,11 @@ cast_sign_loss = "allow"
 cast_lossless = "allow"
 cast_precision_loss = "allow"
 result_large_err = "allow"
+# Rendering-specific: float arithmetic, doc formatting, style preferences.
+suboptimal_flops = "allow"
+doc_markdown = "allow"
+option_if_let_else = "allow"
+missing_const_for_fn = "allow"
+manual_midpoint = "allow"
+implicit_hasher = "allow"
+unnecessary_self_imports = "allow"

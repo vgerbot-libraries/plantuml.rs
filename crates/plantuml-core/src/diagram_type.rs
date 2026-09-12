@@ -306,6 +306,13 @@ fn get_types(chars: &[char], p: usize) -> HashSet<DiagramType> {
                 set.insert(DiagramType::Unknown);
             }
         }
+        't' => {
+            if check("timing", chars, p) {
+                set.insert(DiagramType::Timing);
+            } else {
+                set.insert(DiagramType::Unknown);
+            }
+        }
         'y' => {
             if check("yaml", chars, p) {
                 set.insert(DiagramType::Yaml);

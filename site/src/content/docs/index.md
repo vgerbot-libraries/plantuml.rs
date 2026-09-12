@@ -13,8 +13,7 @@ A 100% Rust reimplementation of [PlantUML](https://plantuml.com/) — the Java d
 
 - **Pure Rust core** — no JVM dependency. Renders diagrams with a native Rust pipeline.
 - **Multi-language bindings** — use the same engine from Rust, Java (JNI), TypeScript/JavaScript (WASM), and (planned) Python.
-- **Sequence diagrams now** — sequence diagram parsing and SVG rendering are working and tested against the Java reference. More diagram types are being ported incrementally.
-- **Preprocessor support** — `!include`, `!define`, variables, and conditionals via the TIM engine.
+- **14 diagram types** — Sequence, Class, Object, State, Component, Deployment, UseCase, Activity, Timing, Gantt, Mindmap, WBS, JSON, and YAML all produce valid SVG output.
 
 ## Quick example
 

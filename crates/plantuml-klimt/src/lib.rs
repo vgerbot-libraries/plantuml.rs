@@ -8,7 +8,9 @@
 //! added in later phases as their backends are ported.
 
 pub mod changes;
+pub mod creole;
 pub mod color;
+pub mod geom;
 pub mod shapes;
 pub mod string_bounder_from_width_table;
 pub mod unicode_block;
@@ -24,5 +26,6 @@ pub use shapes::{UEllipse, ULine, UPath, UPolygon, URectangle, UText};
 pub use string_bounder_from_width_table::StringBounderFromWidthTable;
 pub use uchange::UChange;
 pub use udriver::UDriver;
-pub use ugraphic::UGraphic;
+pub use geom::{HorizontalAlignment, VerticalAlignment};
 pub use ushape::UShape;
+pub use creole::Display;
