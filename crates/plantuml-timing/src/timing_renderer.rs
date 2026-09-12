@@ -58,14 +58,15 @@ pub fn render_timing_svg(source: &TimingSource, diagram_label: &str) -> String {
         return svg.create_xml();
     }
 
-    // Compute total time steps (max changes across all signals).
-    let max_changes = source
+    // Compute max time value across all signals (for axis width).
+    let max_time = source
         .signals
         .values()
-        .map(|s| s.changes.len())
-        .max()
-        .unwrap_or(1);
-    let total_width = (max_changes as f64 + 1.0).mul_add(TIME_UNIT, LABEL_WIDTH + LEFT_MARGIN);
+        .filter_map(|s| s.changes.last().map(|c| c.time))
+        .map(|t| t + 1.0)
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap_or(1.0);
+    let total_width = max_time.mul_add(TIME_UNIT, LABEL_WIDTH + LEFT_MARGIN);
     let _total_height = (source.signals.len() as f64).mul_add(LANE_HEIGHT, TOP_MARGIN) + 10.0;
 
     // Draw signal lanes.
@@ -86,8 +87,9 @@ pub fn render_timing_svg(source: &TimingSource, diagram_label: &str) -> String {
         0.0,
     );
 
-    // Draw time markers.
-    for t in 0..=max_changes {
+    // Draw time markers at integer positions.
+    let max_tick = max_time.ceil() as i32;
+    for t in 0..=max_tick {
         let x = (t as f64).mul_add(TIME_UNIT, LABEL_WIDTH + LEFT_MARGIN);
         svg.svg_line(x, axis_y, x, axis_y + 5.0, 0.0);
         let label = t.to_string();
@@ -118,12 +120,17 @@ fn render_signal_lane(svg: &mut SvgGraphics, signal: &Signal, y: f64) {
     let high_y = y + 5.0;
     let low_y = y + LANE_HEIGHT - 5.0;
 
-    // Draw signal name label.
-    let label_w = text_width(&signal.name, FONT_SIZE);
+    // Draw signal name label (prefer display_name if provided).
+    let label = if signal.display_name.is_empty() {
+        &signal.name
+    } else {
+        &signal.display_name
+    };
+    let label_w = text_width(label, FONT_SIZE);
     let mut attrs = indexmap::IndexMap::new();
     attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
     svg.text(
-        &signal.name,
+        label,
         LEFT_MARGIN,
         f64::from(FONT_SIZE).mul_add(0.35, lane_mid),
         Some(FONT_FAMILY),
@@ -151,7 +158,7 @@ fn render_signal_lane(svg: &mut SvgGraphics, signal: &Signal, y: f64) {
     let x0 = LABEL_WIDTH + LEFT_MARGIN;
 
     match signal.signal_type {
-        SignalType::Binary | SignalType::Digital => {
+        SignalType::Binary | SignalType::Digital | SignalType::Robust | SignalType::Concise => {
             render_binary_waveform(svg, signal, x0, high_y, low_y);
         }
         SignalType::Clock => {
@@ -174,18 +181,24 @@ fn render_binary_waveform(
     high_y: f64,
     low_y: f64,
 ) {
-    let mut prev_y = if signal.changes[0].value == "1" || signal.changes[0].value == "high" {
+    let mut prev_y = if is_high(&signal.changes[0].value) {
         high_y
     } else {
         low_y
     };
 
-    // Draw initial level.
-    svg.svg_line(x0, prev_y, x0 + TIME_UNIT, prev_y, 0.0);
+    // Draw initial level from first change time to next change.
+    let first_x = signal.changes[0].time * TIME_UNIT + x0;
+    let next_x = if signal.changes.len() > 1 {
+        signal.changes[1].time * TIME_UNIT + x0
+    } else {
+        first_x + TIME_UNIT
+    };
+    svg.svg_line(first_x, prev_y, next_x, prev_y, 0.0);
 
     for (i, change) in signal.changes.iter().enumerate().skip(1) {
-        let x = (i as f64).mul_add(TIME_UNIT, x0);
-        let new_y = if change.value == "1" || change.value == "high" {
+        let x = change.time * TIME_UNIT + x0;
+        let new_y = if is_high(&change.value) {
             high_y
         } else {
             low_y
@@ -195,10 +208,23 @@ fn render_binary_waveform(
         if (new_y - prev_y).abs() > f64::EPSILON {
             svg.svg_line(x, prev_y, x, new_y, 0.0);
         }
-        // Horizontal level.
-        svg.svg_line(x, new_y, x + TIME_UNIT, new_y, 0.0);
+        // Horizontal level until next change (or +TIME_UNIT if last).
+        let end_x = if i + 1 < signal.changes.len() {
+            signal.changes[i + 1].time * TIME_UNIT + x0
+        } else {
+            x + TIME_UNIT
+        };
+        svg.svg_line(x, new_y, end_x, new_y, 0.0);
         prev_y = new_y;
     }
+}
+
+/// Returns true if the value represents a high state.
+fn is_high(value: &str) -> bool {
+    matches!(
+        value.to_lowercase().as_str(),
+        "1" | "high" | "true" | "on"
+    )
 }
 
 /// Renders a clock waveform (regular pulses).
@@ -209,16 +235,18 @@ fn render_clock_waveform(
     high_y: f64,
     low_y: f64,
 ) {
-    for (i, _change) in signal.changes.iter().enumerate() {
-        let x = (i as f64).mul_add(TIME_UNIT, x0);
+    let period = signal.period.unwrap_or(1.0);
+    let half = TIME_UNIT * period / 2.0;
+    for change in &signal.changes {
+        let x = change.time * TIME_UNIT + x0;
         // Rising edge.
         svg.svg_line(x, low_y, x, high_y, 0.0);
         // High level (half period).
-        svg.svg_line(x, high_y, x + TIME_UNIT / 2.0, high_y, 0.0);
+        svg.svg_line(x, high_y, x + half, high_y, 0.0);
         // Falling edge.
-        svg.svg_line(x + TIME_UNIT / 2.0, high_y, x + TIME_UNIT / 2.0, low_y, 0.0);
+        svg.svg_line(x + half, high_y, x + half, low_y, 0.0);
         // Low level (half period).
-        svg.svg_line(x + TIME_UNIT / 2.0, low_y, x + TIME_UNIT, low_y, 0.0);
+        svg.svg_line(x + half, low_y, x + TIME_UNIT * period, low_y, 0.0);
     }
 }
 
@@ -231,12 +259,12 @@ fn render_analog_waveform(
     low_y: f64,
 ) {
     for (i, change) in signal.changes.iter().enumerate() {
-        let x = (i as f64).mul_add(TIME_UNIT, x0);
+        let x = change.time * TIME_UNIT + x0;
         let value: f64 = change.value.parse().unwrap_or(0.0);
         let y = (1.0 - value).mul_add(low_y - high_y, high_y);
 
         if i > 0 {
-            let prev_x = ((i - 1) as f64).mul_add(TIME_UNIT, x0);
+            let prev_x = signal.changes[i - 1].time * TIME_UNIT + x0;
             let prev_value: f64 = signal.changes[i - 1].value.parse().unwrap_or(0.0);
             let prev_y = (1.0 - prev_value).mul_add(low_y - high_y, high_y);
             svg.svg_line(prev_x, prev_y, x, y, 0.0);
@@ -252,8 +280,8 @@ fn render_hex_waveform(
     x0: f64,
     lane_mid: f64,
 ) {
-    for (i, change) in signal.changes.iter().enumerate() {
-        let x = (i as f64).mul_add(TIME_UNIT, x0);
+    for change in &signal.changes {
+        let x = change.time * TIME_UNIT + x0;
         let label_w = text_width(&change.value, FONT_SIZE);
         let mut attrs = indexmap::IndexMap::new();
         attrs.insert("fill".to_string(), COLOR_TEXT.to_string());

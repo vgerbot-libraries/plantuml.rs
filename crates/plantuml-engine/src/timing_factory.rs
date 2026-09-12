@@ -19,6 +19,8 @@ const TIMING_KEYWORDS: &[&str] = &[
     "hexa ",
     "hexadecimal ",
     "digital ",
+    "robust ",
+    "concise ",
 ];
 
 impl PSystemFactory for TimingDiagramFactory {

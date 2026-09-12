@@ -22,7 +22,8 @@ impl Participant {
     #[must_use]
     pub fn new(ptype: ParticipantType, code: impl Into<String>, display: impl Into<String>, order: i32) -> Self {
         let code = code.into();
-        let uid = format!("part_{code}");
+        // Java: uid = "part" + cpt.getAndAdd(1) — 1-based sequential numbering
+        let uid = format!("part{}", order + 1);
         Self {
             code,
             display: display.into(),

@@ -541,4 +541,33 @@ mod tests {
         assert_eq!(parsed.packages[0].name, "Models");
         assert_eq!(parsed.packages[0].entities.len(), 2);
     }
+
+    #[test]
+    fn test_parse_star_link() {
+        let link = parse_link_line("[*] --> Idle").unwrap();
+        assert_eq!(link.from, "[*]");
+        assert_eq!(link.to, "Idle");
+        assert_eq!(link.direction, LinkDirection::Right);
+    }
+
+    #[test]
+    fn test_parse_star_target_link() {
+        let link = parse_link_line("Idle --> [*]").unwrap();
+        assert_eq!(link.from, "Idle");
+        assert_eq!(link.to, "[*]");
+        assert_eq!(link.direction, LinkDirection::Right);
+    }
+
+    #[test]
+    fn test_parse_state_with_star_transitions() {
+        let lines = vec!["state Idle", "[*] --> Idle", "Idle --> [*]"];
+        let parsed = parse_entity_link_source(&lines);
+        assert_eq!(parsed.entities.len(), 1);
+        assert!(parsed.entities.contains_key("Idle"));
+        assert_eq!(parsed.links.len(), 2);
+        assert_eq!(parsed.links[0].from, "[*]");
+        assert_eq!(parsed.links[0].to, "Idle");
+        assert_eq!(parsed.links[1].from, "Idle");
+        assert_eq!(parsed.links[1].to, "[*]");
+    }
 }

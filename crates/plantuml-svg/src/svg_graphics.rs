@@ -32,18 +32,24 @@ pub struct SvgGraphics {
     pending_background: Option<XmlNode>,
     pending_elements: Vec<XmlNode>,
     filter: Option<String>,
+    with_shadow: bool,
 }
 
 impl SvgGraphics {
     /// Creates a new `SvgGraphics` with the given seed and options.
     ///
     /// Ported from: `SvgGraphics(long, SvgOption)`.
-    #[must_use]
     pub fn new(seed: i64, option: SvgOption) -> Self {
         let mut document = XmlDocument::new();
 
         // Create root <svg> element
         let mut root = XmlNode::new("svg");
+
+        // Add PlantUML version as processing instruction inside svg element
+        // (placed as first child of <svg> for Confluence compatibility)
+        // Ported from: SvgGraphics.getRootNode() — svg.appendProcessingInstruction("plantuml", Version.versionString())
+        root.append_processing_instruction("plantuml", "1.2026.6");
+
         root.set_attribute("xmlns", "http://www.w3.org/2000/svg");
         root.set_attribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
         root.set_attribute("version", "1.1");
@@ -56,12 +62,6 @@ impl SvgGraphics {
         // Create <defs> and <g> elements
         let defs = XmlNode::new("defs");
         let mut g_root = XmlNode::new("g");
-        g_root.set_attribute("font-family", DEFAULT_FONT_FAMILY);
-        if option.length_adjust() == LengthAdjust::Spacing {
-            g_root.set_attribute("lengthAdjust", DEFAULT_LENGTH_ADJUST);
-        } else if option.length_adjust() == LengthAdjust::SpacingAndGlyphs {
-            g_root.set_attribute("lengthAdjust", "spacingAndGlyphs");
-        }
 
         let stroke_width = format_number(1.0, option.scale(), option.decimal());
 
@@ -95,18 +95,23 @@ impl SvgGraphics {
         root.append_child(g_root.clone());
         document.set_root(root.clone());
 
+        // Java constructor calls ensureVisible(minDim.getWidth(), minDim.getHeight())
+        let (min_w, min_h) = option.min_dim();
+        let max_x = if min_w > 10.0 { (min_w as i32) + 1 } else { 10 };
+        let max_y = if min_h > 10.0 { (min_h as i32) + 1 } else { 10 };
+
         Self {
             document,
             root,
             defs,
             g_root,
             option,
-            fill: "none".to_string(),
-            stroke: "none".to_string(),
+            fill: "black".to_string(),
+            stroke: "black".to_string(),
             stroke_width,
             stroke_dasharray: None,
-            max_x: 0,
-            max_y: 0,
+            max_x,
+            max_y,
             hidden: false,
             filter_uid,
             shadow_id,
@@ -115,6 +120,7 @@ impl SvgGraphics {
             pending_background,
             pending_elements: Vec::new(),
             filter: None,
+            with_shadow: false,
         }
     }
 
@@ -197,6 +203,56 @@ impl SvgGraphics {
         &self.shadow_id
     }
 
+    /// Creates a shadow filter definition in `<defs>` if not already present.
+    ///
+    /// Ported from: `SvgGraphics.manageShadow(double)`.
+    fn manage_shadow(&mut self, delta_shadow: f64) {
+        if delta_shadow != 0.0 && !self.with_shadow {
+            let mut filter = XmlNode::new("filter");
+            filter.set_attribute("id", &self.shadow_id);
+            filter.set_attribute("x", "-1");
+            filter.set_attribute("y", "-1");
+            filter.set_attribute("width", "300%");
+            filter.set_attribute("height", "300%");
+
+            let mut blur = XmlNode::new("feGaussianBlur");
+            blur.set_attribute("result", "blurOut");
+            blur.set_attribute("stdDeviation", format_number(2.0, self.option.scale(), self.option.decimal()));
+            filter.append_child(blur);
+
+            let mut color_matrix = XmlNode::new("feColorMatrix");
+            color_matrix.set_attribute("type", "matrix");
+            color_matrix.set_attribute("in", "blurOut");
+            color_matrix.set_attribute("result", "blurOut2");
+            color_matrix.set_attribute("values", "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .4 0");
+            filter.append_child(color_matrix);
+
+            let mut offset = XmlNode::new("feOffset");
+            offset.set_attribute("result", "blurOut3");
+            offset.set_attribute("in", "blurOut2");
+            offset.set_attribute("dx", format_number(4.0, self.option.scale(), self.option.decimal()));
+            offset.set_attribute("dy", format_number(4.0, self.option.scale(), self.option.decimal()));
+            filter.append_child(offset);
+
+            let mut blend = XmlNode::new("feBlend");
+            blend.set_attribute("in", "SourceGraphic");
+            blend.set_attribute("in2", "blurOut3");
+            blend.set_attribute("mode", "normal");
+            filter.append_child(blend);
+
+            self.defs.append_child(filter);
+            self.with_shadow = true;
+        }
+    }
+
+    /// Adds a `filter` attribute referencing the shadow filter if delta_shadow > 0.
+    ///
+    /// Ported from: `SvgGraphics.addFilterShadowId(XmlNode, double)`.
+    fn add_filter_shadow_id(&self, elt: &mut XmlNode, delta_shadow: f64) {
+        if delta_shadow > 0.0 {
+            elt.set_attribute("filter", format!("url(#{})", self.shadow_id));
+        }
+    }
     /// Draws a rectangle.
     ///
     /// Ported from: `SvgGraphics.svgRectangle(double, double, double, double, double, double, double)`.
@@ -209,13 +265,15 @@ impl SvgGraphics {
         height: f64,
         rx: f64,
         ry: f64,
-        _delta_shadow: f64,
+        delta_shadow: f64,
     ) {
         if height <= 0.0 || width <= 0.0 {
             return;
         }
+        self.manage_shadow(delta_shadow);
         if !self.hidden {
             let mut elt = create_rectangle_internal(x, y, width, height, &self.option, &self.fill, &self.stroke);
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
             if rx > 0.0 && ry > 0.0 {
                 elt.set_attribute("rx", format_number(rx, self.option.scale(), self.option.decimal()));
                 elt.set_attribute("ry", format_number(ry, self.option.scale(), self.option.decimal()));
@@ -226,13 +284,14 @@ impl SvgGraphics {
             }
             self.get_g_mut().append_child(elt);
         }
-        self.ensure_visible(x + width, y + height);
+        self.ensure_visible(x + width + 2.0 * delta_shadow, y + height + 2.0 * delta_shadow);
     }
 
     /// Draws a line.
     ///
     /// Ported from: `SvgGraphics.svgLine(double, double, double, double, double)`.
-    pub fn svg_line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, _delta_shadow: f64) {
+    pub fn svg_line(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, delta_shadow: f64) {
+        self.manage_shadow(delta_shadow);
         if !self.hidden {
             let mut elt = XmlNode::new("line");
             elt.set_attribute("x1", format_number(x1, self.option.scale(), self.option.decimal()));
@@ -240,16 +299,18 @@ impl SvgGraphics {
             elt.set_attribute("x2", format_number(x2, self.option.scale(), self.option.decimal()));
             elt.set_attribute("y2", format_number(y2, self.option.scale(), self.option.decimal()));
             style_me(&mut elt, &self.stroke, &self.stroke_width, &self.stroke_dasharray, None);
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
             self.get_g_mut().append_child(elt);
         }
-        self.ensure_visible(x1, y1);
-        self.ensure_visible(x2, y2);
+        self.ensure_visible(x1 + 2.0 * delta_shadow, y1 + 2.0 * delta_shadow);
+        self.ensure_visible(x2 + 2.0 * delta_shadow, y2 + 2.0 * delta_shadow);
     }
 
     /// Draws a polygon.
     ///
     /// Ported from: `SvgGraphics.svgPolygon(double, double...)`.
-    pub fn svg_polygon(&mut self, _delta_shadow: f64, points: &[f64]) {
+    pub fn svg_polygon(&mut self, delta_shadow: f64, points: &[f64]) {
+        self.manage_shadow(delta_shadow);
         if !self.hidden {
             let mut elt = XmlNode::new("polygon");
             let mut sb = String::new();
@@ -268,12 +329,13 @@ impl SvgGraphics {
                 &self.stroke_dasharray,
                 Some("stroke-linejoin:miter;stroke-miterlimit:10;"),
             );
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
             self.get_g_mut().append_child(elt);
         }
         let mut i = 0;
         while i < points.len() {
             if i + 1 < points.len() {
-                self.ensure_visible(points[i], points[i + 1]);
+                self.ensure_visible(points[i] + 2.0 * delta_shadow, points[i + 1] + 2.0 * delta_shadow);
             }
             i += 2;
         }
@@ -283,6 +345,7 @@ impl SvgGraphics {
     ///
     /// Ported from: `SvgGraphics.svgPath(UPath)` via `DriverPathSvg`.
     pub fn svg_path(&mut self, d: &str, delta_shadow: f64) {
+        self.manage_shadow(delta_shadow);
         if !self.hidden {
             let mut elt = XmlNode::new("path");
             elt.set_attribute("d", d);
@@ -294,6 +357,7 @@ impl SvgGraphics {
                 &self.stroke_dasharray,
                 None,
             );
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
             if let Some(ref f) = self.filter {
                 elt.set_attribute("filter", format!("url(#{f})"));
             }
@@ -306,7 +370,8 @@ impl SvgGraphics {
     /// Draws an ellipse.
     ///
     /// Ported from: `SvgGraphics.svgEllipse(double, double, double, double, double)`.
-    pub fn svg_ellipse(&mut self, x: f64, y: f64, x_radius: f64, y_radius: f64, _delta_shadow: f64) {
+    pub fn svg_ellipse(&mut self, x: f64, y: f64, x_radius: f64, y_radius: f64, delta_shadow: f64) {
+        self.manage_shadow(delta_shadow);
         if !self.hidden {
             let mut elt = XmlNode::new("ellipse");
             elt.set_attribute("cx", format_number(x, self.option.scale(), self.option.decimal()));
@@ -315,9 +380,10 @@ impl SvgGraphics {
             elt.set_attribute("ry", format_number(y_radius, self.option.scale(), self.option.decimal()));
             fill_me(&mut elt, &self.fill, self.option.scale(), self.option.decimal());
             style_me(&mut elt, &self.stroke, &self.stroke_width, &self.stroke_dasharray, None);
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
             self.get_g_mut().append_child(elt);
         }
-        self.ensure_visible(x + x_radius, y + y_radius);
+        self.ensure_visible(x + x_radius + 2.0 * delta_shadow, y + y_radius + 2.0 * delta_shadow);
     }
 
     /// Draws text.
@@ -377,9 +443,10 @@ impl SvgGraphics {
                 format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
             );
 
-            if text.chars().count() > 1
-                && (self.option.length_adjust() == LengthAdjust::Spacing
-                    || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs)
+            // textLength: jar 1.2026.6 sets textLength unconditionally when
+            // lengthAdjust is SPACING or SPACING_AND_GLYPHS (no char-count check).
+            if self.option.length_adjust() == LengthAdjust::Spacing
+                || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs
             {
                 elt.set_attribute(
                     "textLength",
@@ -397,16 +464,28 @@ impl SvgGraphics {
                 elt.set_attribute("text-decoration", td);
             }
             if let Some(ff) = font_family {
-                if !ff.eq_ignore_ascii_case(DEFAULT_FONT_FAMILY) {
-                    elt.set_attribute("font-family", ff);
-                }
+                // Convert "monospaced" to "monospace" (Java: SvgGraphics.text)
+                let ff = if ff.eq_ignore_ascii_case("monospaced") {
+                    "monospace"
+                } else {
+                    ff
+                };
+                elt.set_attribute("font-family", ff);
                 if ff.eq_ignore_ascii_case("monospace") || ff.eq_ignore_ascii_case("courier") {
                     elt.set_text_content(text.replace(' ', "\u{00A0}"));
                 } else {
                     elt.set_text_content(text.to_string());
                 }
             } else {
+                elt.set_attribute("font-family", DEFAULT_FONT_FAMILY);
                 elt.set_text_content(text.to_string());
+            }
+
+            // Always set lengthAdjust on <text> (jar 1.2026.6 behavior)
+            if self.option.length_adjust() == LengthAdjust::Spacing {
+                elt.set_attribute("lengthAdjust", DEFAULT_LENGTH_ADJUST);
+            } else if self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs {
+                elt.set_attribute("lengthAdjust", "spacingAndGlyphs");
             }
 
             for (key, value) in attributes {
@@ -469,10 +548,12 @@ impl SvgGraphics {
                 format_number(f64::from(font_size), self.option.scale(), self.option.decimal()),
             );
 
-            // textLength: only for multi-char text with length adjust enabled
-            if text.chars().count() > 1
-                && (self.option.length_adjust() == LengthAdjust::Spacing
-                    || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs)
+            // textLength: jar 1.2026.6 sets textLength unconditionally when
+            // lengthAdjust is SPACING or SPACING_AND_GLYPHS (no char-count check).
+            // The 1.2026.9beta2 source added a text.length() > 1 guard, but we
+            // match the jar.
+            if self.option.length_adjust() == LengthAdjust::Spacing
+                || self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs
             {
                 elt.set_attribute(
                     "textLength",
@@ -492,12 +573,25 @@ impl SvgGraphics {
 
             let mut text_content = text.to_string();
             if let Some(ff) = font_family {
-                if !ff.eq_ignore_ascii_case(DEFAULT_FONT_FAMILY) {
-                    elt.set_attribute("font-family", ff);
-                }
+                // Convert "monospaced" to "monospace" (Java: SvgGraphics.text)
+                let ff = if ff.eq_ignore_ascii_case("monospaced") {
+                    "monospace"
+                } else {
+                    ff
+                };
+                elt.set_attribute("font-family", ff);
                 if ff.eq_ignore_ascii_case("monospace") || ff.eq_ignore_ascii_case("courier") {
                     text_content = text_content.replace(' ', "\u{00A0}");
                 }
+            } else {
+                elt.set_attribute("font-family", DEFAULT_FONT_FAMILY);
+            }
+
+            // Always set lengthAdjust on <text> (jar 1.2026.6 behavior)
+            if self.option.length_adjust() == LengthAdjust::Spacing {
+                elt.set_attribute("lengthAdjust", DEFAULT_LENGTH_ADJUST);
+            } else if self.option.length_adjust() == LengthAdjust::SpacingAndGlyphs {
+                elt.set_attribute("lengthAdjust", "spacingAndGlyphs");
             }
 
             for (key, value) in attributes {
@@ -510,6 +604,7 @@ impl SvgGraphics {
         self.ensure_visible(x, y);
         self.ensure_visible(x + text_length, y);
     }
+
 
     /// Opens a group element.
     pub fn open_group(&mut self, _kind: Option<&str>) {
@@ -567,15 +662,13 @@ impl SvgGraphics {
     }
 
     // -- Internal helpers --
-
     fn get_g_mut(&mut self) -> &mut XmlNode {
         if self.pending_elements.is_empty() {
             &mut self.g_root
         } else {
-            self.pending_elements.last_mut().unwrap()
+            self.pending_elements.last_mut().expect("checked non-empty")
         }
     }
-
     pub fn ensure_visible(&mut self, x: f64, y: f64) {
         if x > f64::from(self.max_x) {
             self.max_x = (x as i32) + 1;
@@ -927,16 +1020,13 @@ fn fix_color(color: &str) -> String {
 /// Shortens `#RRGGBB` into `#RGB` when each pair has two identical digits.
 ///
 /// Ported from: `SvgGraphics.shortenColor(String)`.
+///
+/// NOTE: The 1.2026.6 jar does NOT shorten colors — it always outputs full
+/// `#RRGGBB`. The `shortenColor()` method was added in a later development
+/// version (1.2026.9beta2). We keep the function for documentation but make
+/// it a no-op to match the jar output.
 fn shorten_color(color: &str) -> String {
-    if color.len() != 7 || !color.starts_with('#') {
-        return color.to_string();
-    }
-    let bytes = color.as_bytes();
-    if bytes[1] == bytes[2] && bytes[3] == bytes[4] && bytes[5] == bytes[6] {
-        format!("#{}{}{}", bytes[1] as char, bytes[3] as char, bytes[5] as char)
-    } else {
-        color.to_string()
-    }
+    color.to_string()
 }
 
 /// Sets the fill attribute on an element, handling opacity.
@@ -1008,15 +1098,14 @@ fn create_rectangle_internal(
 }
 
 /// Formats opacity value (0 to 1).
+///
+/// Ported from: `SvgGraphics.formatOpacity(double)`.
+///
+/// The 1.2026.6 jar uses 5 decimal places without trimming (e.g. `0.00000`).
+/// The newer source (1.2026.9beta2) changed to `Math.max(decimal, 2)` with
+/// `trimZeros`, but we match the jar behavior.
 fn format_opacity(value: f64) -> String {
-    if value <= 0.0 {
-        return "0".to_string();
-    }
-    if value >= 1.0 {
-        return "1".to_string();
-    }
-    let s = format!("{value:.2}");
-    trim_zeros(&s)
+    format!("{value:.5}")
 }
 
 /// Converts a seed to a base-36 string.

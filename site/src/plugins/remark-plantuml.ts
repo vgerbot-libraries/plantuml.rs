@@ -29,9 +29,12 @@ export function remarkPlantuml() {
         let errorMsg = '';
         try {
           svg = await renderSvg(source);
-          if (!svg) errorMsg = 'Rendering returned empty output (parse failure or unsupported diagram type).';
-        } catch (e: any) {
-          errorMsg = e?.message || String(e);
+          if (!svg || svg.trimStart().startsWith('<!-- render error:')) {
+            errorMsg = svg.trimStart().replace(/^<!-- render error: /, '').replace(/ -->$/, '') || 'Rendering returned empty output (parse failure or unsupported diagram type).';
+            svg = '';
+          }
+        } catch (e: unknown) {
+          errorMsg = e instanceof Error ? e.message : String(e);
         }
 
         const escapedSource = escapeHtml(source);

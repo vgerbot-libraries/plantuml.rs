@@ -8,11 +8,18 @@
 
 use wasm_bindgen::prelude::*;
 
-/// Renders `PlantUML` source to SVG. Returns an empty string on parse failure.
+/// Initializes the panic hook for better error messages in JS consoles.
+#[wasm_bindgen(start)]
+fn _start() {
+    console_error_panic_hook::set_once();
+}
+
+/// Renders `PlantUML` source to SVG. Returns an error comment on parse failure.
 #[must_use]
 #[wasm_bindgen]
 pub fn render_svg(source: &str) -> String {
-    plantuml_engine::render_svg(source).unwrap_or_default()
+    plantuml_engine::render_svg(source)
+        .unwrap_or_else(|e| format!("<!-- render error: {e:?} -->"))
 }
 
 /// Renders `PlantUML` source to PREPROC text. Returns an empty string on failure.

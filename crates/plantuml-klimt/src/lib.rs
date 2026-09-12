@@ -13,6 +13,7 @@ pub mod color;
 pub mod geom;
 pub mod shapes;
 pub mod string_bounder_from_width_table;
+pub mod string_bounder_svg;
 pub mod unicode_block;
 pub mod unicode_font_width_sans_serif;
 pub mod uchange;

@@ -100,6 +100,38 @@ pub fn compute_layout(
     entities: &HashMap<String, ParsedEntity>,
     links: &[ParsedLink],
 ) -> CucaLayout {
+    if entities.is_empty() && !links.iter().any(|l| l.from == "[*]" || l.to == "[*]") {
+        return CucaLayout {
+            nodes: Vec::new(),
+            links: Vec::new(),
+            total_width: PAGE_MARGIN * 2.0,
+            total_height: PAGE_MARGIN * 2.0,
+        };
+    }
+
+    // Auto-create [*] pseudo-entities for initial/final state transitions.
+    let mut entities = entities.clone();
+    for link in links {
+        if link.from == "[*]" && !entities.contains_key("[*]") {
+            entities.insert("[*]".to_string(), ParsedEntity {
+                name: "[*]".to_string(),
+                display: "[*]".to_string(),
+                kind: crate::entity_link_parser::EntityKind::State,
+                stereotype: None,
+                body: Vec::new(),
+            });
+        }
+        if link.to == "[*]" && !entities.contains_key("[*]") {
+            entities.insert("[*]".to_string(), ParsedEntity {
+                name: "[*]".to_string(),
+                display: "[*]".to_string(),
+                kind: crate::entity_link_parser::EntityKind::State,
+                stereotype: None,
+                body: Vec::new(),
+            });
+        }
+    }
+
     if entities.is_empty() {
         return CucaLayout {
             nodes: Vec::new(),
@@ -169,12 +201,17 @@ pub fn compute_layout(
 
     // Compute box dimensions for each entity.
     let mut node_dims: HashMap<&String, (f64, f64)> = HashMap::new();
-    for (name, entity) in entities {
-        let label_w = text_width(&entity.display);
-        let body_lines = entity.body.len();
-        let width = label_w.max(MIN_BOX_WIDTH) + BOX_PADDING_H * 2.0;
-        let height = LINE_HEIGHT + BOX_PADDING_V * 2.0 + body_lines as f64 * LINE_HEIGHT;
-        node_dims.insert(name, (width, height));
+    for (name, entity) in &entities {
+        if name.as_str() == "[*]" {
+            // [*] is rendered as a small circle, not a box.
+            node_dims.insert(name, (20.0, 20.0));
+        } else {
+            let label_w = text_width(&entity.display);
+            let body_lines = entity.body.len();
+            let width = label_w.max(MIN_BOX_WIDTH) + BOX_PADDING_H * 2.0;
+            let height = LINE_HEIGHT + BOX_PADDING_V * 2.0 + body_lines as f64 * LINE_HEIGHT;
+            node_dims.insert(name, (width, height));
+        }
     }
 
     // Compute column widths (max width in each column).
@@ -211,7 +248,7 @@ pub fn compute_layout(
 
     // Create layout nodes.
     let mut nodes = Vec::new();
-    for (name, entity) in entities {
+    for (name, entity) in &entities {
         let row = row_of[name];
         let col = col_of[name];
         let (w, h) = node_dims[name];

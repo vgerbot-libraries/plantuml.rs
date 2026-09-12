@@ -39,6 +39,37 @@ impl PSystemFactory for SequenceDiagramFactory {
             .collect::<Vec<_>>()
             .join("\n");
 
+        // Reject sources that contain state diagram keywords — the state
+        // factory should handle those instead.
+        let has_state_keyword = source_text.lines().any(|line| {
+            let t = line.trim();
+            t.starts_with("state ") || t.contains("[*]") || t.contains("hide empty description")
+        });
+        if has_state_keyword {
+            return Err(PSystemError::syntax(
+                "Source contains state diagram keywords",
+                DiagramType::Sequence,
+            ));
+        }
+
+        // Reject sources that contain class/object diagram keywords.
+        let has_class_keyword = source_text.lines().any(|line| {
+            let t = line.trim();
+            t.starts_with("class ")
+                || t.starts_with("interface ")
+                || t.starts_with("object ")
+                || t.starts_with("enum ")
+                || t.starts_with("abstract ")
+                || t.starts_with("package ")
+                || t.starts_with("namespace ")
+        });
+        if has_class_keyword {
+            return Err(PSystemError::syntax(
+                "Source contains class diagram keywords",
+                DiagramType::Sequence,
+            ));
+        }
+
         match crate::sequence_renderer::parse_simple_sequence(&source_text) {
             Some(parsed) => Ok(Box::new(SequenceDiagramImpl { parsed })),
             None => Err(PSystemError::syntax(

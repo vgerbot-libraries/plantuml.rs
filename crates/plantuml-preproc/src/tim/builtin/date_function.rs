@@ -1,7 +1,6 @@
 //! Ported from `net.sourceforge.plantuml.tim.builtin.DateFunction`.
 
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
@@ -26,10 +25,7 @@ crate::impl_simple_return_function!(
     execute = |_self, _context, _memory, location, values, _named| {
         if values.is_empty() {
             // Return current time as a string
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let now = crate::wasm_time::now_secs();
             return Ok(TValue::from_string(now.to_string()));
         }
         let format = values[0].to_string();

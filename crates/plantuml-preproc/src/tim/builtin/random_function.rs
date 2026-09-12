@@ -2,7 +2,6 @@
 
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::tim::eater_exception::EaterException;
 use crate::tim::expression::TValue;
@@ -23,10 +22,7 @@ pub struct RandomFunction {
 impl RandomFunction {
     /// Creates a new `RandomFunction` with a time-seeded PRNG.
     pub fn new() -> Self {
-        let seed = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(1);
+        let seed = crate::wasm_time::now_nanos();
         Self {
             state: AtomicU64::new(seed | 1),
         }

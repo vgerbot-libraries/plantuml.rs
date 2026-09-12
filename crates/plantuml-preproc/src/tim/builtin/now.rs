@@ -1,7 +1,6 @@
 //! Ported from `net.sourceforge.plantuml.tim.builtin.Now`.
 
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::tim::expression::TValue;
 use crate::tim::t_function_signature::TFunctionSignature;
@@ -21,10 +20,7 @@ crate::impl_simple_return_function!(
     &*SIGNATURE,
     can_cover = |nb_arg, _named| nb_arg == 0,
     execute = |_self, _context, _memory, _location, _values, _named| {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs() as i32)
-            .unwrap_or(0);
+        let now = crate::wasm_time::now_secs() as i32;
         Ok(TValue::from_int(now))
     },
 );

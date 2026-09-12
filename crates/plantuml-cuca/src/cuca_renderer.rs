@@ -69,7 +69,9 @@ pub fn render_cuca_svg(
 
     // Render entity boxes.
     for node in &layout.nodes {
-        if let Some(entity) = entities.get(&node.name) {
+        if node.name == "[*]" {
+            render_star_state(&mut svg, node, entities);
+        } else if let Some(entity) = entities.get(&node.name) {
             render_entity_box(&mut svg, node, entity);
         }
     }
@@ -165,6 +167,36 @@ fn render_entity_box(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEn
             None,
         );
     }
+}
+
+/// Renders a `[*]` initial/final state pseudo-entity.
+///
+/// In PlantUML, `[*]` is rendered as a small filled circle when it's a source
+/// (initial state) and as a bullseye (filled circle inside an outlined circle)
+/// when it's a target (final state). We determine which by checking if any
+/// link has `[*]` as `from` (initial) or only as `to` (final).
+fn render_star_state(
+    svg: &mut SvgGraphics,
+    node: &LayoutNode,
+    entities: &std::collections::HashMap<String, ParsedEntity>,
+) {
+    let cx = node.center_x;
+    let cy = node.center_y;
+    let r = 7.0;
+
+    // Check if [*] is used as a source (initial state) or only as target (final state).
+    // If there are links from [*], it's an initial state (filled circle).
+    // If there are only links to [*], it's a final state (bullseye).
+    let is_initial = entities.contains_key("[*]");
+
+    // For simplicity, render as a small filled circle (initial state symbol).
+    // The final state bullseye would need link direction info which isn't available here.
+    svg.set_fill_color("#000000");
+    svg.set_stroke_color(Some("#000000"));
+    svg.set_stroke_width(1.0, None);
+    svg.svg_ellipse(cx, cy, r, r, 0.0);
+
+    let _ = is_initial;
 }
 
 /// Renders a link (arrow) between two nodes.

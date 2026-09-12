@@ -151,11 +151,7 @@ impl Defines {
         // Simple date string without external dependencies.
         // Java uses `new Date().toString()` which produces something like
         // "Wed Sep 09 14:30:00 UTC 2026".
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let secs = crate::wasm_time::now_secs();
         format!("<date {secs}>")
     }
 

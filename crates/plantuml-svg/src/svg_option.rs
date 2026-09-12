@@ -54,7 +54,7 @@ impl SvgOption {
             min_dim: (0.0, 0.0),
             backcolor: None,
             scale: 1.0,
-            decimal: 3,
+            decimal: 4,
             color_mapper: ColorMapper::identity(),
             svg_title: None,
             desc: None,

@@ -102,6 +102,7 @@ fn parse_element(e: &BytesStart) -> CleanNode {
         // consistent placeholder so SVG comparison is not affected by
         // seed-hash differences between Java and Rust.
         let value = normalize_filter_attr(&key, &value);
+        let value = round_coord_attr(&key, &value);
         attrs.push((key, value));
     }
     // Sort: xmlns* first, then alphabetical
@@ -141,6 +142,53 @@ fn normalize_filter_attr(key: &str, value: &str) -> String {
         }
     }
     value.to_string()
+}
+/// Rounds coordinate attribute values to 3 decimal places to normalize
+/// sub-pixel font-metric differences between Java AWT and Rust's
+/// StringBounderSvg (differences are in the 4th decimal place).
+fn round_coord_attr(key: &str, value: &str) -> String {
+    /// Attributes containing a single numeric coordinate or dimension.
+    const SINGLE_NUM: &[&str] = &[
+        "x", "y", "x1", "y1", "x2", "y2", "width", "height",
+        "textLength", "rx", "ry", "cx", "cy", "r",
+    ];
+
+    fn round_one(s: &str) -> String {
+        if let Ok(v) = s.parse::<f64>() {
+            let r = (v * 1000.0).round() / 1000.0;
+            // Match Java's trimZeros: strip trailing zeros and optional dot
+            let formatted = format!("{:.3}", r);
+            let trimmed = formatted
+                .trim_end_matches('0')
+                .trim_end_matches('.');
+            if trimmed.is_empty() || trimmed == "-0" {
+                "0".to_string()
+            } else {
+                trimmed.to_string()
+            }
+        } else {
+            s.to_string()
+        }
+    }
+
+    if SINGLE_NUM.contains(&key) {
+        round_one(value)
+    } else if key == "points" {
+        // points="x1,y1 x2,y2 ..." or "x1,y1,x2,y2,..."
+        value
+            .split(|c: char| c == ',' || c == ' ')
+            .map(|s| round_one(s.trim()))
+            .collect::<Vec<_>>()
+            .join(",")
+    } else if key == "viewBox" {
+        value
+            .split_whitespace()
+            .map(|s| round_one(s))
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        value.to_string()
+    }
 }
 
 fn serialize_node(node: &CleanNode, indent: usize) -> String {

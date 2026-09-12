@@ -19,6 +19,7 @@ const GANTT_KEYWORDS: &[&str] = &[
     "project starts",
     "lasts ",
     "happens at",
+    "[",
 ];
 
 impl PSystemFactory for GanttDiagramFactory {

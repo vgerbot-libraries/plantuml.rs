@@ -1,7 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
-import { unified } from '@astrojs/markdown-remark';
 import { remarkPlantuml } from './src/plugins/remark-plantuml.ts';
 
 export default defineConfig({
@@ -72,6 +71,6 @@ export default defineConfig({
     mdx(),
   ],
   markdown: {
-    processor: unified({ remarkPlugins: [remarkPlantuml] }),
+    remarkPlugins: [remarkPlantuml],
   },
 });

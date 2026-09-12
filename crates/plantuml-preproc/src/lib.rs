@@ -10,6 +10,7 @@ pub mod stubs;
 pub mod string_located;
 pub mod t_line_type;
 pub mod tim;
+pub mod wasm_time;
 
 // Re-export key types
 pub use string_located::StringLocated;

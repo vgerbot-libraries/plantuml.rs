@@ -107,11 +107,10 @@ fn run_preproc_test(puml_path: &Path) {
     let expected_path = expected_file(puml_path, ".preproc");
     let expected_output = match fs::read_to_string(&expected_path) {
         Ok(content) => normalize_line_endings(&content),
-        Err(_) => {
-            // If expected file doesn't exist, write it (for initial generation)
-            fs::write(&expected_path, &actual_output).ok();
-            return;
-        }
+        Err(_) => panic!(
+            "Expected file missing: {}. Run Java reference to generate.",
+            expected_path.display()
+        ),
     };
 
     assert_eq!(
@@ -408,6 +407,8 @@ fn run_sequence_svg_test(name: &str) {
         parsed.caption_text.as_deref(),
         parsed.caption_line,
         &parsed.style_rules,
+        &parsed.participant_source_lines,
+        &parsed.msg_source_lines,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
     let cleaned_expected = svg_cleaner::clean(&expected_svg);
