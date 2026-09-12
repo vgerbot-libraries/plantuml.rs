@@ -34,4 +34,6 @@ bindings/plantuml-java/.gradle/
 bindings/plantuml-java/build/
 
 # Root node_modules (dev tooling only)
+# Vendored test-only PlantUML jar (not committed; developers copy locally)
+crates/plantuml-engine/tests/vendor/
 node_modules/
