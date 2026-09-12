@@ -55,10 +55,17 @@ pub fn render_cuca_svg(
     layout: &CucaLayout,
     entities: &std::collections::HashMap<String, ParsedEntity>,
     notes: &[ParsedNote],
-    diagram_label: &str,
+    diagram_type: plantuml_core::DiagramType,
 ) -> String {
     let mut option = SvgOption::basic();
-    option.set_title(diagram_label.to_string());
+    option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
+    let type_name = match diagram_type {
+        plantuml_core::DiagramType::Class => "CLASS",
+        plantuml_core::DiagramType::Object => "OBJECT",
+        plantuml_core::DiagramType::State => "STATE",
+        _ => "DESCRIPTION",
+    };
+    option.set_root_attribute("data-diagram-type", type_name);
 
     let mut svg = SvgGraphics::new(0, option);
 
@@ -86,6 +93,116 @@ pub fn render_cuca_svg(
 
 /// Renders an entity box with label and body.
 fn render_entity_box(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    match entity.kind {
+        EntityKind::Usecase => render_usecase(svg, node, entity),
+        EntityKind::Actor => render_actor(svg, node, entity),
+        _ => render_box_entity(svg, node, entity),
+    }
+}
+
+/// Fill color for description-diagram entities (use cases, actors, components).
+const FILL_DESC: &str = "#F1F1F1";
+/// Stroke width for description-diagram entities.
+const STROKE_WIDTH_DESC: f64 = 0.5;
+/// Font size for description-diagram entity labels.
+const FONT_SIZE_DESC: i32 = 14;
+
+/// Renders a use case as an ellipse with centered text.
+fn render_usecase(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let cx = node.center_x;
+    let cy = node.center_y;
+    let rx = node.width / 2.0;
+    let ry = node.height / 2.0;
+
+    svg.set_fill_color(FILL_DESC);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_DESC, None);
+    svg.svg_ellipse(cx, cy, rx, ry, 0.0);
+
+    // Centered text inside ellipse.
+    let label = entity.display.trim_matches('(').trim_matches(')');
+    let text_w = text_width(label, FONT_SIZE_DESC);
+    let text_x = cx - text_w / 2.0;
+    let text_y = cy + (FONT_SIZE_DESC as f64) * 0.493; // approximate ascent/2
+    let mut attrs = indexmap::IndexMap::new();
+    attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        label,
+        text_x,
+        text_y,
+        Some(FONT_FAMILY),
+        FONT_SIZE_DESC,
+        None,
+        None,
+        None,
+        text_w,
+        &attrs,
+        None,
+    );
+}
+
+/// Renders an actor as a stick figure with label below.
+fn render_actor(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let cx = node.center_x;
+    // Head center Y — top of the node.
+    let head_cy = node.y + 8.0;
+    let head_r = 8.0;
+
+    // Head (circle).
+    svg.set_fill_color(FILL_DESC);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_DESC, None);
+    svg.svg_ellipse(cx, head_cy, head_r, head_r, 0.0);
+
+    // Body: vertical line from head bottom to hips.
+    let body_top = head_cy + head_r;
+    let body_bottom = body_top + 27.0; // 49 - 22 = 27
+    let arms_y = body_top + 8.0; // 30 - 22 = 8
+    let arm_span = 13.0;
+    let leg_span = 13.0;
+
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_DESC, None);
+    let path_d = format!(
+        "M{cx},{body_top} L{cx},{body_bottom} M{left},{arms_y} L{right},{arms_y} M{cx},{body_bottom} L{leg_l_x},{leg_l_y} M{cx},{body_bottom} L{leg_r_x},{leg_r_y}",
+        cx = cx,
+        body_top = body_top,
+        body_bottom = body_bottom,
+        left = cx - arm_span,
+        right = cx + arm_span,
+        arms_y = arms_y,
+        leg_l_x = cx - leg_span,
+        leg_l_y = body_bottom + 15.0,
+        leg_r_x = cx + leg_span,
+        leg_r_y = body_bottom + 15.0,
+    );
+    svg.svg_path(&path_d, 0.0);
+
+    // Label below the figure.
+    let label = &entity.display;
+    let text_w = text_width(label, FONT_SIZE_DESC);
+    let text_x = cx - text_w / 2.0;
+    let text_y = body_bottom + 15.0 + (FONT_SIZE_DESC as f64) * 0.85;
+    let mut attrs = indexmap::IndexMap::new();
+    attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        label,
+        text_x,
+        text_y,
+        Some(FONT_FAMILY),
+        FONT_SIZE_DESC,
+        None,
+        None,
+        None,
+        text_w,
+        &attrs,
+        None,
+    );
+}
+
+/// Renders a regular box entity (class, component, state, etc.).
+fn render_box_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
     let fill = match entity.kind {
         EntityKind::State => FILL_STATE,
         EntityKind::Component | EntityKind::Node | EntityKind::Database => FILL_COMPONENT,
@@ -311,7 +428,7 @@ mod tests {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let layout = compute_layout(&entity_map, &parsed.links);
-        let svg = render_cuca_svg(&layout, &entity_map, &parsed.notes, "(Class)");
+        let svg = render_cuca_svg(&layout, &entity_map, &parsed.notes, plantuml_core::DiagramType::Class);
         assert!(svg.contains("<svg"));
         assert!(svg.contains("Alice"));
         assert!(svg.contains("Bob"));
@@ -330,7 +447,7 @@ mod tests {
         let mut entities = HashMap::new();
         entities.insert("Foo".to_string(), entity);
         let layout = compute_layout(&entities, &[]);
-        let svg = render_cuca_svg(&layout, &entities, &[], "(Class)");
+        let svg = render_cuca_svg(&layout, &entities, &[], plantuml_core::DiagramType::Class);
         assert!(svg.contains("<svg"));
         assert!(svg.contains("field"));
         assert!(svg.contains("method"));

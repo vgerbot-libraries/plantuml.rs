@@ -99,7 +99,7 @@ impl Diagram for CucaDiagram {
             )
         } else {
             let layout = compute_layout(&self.entities, &self.links);
-            render_cuca_svg(&layout, &self.entities, &self.notes, self.diagram_label())
+            render_cuca_svg(&layout, &self.entities, &self.notes, self.diagram_type)
         };
 
         os.write_all(svg.as_bytes())

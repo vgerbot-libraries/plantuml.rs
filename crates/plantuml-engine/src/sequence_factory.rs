@@ -52,6 +52,46 @@ impl PSystemFactory for SequenceDiagramFactory {
             ));
         }
 
+        // Reject sources that contain description diagram keywords
+        // (usecase, actor, component, node, etc.) — the description
+        // factory should handle those instead. In Java, the command-based
+        // SequenceDiagramFactory simply fails to parse these lines, but our
+        // permissive `parse_simple_sequence` accepts `A -> B` arrows even
+        // when the source is a use case / component / deployment diagram.
+        let has_desc_keyword = source_text.lines().any(|line| {
+            let lower = line.to_lowercase();
+            let t = lower.trim();
+            t.starts_with("usecase ")
+                || t.starts_with("use case ")
+                || t.starts_with("actor ")
+                || t.starts_with("component ")
+                || t.starts_with("node ")
+                || t.starts_with("database ")
+                || t.starts_with("cloud ")
+                || t.starts_with("rectangle ")
+                || t.starts_with("frame ")
+                || t.starts_with("folder ")
+                || t.starts_with("artifact ")
+                || t.starts_with("queue ")
+                || t.starts_with("stack ")
+                || t.starts_with("storage ")
+                || t.starts_with("card ")
+                || t.starts_with("file ")
+                || t.starts_with("interface ")
+                || t.starts_with("port ")
+                || t.starts_with("hexagon ")
+                || t.starts_with("collections ")
+                || t.starts_with("boundary ")
+                || t.starts_with("control ")
+                || t.starts_with("entity ")
+        });
+        if has_desc_keyword {
+            return Err(PSystemError::syntax(
+                "Source contains description diagram keywords",
+                DiagramType::Sequence,
+            ));
+        }
+
         // Reject sources that contain class/object diagram keywords.
         let has_class_keyword = source_text.lines().any(|line| {
             let t = line.trim();
