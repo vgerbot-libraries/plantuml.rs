@@ -2,6 +2,10 @@
 //!
 //! Verifies that the new PSystemBuilder dispatch produces identical SVG
 //! output to the legacy bypass pipeline for sequence diagrams.
+//!
+//! Test sources are adapted from the language documentation examples, not
+//! directly ported from `temp/plantuml/src/test/`. They verify pipeline
+//! correctness and Java parity for representative diagram types.
 
 mod java_plantuml;
 mod svg_cleaner;

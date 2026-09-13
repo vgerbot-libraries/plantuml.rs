@@ -5,6 +5,10 @@
 //! and the Rust engine, normalizes both SVGs via `svg_cleaner`, and asserts
 //! they are identical.
 //!
+//! Test sources are adapted from the language documentation examples, not
+//! directly ported from `temp/plantuml/src/test/`. They verify that the Rust
+//! renderer matches Java PlantUML for the same diagrams shown on the site.
+//!
 //! All tests are currently `#[ignore]` because the Rust renderer was crafted
 //! to match an older Java PlantUML version whose SVG structure differs from
 //! the current Java 1.2026.6 (e.g. `participant-lifeline` data-attribute

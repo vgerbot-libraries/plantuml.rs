@@ -34,6 +34,21 @@ bindings/plantuml-java/.gradle/
 bindings/plantuml-java/build/
 
 # Root node_modules (dev tooling only)
+node_modules/
+
 # Vendored test-only PlantUML jar (not committed; developers copy locally)
 crates/plantuml-engine/tests/vendor/
-node_modules/
+
+# Vega test expected-output files are generated at runtime by the Java JAR.
+# Only .puml input files are committed. See .agents/rules/test-parity.md.
+crates/plantuml-engine/tests/resources/vega/**/*.svg
+crates/plantuml-engine/tests/resources/vega/**/*.txt
+crates/plantuml-engine/tests/resources/vega/**/*.utxt
+crates/plantuml-engine/tests/resources/vega/**/*.atxt
+crates/plantuml-engine/tests/resources/vega/**/*.preproc
+crates/plantuml-engine/tests/resources/vega/**/*.xmi
+crates/plantuml-engine/tests/resources/vega/**/*.tex
+crates/plantuml-engine/tests/resources/vega/**/*.scxml
+crates/plantuml-engine/tests/resources/vega/**/*.graphml
+# Debug output from failed tests
+crates/plantuml-engine/tests/resources/vega/**/*.actual.svg
