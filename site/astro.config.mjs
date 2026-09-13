@@ -2,6 +2,9 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 import { remarkPlantuml } from './src/plugins/remark-plantuml.ts';
+import { syncWasm } from './scripts/sync-wasm.mjs';
+
+syncWasm();
 
 export default defineConfig({
   site: 'https://vgerbot.github.io',
