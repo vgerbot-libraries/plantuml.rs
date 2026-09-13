@@ -231,9 +231,9 @@ endwhile (no)
 stop
 @enduml"#);
 
-// ── Use case diagram (expected to fail — simplified layout) ────────────
+// ── Use case diagram ──────────────────────────────────────────────────
 
-parity_test_ignored!(usecase_actors_usecases, r#"@startuml
+parity_test!(usecase_actors_usecases, r#"@startuml
 actor User
 usecase (Login)
 usecase (Logout)
@@ -241,7 +241,7 @@ User --> (Login)
 User --> (Logout)
 @enduml"#);
 
-parity_test_ignored!(usecase_relationships, r#"@startuml
+parity_test!(usecase_relationships, r#"@startuml
 usecase (Shopping)
 usecase (Checkout)
 usecase (Payment)
@@ -249,7 +249,7 @@ usecase (Payment)
 (Checkout) --> (Payment)
 @enduml"#);
 
-parity_test_ignored!(usecase_multiple_actors, r#"@startuml
+parity_test!(usecase_multiple_actors, r#"@startuml
 actor Customer
 actor Admin
 usecase (Manage Orders)

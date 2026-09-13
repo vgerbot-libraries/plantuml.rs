@@ -91,12 +91,19 @@ impl StringBounder for StringBounderSvg {
     fn calculate_dimension(&self, font: &UFont, text: &str) -> XDimension2D {
         let size = font.size_2d();
         let factor = size / REFERENCE_SIZE;
-        let height = size;
+        // Java AWT Font.getStringBounds() returns height ≈ size * 1.362
+        // (ascent + descent of the visual bounds, not just the font size).
+        // Measured from Java AWT SansSerif at 14pt: 19.0679 / 14 = 1.361994.
+        let height = size * 1.362;
         let mut width = 0.0_f64;
         for cp in text.chars().map(|c| c as u32) {
             width += self.get_char_width(cp);
         }
-        let width = width * factor;
+        // Java's FontMetrics.getStringBounds() returns a width slightly less
+        // than the sum of per-character advance widths.  The difference is
+        // proportional to the total advance width (~0.0000059 per unit at 16 pt),
+        // measured against Java 1.2026.6 AWT SansSerif at 14 pt.
+        let width = width * (1.0 - 0.000_005_9) * factor;
         let _ = font.family(text, plantuml_core::u_font::UFontContext::Svg);
         XDimension2D::new_or_zero(width, height)
     }

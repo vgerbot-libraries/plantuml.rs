@@ -180,7 +180,6 @@ fn test_component_renders_svg() {
 
 /// Verifies that use case diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
 fn test_usecase_renders_svg() {
     let source = "@startuml\nactor User\nusecase (Login)\nusecase (Logout)\nUser --> (Login)\n@enduml";
     let result = render_svg(source);

@@ -29,6 +29,8 @@ pub struct ParsedEntity {
     pub stereotype: Option<String>,
     /// Optional body lines (fields/methods between `{` and `}`).
     pub body: Vec<String>,
+    /// Source line number (1-based, matching Java's LineLocation).
+    pub source_line: usize,
 }
 
 /// Kind of entity.
@@ -115,6 +117,8 @@ pub struct ParsedLink {
     pub label: Option<String>,
     /// Optional direction (left, right, both).
     pub direction: LinkDirection,
+    /// Source line number (1-based, matching Java's LineLocation).
+    pub source_line: usize,
 }
 
 /// Link direction.
@@ -189,8 +193,9 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
     let mut current_package: Option<ParsedPackage> = None;
     let mut current_entity_body: Option<String> = None;
 
-    for line in lines {
+    for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
+        let source_line = line_idx + 1;
 
         // Skip empty lines, comments, and directives.
         if trimmed.is_empty() || trimmed.starts_with('\'') || trimmed.starts_with("note ") && trimmed.contains(" of ") {
@@ -240,7 +245,8 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
         }
 
         // Check for entity declarations.
-        if let Some(entity) = parse_entity_declaration(trimmed) {
+        if let Some(mut entity) = parse_entity_declaration(trimmed) {
+            entity.source_line = source_line;
             let name = entity.name.clone();
             result.entities.insert(name.clone(), entity);
             if trimmed.contains('{') {
@@ -253,7 +259,8 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
         }
 
         // Check for relationship arrows.
-        if let Some(link) = parse_link_line(trimmed) {
+        if let Some(mut link) = parse_link_line(trimmed) {
+            link.source_line = source_line;
             result.links.push(link);
             continue;
         }
@@ -300,12 +307,24 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         (rest, None)
     };
 
-    // Handle `as` alias: `Alice as "Display Name"`
+    // Handle `as` alias: `Alice as "Display Name"` or `usecase (Login) as "Sign In"`
     let (name, display) = if let Some((n, d)) = name_part.split_once(" as ") {
-        (n.trim().to_string(), d.trim().trim_matches('"').to_string())
+        let n = n.trim();
+        let d = d.trim().trim_matches('"');
+        // For usecase, strip parentheses from the name to get the qualified name,
+        // but keep the display as the content inside parens (or the alias).
+        let stripped = n.trim_start_matches('(').trim_end_matches(')');
+        (stripped.to_string(), d.to_string())
     } else {
-        let n = name_part.trim().trim_end_matches('{').trim().to_string();
-        (n.clone(), n)
+        let n = name_part.trim().trim_end_matches('{').trim();
+        // For usecase, the name includes parentheses: `(Login)`.
+        // Strip them for the qualified name, keep the inner text as display.
+        if n.starts_with('(') && n.ends_with(')') {
+            let inner = &n[1..n.len() - 1];
+            (inner.to_string(), inner.to_string())
+        } else {
+            (n.to_string(), n.to_string())
+        }
     };
 
     if name.is_empty() {
@@ -318,6 +337,7 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         kind,
         stereotype,
         body: Vec::new(),
+        source_line: 0,
     })
 }
 
@@ -396,6 +416,18 @@ fn parse_link_line(line: &str) -> Option<ParsedLink> {
         return None;
     }
 
+    // Strip parentheses from usecase references: `(Login)` → `Login`
+    let strip_parens = |s: &str| -> String {
+        let s = s.trim();
+        if s.starts_with('(') && s.ends_with(')') {
+            s[1..s.len() - 1].to_string()
+        } else {
+            s.to_string()
+        }
+    };
+    let from = strip_parens(&from);
+    let to = strip_parens(&to);
+
     // Determine direction from arrow.
     let direction = if arrow.contains('>') && arrow.contains('<') {
         LinkDirection::Both
@@ -413,6 +445,7 @@ fn parse_link_line(line: &str) -> Option<ParsedLink> {
         arrow,
         label,
         direction,
+        source_line: 0,
     })
 }
 

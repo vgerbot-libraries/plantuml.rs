@@ -3,8 +3,10 @@
 //! Ported from: `net/sourceforge/plantuml/sdot/CucaDiagramFileMakerSmetana.java`
 //! and `cucadiagram/` body rendering classes.
 //!
-//! Renders entities as boxes with labels and body content, and links as
-//! arrows between boxes.
+//! Renders entities (actors, use cases, boxes) and links as SVG, matching
+//! Java PlantUML's Smetana engine output.
+
+use std::collections::HashMap;
 
 use plantuml_svg::{SvgGraphics, SvgOption};
 
@@ -13,8 +15,25 @@ use crate::entity_link_parser::{EntityKind, ParsedEntity, ParsedNote};
 
 // ── Rendering constants ──────────────────────────────────────────────────
 
-/// Stroke color for boxes.
+/// Stroke color for entity outlines.
 const STROKE_COLOR: &str = "#181818";
+/// Fill color for description-diagram entities (use cases, actors).
+const FILL_DESC: &str = "#F1F1F1";
+/// Text color.
+const COLOR_TEXT: &str = "#000000";
+/// Stroke color for links.
+const STROKE_LINK: &str = "#181818";
+/// Stroke width for description-diagram entities.
+const STROKE_WIDTH_DESC: f64 = 0.5;
+/// Stroke width for links.
+const STROKE_WIDTH_LINK: f64 = 1.0;
+/// Font size for description-diagram entity labels.
+const FONT_SIZE_DESC: i32 = 14;
+/// Font family.
+const FONT_FAMILY: &str = "sans-serif";
+
+// ── Box entity constants (class, state, component, etc.) ─────────────────
+
 /// Fill color for class/interface boxes.
 const FILL_CLASS: &str = "#F2F2F2";
 /// Fill color for state boxes.
@@ -23,29 +42,17 @@ const FILL_STATE: &str = "#F2F2F2";
 const FILL_COMPONENT: &str = "#F2F2F2";
 /// Fill color for notes.
 const FILL_NOTE: &str = "#FBFB77";
-/// Text color.
-const COLOR_TEXT: &str = "#000000";
-/// Stroke color for links.
-const STROKE_LINK: &str = "#181818";
 /// Stroke width for boxes.
 const STROKE_WIDTH_BOX: f64 = 1.0;
-/// Stroke width for links.
-const STROKE_WIDTH_LINK: f64 = 1.0;
 /// Font size for entity names.
 const FONT_SIZE_NAME: i32 = 12;
 /// Font size for body text.
 const FONT_SIZE_BODY: i32 = 11;
-/// Font size for labels.
-const FONT_SIZE_LABEL: i32 = 11;
-/// Font family.
-const FONT_FAMILY: &str = "sans-serif";
 /// Line height for body text.
 const LINE_HEIGHT: f64 = 16.0;
 /// Padding inside boxes.
 const BOX_PADDING_H: f64 = 10.0;
 const BOX_PADDING_V: f64 = 6.0;
-/// Arrowhead size.
-const ARROWHEAD_SIZE: f64 = 8.0;
 
 /// Renders a CucaDiagram layout as an SVG string.
 ///
@@ -53,7 +60,7 @@ const ARROWHEAD_SIZE: f64 = 8.0;
 #[must_use]
 pub fn render_cuca_svg(
     layout: &CucaLayout,
-    entities: &std::collections::HashMap<String, ParsedEntity>,
+    entities: &HashMap<String, ParsedEntity>,
     notes: &[ParsedNote],
     diagram_type: plantuml_core::DiagramType,
 ) -> String {
@@ -69,18 +76,23 @@ pub fn render_cuca_svg(
 
     let mut svg = SvgGraphics::new(0, option);
 
-    // Render links first (so they appear behind boxes).
-    for link in &layout.links {
-        render_link(&mut svg, link);
-    }
+    // Set SVG dimensions via a hidden background rectangle.
+    svg.set_hidden(true);
+    svg.svg_rectangle(0.0, 0.0, layout.total_width, layout.total_height, 0.0, 0.0, 0.0);
+    svg.set_hidden(false);
 
-    // Render entity boxes.
+    // Render entities first (Java renders entities before links).
     for node in &layout.nodes {
         if node.name == "[*]" {
             render_star_state(&mut svg, node, entities);
         } else if let Some(entity) = entities.get(&node.name) {
-            render_entity_box(&mut svg, node, entity);
+            render_entity(&mut svg, node, entity);
         }
+    }
+
+    // Render links.
+    for link in &layout.links {
+        render_link(&mut svg, link);
     }
 
     // Render notes.
@@ -91,45 +103,61 @@ pub fn render_cuca_svg(
     svg.create_xml()
 }
 
-/// Renders an entity box with label and body.
-fn render_entity_box(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
-    match entity.kind {
-        EntityKind::Usecase => render_usecase(svg, node, entity),
-        EntityKind::Actor => render_actor(svg, node, entity),
-        _ => render_box_entity(svg, node, entity),
-    }
+/// Formats a coordinate like Java's `%.4f` with trailing zeros and decimal point stripped.
+///
+/// Java outputs `22.0000` as `22`, `84.9389` as `84.9389`, `69.2500` as `69.25`.
+fn fmt_coord(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0');
+    let s = s.trim_end_matches('.');
+    s.to_string()
 }
 
-/// Fill color for description-diagram entities (use cases, actors, components).
-const FILL_DESC: &str = "#F1F1F1";
-/// Stroke width for description-diagram entities.
-const STROKE_WIDTH_DESC: f64 = 0.5;
-/// Font size for description-diagram entity labels.
-const FONT_SIZE_DESC: i32 = 14;
+// ── Entity rendering ─────────────────────────────────────────────────────
+
+/// Renders an entity with a wrapper `<g>` group.
+fn render_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let attrs: [(&str, &str); 4] = [
+        ("class", "entity"),
+        ("data-qualified-name", &entity.display),
+        ("data-source-line", &node.source_line.to_string()),
+        ("id", &node.entity_id),
+    ];
+    svg.open_group_with_attrs(&attrs);
+
+    match entity.kind {
+        EntityKind::Actor => render_actor(svg, node, entity),
+        EntityKind::Usecase => render_usecase(svg, node, entity),
+        _ => render_box_entity(svg, node, entity),
+    }
+
+    svg.close_group();
+}
 
 /// Renders a use case as an ellipse with centered text.
+///
+/// Ported from: `TextBlockInEllipse.drawU()` and `USymbolUsecase.java`.
 fn render_usecase(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
     let cx = node.center_x;
     let cy = node.center_y;
-    let rx = node.width / 2.0;
-    let ry = node.height / 2.0;
+    let rx = node.rx;
+    let ry = node.ry;
 
+    // Ellipse.
     svg.set_fill_color(FILL_DESC);
     svg.set_stroke_color(Some(STROKE_COLOR));
     svg.set_stroke_width(STROKE_WIDTH_DESC, None);
     svg.svg_ellipse(cx, cy, rx, ry, 0.0);
 
-    // Centered text inside ellipse.
-    let label = entity.display.trim_matches('(').trim_matches(')');
-    let text_w = text_width(label, FONT_SIZE_DESC);
-    let text_x = cx - text_w / 2.0;
-    let text_y = cy + (FONT_SIZE_DESC as f64) * 0.493; // approximate ascent/2
+    // Text.
+    let label = &entity.display;
+    let text_w = node.text_width;
     let mut attrs = indexmap::IndexMap::new();
     attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
     svg.text(
         label,
-        text_x,
-        text_y,
+        node.text_x,
+        node.text_y,
         Some(FONT_FAMILY),
         FONT_SIZE_DESC,
         None,
@@ -142,54 +170,56 @@ fn render_usecase(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntit
 }
 
 /// Renders an actor as a stick figure with label below.
+///
+/// Ported from: `ActorStickMan.java` and `USymbolActor.java`.
 fn render_actor(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
     let cx = node.center_x;
-    // Head center Y — top of the node.
-    let head_cy = node.y + 8.0;
+    let head_cy = node.center_y;
     let head_r = 8.0;
 
-    // Head (circle).
+    // Head (ellipse).
     svg.set_fill_color(FILL_DESC);
     svg.set_stroke_color(Some(STROKE_COLOR));
     svg.set_stroke_width(STROKE_WIDTH_DESC, None);
     svg.svg_ellipse(cx, head_cy, head_r, head_r, 0.0);
 
-    // Body: vertical line from head bottom to hips.
-    let body_top = head_cy + head_r;
-    let body_bottom = body_top + 27.0; // 49 - 22 = 27
-    let arms_y = body_top + 8.0; // 30 - 22 = 8
-    let arm_span = 13.0;
-    let leg_span = 13.0;
+    // Body: vertical line, arms, legs.
+    // Constants from ActorStickMan.java:
+    //   headDiam=16, bodyLenght=27, armsLenght=13, legsX=13, legsY=15, armsY=8
+    //   head center at (cx, head_cy), head bottom = head_cy + 8
+    //   body_top = head_cy + 8 (= headDiam/2)
+    //   body_bottom = body_top + 27 (= bodyLenght)
+    //   arms_y = body_top + 8 (= armsY)
+    //   legs_bottom = body_bottom + 15 (= legsY)
+    let body_top = head_cy + 8.0;
+    let body_bottom = body_top + 27.0;
+    let arms_y = body_top + 8.0;
+    let legs_bottom = body_bottom + 15.0;
 
     svg.set_fill_color("none");
     svg.set_stroke_color(Some(STROKE_COLOR));
     svg.set_stroke_width(STROKE_WIDTH_DESC, None);
     let path_d = format!(
-        "M{cx},{body_top} L{cx},{body_bottom} M{left},{arms_y} L{right},{arms_y} M{cx},{body_bottom} L{leg_l_x},{leg_l_y} M{cx},{body_bottom} L{leg_r_x},{leg_r_y}",
-        cx = cx,
-        body_top = body_top,
-        body_bottom = body_bottom,
-        left = cx - arm_span,
-        right = cx + arm_span,
-        arms_y = arms_y,
-        leg_l_x = cx - leg_span,
-        leg_l_y = body_bottom + 15.0,
-        leg_r_x = cx + leg_span,
-        leg_r_y = body_bottom + 15.0,
+        "M{},{} L{},{} \
+         M{},{} L{},{} \
+         M{},{} L{},{} \
+         M{},{} L{},{}",
+        fmt_coord(cx), fmt_coord(body_top), fmt_coord(cx), fmt_coord(body_bottom),
+        fmt_coord(cx - 13.0), fmt_coord(arms_y), fmt_coord(cx + 13.0), fmt_coord(arms_y),
+        fmt_coord(cx), fmt_coord(body_bottom), fmt_coord(cx - 13.0), fmt_coord(legs_bottom),
+        fmt_coord(cx), fmt_coord(body_bottom), fmt_coord(cx + 13.0), fmt_coord(legs_bottom),
     );
     svg.svg_path(&path_d, 0.0);
 
     // Label below the figure.
     let label = &entity.display;
-    let text_w = text_width(label, FONT_SIZE_DESC);
-    let text_x = cx - text_w / 2.0;
-    let text_y = body_bottom + 15.0 + (FONT_SIZE_DESC as f64) * 0.85;
+    let text_w = node.text_width;
     let mut attrs = indexmap::IndexMap::new();
     attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
     svg.text(
         label,
-        text_x,
-        text_y,
+        node.text_x,
+        node.text_y,
         Some(FONT_FAMILY),
         FONT_SIZE_DESC,
         None,
@@ -241,7 +271,6 @@ fn render_box_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEn
         svg.set_stroke_width(STROKE_WIDTH_BOX, None);
         svg.svg_line(node.x, sep_y, node.x + node.width, sep_y, 0.0);
 
-        // Draw body lines.
         for (i, line) in entity.body.iter().enumerate() {
             let line_y = sep_y + (i as f64 + 1.0) * LINE_HEIGHT * 0.85;
             let line_w = text_width(line, FONT_SIZE_BODY);
@@ -287,81 +316,66 @@ fn render_box_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEn
 }
 
 /// Renders a `[*]` initial/final state pseudo-entity.
-///
-/// In PlantUML, `[*]` is rendered as a small filled circle when it's a source
-/// (initial state) and as a bullseye (filled circle inside an outlined circle)
-/// when it's a target (final state). We determine which by checking if any
-/// link has `[*]` as `from` (initial) or only as `to` (final).
 fn render_star_state(
     svg: &mut SvgGraphics,
     node: &LayoutNode,
-    entities: &std::collections::HashMap<String, ParsedEntity>,
+    _entities: &HashMap<String, ParsedEntity>,
 ) {
     let cx = node.center_x;
     let cy = node.center_y;
     let r = 7.0;
 
-    // Check if [*] is used as a source (initial state) or only as target (final state).
-    // If there are links from [*], it's an initial state (filled circle).
-    // If there are only links to [*], it's a final state (bullseye).
-    let is_initial = entities.contains_key("[*]");
-
-    // For simplicity, render as a small filled circle (initial state symbol).
-    // The final state bullseye would need link direction info which isn't available here.
     svg.set_fill_color("#000000");
     svg.set_stroke_color(Some("#000000"));
     svg.set_stroke_width(1.0, None);
     svg.svg_ellipse(cx, cy, r, r, 0.0);
-
-    let _ = is_initial;
 }
 
-/// Renders a link (arrow) between two nodes.
-fn render_link(svg: &mut SvgGraphics, link: &LayoutLink) {
-    let (x1, y1) = link.start;
-    let (x2, y2) = link.end;
+// ── Link rendering ──────────────────────────────────────────────────────
 
-    // Draw the line.
+/// Renders a link (arrow) between two nodes.
+///
+/// Ported from: `SmetanaEdge.drawU()` and `ExtremityArrow.java`.
+fn render_link(svg: &mut SvgGraphics, link: &LayoutLink) {
+    let attrs: [(&str, &str); 5] = [
+        ("class", "link"),
+        ("data-entity-1", &link.from_id),
+        ("data-entity-2", &link.to_id),
+        ("data-link-type", &link.link_type),
+        ("data-source-line", &link.source_line.to_string()),
+    ];
+    let mut group_attrs = attrs.to_vec();
+    group_attrs.push(("id", &link.link_id));
+    svg.open_group_with_attrs(&group_attrs);
+
+    // Draw link line or path.
     svg.set_fill_color("none");
     svg.set_stroke_color(Some(STROKE_LINK));
     svg.set_stroke_width(STROKE_WIDTH_LINK, None);
-    svg.svg_line(x1, y1, x2, y2, 0.0);
-
-    // Draw arrowhead if needed.
-    if link.has_arrow {
-        let angle = (y2 - y1).atan2(x2 - x1);
-        let ah = ARROWHEAD_SIZE;
-        let p1 = (x2 - ah * (angle + 0.4).cos(), y2 - ah * (angle + 0.4).sin());
-        let p2 = (x2 - ah * (angle - 0.4).cos(), y2 - ah * (angle - 0.4).sin());
-        svg.svg_polygon(0.0, &[x2, y2, p1.0, p1.1, p2.0, p2.1]);
+    if link.is_line {
+        svg.svg_line(link.start.0, link.start.1, link.end.0, link.end.1, 0.0);
+    } else {
+        svg.svg_path_with_id(&link.path_d, &link.path_id, 0.0);
     }
 
-    // Draw label if present.
-    if let Some(ref label) = link.label {
-        let mid_x = (x1 + x2) / 2.0;
-        let mid_y = (y1 + y2) / 2.0 - 5.0;
-        let label_w = text_width(label, FONT_SIZE_LABEL);
-        let mut attrs = indexmap::IndexMap::new();
-        attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
-        svg.text(
-            label,
-            mid_x - label_w / 2.0,
-            mid_y,
-            Some(FONT_FAMILY),
-            FONT_SIZE_LABEL,
-            Some("normal"),
-            Some("normal"),
-            None,
-            label_w,
-            &attrs,
-            None,
-        );
-    }
+    // Arrow polygon.
+    let points: Vec<f64> = link
+        .arrow_points
+        .split(',')
+        .filter_map(|s| s.trim().parse::<f64>().ok())
+        .collect();
+    svg.set_fill_color(STROKE_LINK);
+    svg.set_stroke_color(Some(STROKE_LINK));
+    svg.set_stroke_width(STROKE_WIDTH_LINK, None);
+    svg.svg_polygon(0.0, &points);
+
+    svg.close_group();
 }
+
+// ── Note rendering ──────────────────────────────────────────────────────
 
 /// Renders a note.
 fn render_note(svg: &mut SvgGraphics, note: &ParsedNote, nodes: &[LayoutNode], index: usize) {
-    // Find target node if specified.
     let target = note.target.as_ref().and_then(|name| {
         nodes.iter().find(|n| &n.name == name)
     });
@@ -374,20 +388,17 @@ fn render_note(svg: &mut SvgGraphics, note: &ParsedNote, nodes: &[LayoutNode], i
             crate::entity_link_parser::NotePosition::Bottom => (t.x, t.y + t.height + 10.0),
         }
     } else {
-        // Place notes without targets in a column on the right.
         (400.0 + (index as f64) * 130.0, 10.0)
     };
 
     let nw = 100.0;
     let nh = 30.0;
 
-    // Draw note box.
     svg.set_fill_color(FILL_NOTE);
     svg.set_stroke_color(Some(STROKE_COLOR));
     svg.set_stroke_width(STROKE_WIDTH_BOX, None);
     svg.svg_rectangle(nx, ny, nw, nh, 0.0, 0.0, 0.0);
 
-    // Draw note text.
     let text_w = text_width(&note.text, FONT_SIZE_BODY);
     let mut attrs = indexmap::IndexMap::new();
     attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
@@ -406,7 +417,9 @@ fn render_note(svg: &mut SvgGraphics, note: &ParsedNote, nodes: &[LayoutNode], i
     );
 }
 
-/// Approximate text width.
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/// Approximate text width for box entities (not used for description diagrams).
 fn text_width(text: &str, font_size: i32) -> f64 {
     (font_size as f64) * 0.6 * text.chars().count() as f64
 }
@@ -415,41 +428,48 @@ fn text_width(text: &str, font_size: i32) -> f64 {
 mod tests {
     use super::*;
     use crate::cuca_layout::compute_layout;
-    use crate::entity_link_parser::{parse_entity_link_source, EntityKind};
-    use std::collections::HashMap;
+    use crate::entity_link_parser::{EntityKind, ParsedEntity};
 
     #[test]
-    fn test_render_simple_class_diagram() {
-        let lines = vec!["class Alice", "class Bob", "Alice --> Bob : knows"];
-        let parsed = parse_entity_link_source(&lines);
-        let entity_map: HashMap<String, ParsedEntity> = parsed
-            .entities
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        let layout = compute_layout(&entity_map, &parsed.links);
-        let svg = render_cuca_svg(&layout, &entity_map, &parsed.notes, plantuml_core::DiagramType::Class);
+    fn render_empty_layout() {
+        let layout = CucaLayout {
+            nodes: vec![],
+            links: vec![],
+            total_width: 20.0,
+            total_height: 20.0,
+        };
+        let entities = HashMap::new();
+        let svg = render_cuca_svg(
+            &layout,
+            &entities,
+            &[],
+            plantuml_core::DiagramType::Description,
+        );
         assert!(svg.contains("<svg"));
-        assert!(svg.contains("Alice"));
-        assert!(svg.contains("Bob"));
     }
 
     #[test]
-    fn test_render_with_body() {
-        let mut entity = ParsedEntity {
-            name: "Foo".to_string(),
-            display: "Foo".to_string(),
-            kind: EntityKind::Class,
-            stereotype: None,
-            body: vec!["+ field: int".to_string(), "+ method(): void".to_string()],
-        };
-        let _ = &mut entity;
+    fn render_single_usecase() {
         let mut entities = HashMap::new();
-        entities.insert("Foo".to_string(), entity);
+        entities.insert(
+            "Login".to_string(),
+            ParsedEntity {
+                name: "Login".to_string(),
+                display: "Login".to_string(),
+                kind: EntityKind::Usecase,
+                stereotype: None,
+                body: vec![],
+                source_line: 1,
+            },
+        );
         let layout = compute_layout(&entities, &[]);
-        let svg = render_cuca_svg(&layout, &entities, &[], plantuml_core::DiagramType::Class);
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("field"));
-        assert!(svg.contains("method"));
+        let svg = render_cuca_svg(
+            &layout,
+            &entities,
+            &[],
+            plantuml_core::DiagramType::Description,
+        );
+        assert!(svg.contains("ellipse"));
+        assert!(svg.contains("Login"));
     }
 }

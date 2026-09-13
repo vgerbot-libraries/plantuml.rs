@@ -367,6 +367,32 @@ impl SvgGraphics {
         let _ = delta_shadow;
     }
 
+    /// Draws an SVG path element with an `id` attribute.
+    ///
+    /// Like `svg_path`, but also sets the `id` attribute on the path element.
+    pub fn svg_path_with_id(&mut self, d: &str, id: &str, delta_shadow: f64) {
+        self.manage_shadow(delta_shadow);
+        if !self.hidden {
+            let mut elt = XmlNode::new("path");
+            elt.set_attribute("d", d);
+            elt.set_attribute("id", id);
+            fill_me(&mut elt, &self.fill, self.option.scale(), self.option.decimal());
+            style_me(
+                &mut elt,
+                &self.stroke,
+                &self.stroke_width,
+                &self.stroke_dasharray,
+                None,
+            );
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
+            if let Some(ref f) = self.filter {
+                elt.set_attribute("filter", format!("url(#{f})"));
+            }
+            self.get_g_mut().append_child(elt);
+        }
+        let _ = delta_shadow;
+    }
+
     /// Draws an ellipse.
     ///
     /// Ported from: `SvgGraphics.svgEllipse(double, double, double, double, double)`.

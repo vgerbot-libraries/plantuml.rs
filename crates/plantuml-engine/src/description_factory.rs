@@ -53,8 +53,7 @@ impl PSystemFactory for DescriptionDiagramFactory {
 
     fn create_system(&self, source: &UmlSource) -> Result<Box<dyn Diagram>, PSystemError> {
         let lines: Vec<String> = source
-            .get_source()
-            .iter()
+            .body_iter()
             .map(|l| l.get_string().to_string())
             .collect();
 
