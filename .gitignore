@@ -32,6 +32,7 @@ crates/plantuml-wasm/pkg-*/
 # Gradle build artifacts
 bindings/plantuml-java/.gradle/
 bindings/plantuml-java/build/
+bindings/plantuml-java/bin/
 
 # Root node_modules (dev tooling only)
 node_modules/
