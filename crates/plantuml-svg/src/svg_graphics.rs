@@ -33,6 +33,7 @@ pub struct SvgGraphics {
     pending_elements: Vec<XmlNode>,
     filter: Option<String>,
     with_shadow: bool,
+    supp_style: Option<String>,
 }
 
 impl SvgGraphics {
@@ -121,6 +122,7 @@ impl SvgGraphics {
             pending_elements: Vec::new(),
             filter: None,
             with_shadow: false,
+            supp_style: None,
         }
     }
 
@@ -157,6 +159,11 @@ impl SvgGraphics {
         } else {
             self.stroke_dasharray = None;
         }
+    }
+
+    /// Sets the stroke dasharray as a pre-formatted string (e.g. "7,7").
+    pub fn set_stroke_dasharray_str(&mut self, dasharray: Option<&str>) {
+        self.stroke_dasharray = dasharray.map(String::from);
     }
     /// Sets the SVG filter for subsequent drawn elements.
     pub fn set_filter(&mut self, filter: Option<&str>) {
@@ -375,6 +382,37 @@ impl SvgGraphics {
         if !self.hidden {
             let mut elt = XmlNode::new("path");
             elt.set_attribute("d", d);
+            elt.set_attribute("id", id);
+            fill_me(&mut elt, &self.fill, self.option.scale(), self.option.decimal());
+            style_me(
+                &mut elt,
+                &self.stroke,
+                &self.stroke_width,
+                &self.stroke_dasharray,
+                None,
+            );
+            self.add_filter_shadow_id(&mut elt, delta_shadow);
+            if let Some(ref f) = self.filter {
+                elt.set_attribute("filter", format!("url(#{f})"));
+            }
+            self.get_g_mut().append_child(elt);
+        }
+        let _ = delta_shadow;
+    }
+
+    /// Like `svg_path_with_id`, but also sets a `codeLine` attribute.
+    pub fn svg_path_with_id_codeline(
+        &mut self,
+        d: &str,
+        id: &str,
+        code_line: u32,
+        delta_shadow: f64,
+    ) {
+        self.manage_shadow(delta_shadow);
+        if !self.hidden {
+            let mut elt = XmlNode::new("path");
+            elt.set_attribute("d", d);
+            elt.set_attribute("codeLine", code_line.to_string());
             elt.set_attribute("id", id);
             fill_me(&mut elt, &self.fill, self.option.scale(), self.option.decimal());
             style_me(
@@ -697,10 +735,10 @@ impl SvgGraphics {
     }
     pub fn ensure_visible(&mut self, x: f64, y: f64) {
         if x > f64::from(self.max_x) {
-            self.max_x = (x as i32) + 1;
+            self.max_x = x.ceil() as i32;
         }
         if y > f64::from(self.max_y) {
-            self.max_y = (y as i32) + 1;
+            self.max_y = y.ceil() as i32;
         }
     }
 

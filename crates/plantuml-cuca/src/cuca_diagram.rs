@@ -98,7 +98,7 @@ impl Diagram for CucaDiagram {
                 self.diagram_label(),
             )
         } else {
-            let layout = compute_layout(&self.entities, &self.links);
+            let layout = compute_layout(&self.entities, &self.links, self.diagram_type);
             render_cuca_svg(&layout, &self.entities, &self.notes, self.diagram_type)
         };
 

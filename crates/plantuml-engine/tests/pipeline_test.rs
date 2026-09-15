@@ -287,7 +287,7 @@ fn assert_svg_structure(svg: &str, expected_elements: &[&str]) {
     }
 }
 
-/// Verifies that class diagram SVG contains rectangles and text for entity boxes.
+/// Verifies that class diagram SVG contains correct structural elements and content.
 #[test]
 fn test_class_svg_structure() {
     let source = "@startuml\nclass Alice\nclass Bob\nAlice --> Bob : knows\n@enduml";
@@ -296,6 +296,19 @@ fn test_class_svg_structure() {
     assert_svg_structure(&svg, &["<rect", "<text"]);
     // Should contain arrow lines for relationships.
     assert!(svg.contains("<line"), "Class SVG must contain link lines: {svg}");
+    // Should contain both entity names as text content.
+    assert!(svg.contains("Alice"), "Class SVG must contain Alice label: {svg}");
+    assert!(svg.contains("Bob"), "Class SVG must contain Bob label: {svg}");
+    // Should contain the link label.
+    assert!(svg.contains("knows"), "Class SVG must contain link label: {svg}");
+    // Should have exactly 2 entity groups.
+    let entity_count = svg.matches("class=\"entity\"").count();
+    assert_eq!(entity_count, 2, "Class SVG must have 2 entity groups, got {entity_count}: {svg}");
+    // data-diagram-type must be CLASS.
+    assert!(svg.contains("data-diagram-type=\"CLASS\""), "Class SVG must have CLASS type: {svg}");
+    // source_line must be 1-based starting from first body line (not counting @startuml).
+    assert!(svg.contains("data-source-line=\"1\""), "First entity must have source-line=1: {svg}");
+    assert!(svg.contains("data-source-line=\"2\""), "Second entity must have source-line=2: {svg}");
 }
 
 /// Verifies that state diagram SVG contains rectangles and links.

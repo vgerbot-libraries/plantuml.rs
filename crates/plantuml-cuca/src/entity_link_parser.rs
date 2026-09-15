@@ -193,9 +193,16 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
     let mut current_package: Option<ParsedPackage> = None;
     let mut current_entity_body: Option<String> = None;
 
-    for (line_idx, line) in lines.iter().enumerate() {
+    let mut source_line = 0;
+    for line in lines {
         let trimmed = line.trim();
-        let source_line = line_idx + 1;
+
+        // Skip @start/@end directives — Java's data-source-line counts
+        // only body lines (1-based, first line after @start = line 1).
+        if trimmed.starts_with("@start") || trimmed.starts_with("@end") {
+            continue;
+        }
+        source_line += 1;
 
         // Skip empty lines, comments, and directives.
         if trimmed.is_empty() || trimmed.starts_with('\'') || trimmed.starts_with("note ") && trimmed.contains(" of ") {
@@ -602,5 +609,24 @@ mod tests {
         assert_eq!(parsed.links[0].to, "Idle");
         assert_eq!(parsed.links[1].from, "Idle");
         assert_eq!(parsed.links[1].to, "[*]");
+    }
+
+    #[test]
+    fn test_source_line_skips_start_end_directives() {
+        // Java's data-source-line counts only body lines (1-based).
+        // @startuml must NOT be counted; first body line = line 1.
+        let lines = vec!["@startuml", "class Alice", "interface Bob", "@enduml"];
+        let parsed = parse_entity_link_source(&lines);
+        assert_eq!(parsed.entities["Alice"].source_line, 1);
+        assert_eq!(parsed.entities["Bob"].source_line, 2);
+    }
+
+    #[test]
+    fn test_source_line_without_start_end() {
+        // When no @start/@end wrappers, line numbering is still 1-based.
+        let lines = vec!["class Alice", "class Bob"];
+        let parsed = parse_entity_link_source(&lines);
+        assert_eq!(parsed.entities["Alice"].source_line, 1);
+        assert_eq!(parsed.entities["Bob"].source_line, 2);
     }
 }

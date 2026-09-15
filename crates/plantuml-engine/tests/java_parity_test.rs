@@ -174,15 +174,15 @@ parity_test_ignored!(sequence_colored_messages, r#"@startuml
 Alice -[#red]-> Bob: red message
 @enduml"#);
 
-// ── Class diagram (expected to fail — simplified layout) ─────────────────
+// ── Class diagram ────────────────────────────────────────────────────────
 
-parity_test_ignored!(class_declaring_classes, r#"@startuml
+parity_test!(class_declaring_classes, r#"@startuml
 class Alice
 interface Bob
 abstract Foo
 @enduml"#);
 
-parity_test_ignored!(class_relationships_inheritance, r#"@startuml
+parity_test!(class_relationships_inheritance, r#"@startuml
 class Animal
 class Dog
 class Cat
@@ -190,7 +190,7 @@ Animal <|-- Dog
 Animal <|-- Cat
 @enduml"#);
 
-parity_test_ignored!(class_interface_realization, r#"@startuml
+parity_test!(class_interface_realization, r#"@startuml
 interface Shape
 class Circle
 class Square
@@ -198,7 +198,7 @@ Shape <|.. Circle
 Shape <|.. Square
 @enduml"#);
 
-parity_test_ignored!(class_body, r#"@startuml
+parity_test!(class_body, r#"@startuml
 class Foo {
   +field: int
   -privateField: String

@@ -14,7 +14,7 @@ use std::process::{Command, Stdio};
 
 use plantuml_core::file_format::FileFormat;
 use plantuml_core::string_bounder::StringBounder;
-use plantuml_core::u_font::UFont;
+use plantuml_core::u_font::{FontStyle, UFont};
 use plantuml_klimt::string_bounder_svg::StringBounderSvg;
 
 use crate::entity_link_parser::{EntityKind, ParsedEntity, ParsedLink};
@@ -25,8 +25,10 @@ use crate::entity_link_parser::{EntityKind, ParsedEntity, ParsedLink};
 const NODESEP_PX: f64 = 35.0;
 /// Vertical gap between ranks in pixels (DotStringFactory.getMinRankSep = 60).
 const RANKSEP_PX: f64 = 60.0;
-/// Canvas margin (SvekResult shifts content to (6, 6)).
-const CANVAS_MARGIN: f64 = 6.0;
+/// Canvas margin for dot layout (Java SvekResult shifts content to (7, 7)).
+const CANVAS_MARGIN: f64 = 7.0;
+/// Canvas margin for fallback layout (use cases, etc.).
+const FALLBACK_MARGIN: f64 = 6.0;
 /// Font size for entity labels.
 const FONT_SIZE: i32 = 14;
 /// Actor stickman width.
@@ -36,11 +38,6 @@ const ACTOR_HEIGHT: f64 = 60.0;
 /// Text height = font_size * 1.361994 (Java AWT FontMetrics.getStringBounds:
 /// 19.067917 at 14pt). Slightly less than 1.362, affects clamped-alpha ellipses.
 const TEXT_HEIGHT: f64 = 14.0 * 1.361_994;
-/// Decoration length for arrow (ExtremityArrow.getDecorationLength = 5).
-const DECORATION_LENGTH: f64 = 5.0;
-/// SVG dimension padding: dot SVG size + 11 = final SVG size.
-/// (SvekResult adds delta(15,15), dot SVG has translate(4,...) → net 11.)
-const SVG_PADDING: f64 = 10.0;
 
 // ── Structs ─────────────────────────────────────────────────────────────
 
@@ -112,6 +109,10 @@ pub struct LayoutLink {
     pub start: (f64, f64),
     /// Line end point (when is_line is true).
     pub end: (f64, f64),
+    /// Optional label text displayed on the link.
+    pub label: Option<String>,
+    /// Arrow type string (e.g. "-->", "<|--", "<|..").
+    pub arrow: String,
 }
 
 /// Computed layout for a CucaDiagram.
@@ -133,6 +134,14 @@ pub struct CucaLayout {
 fn measure_text(text: &str) -> f64 {
     let sb = StringBounderSvg::new(FileFormat::Svg);
     let font = UFont::sans_serif(FONT_SIZE);
+    let dim = sb.calculate_dimension(&font, text);
+    dim.width()
+}
+
+/// Measures text width with italic font (for interface/abstract entity names).
+fn measure_text_italic(text: &str) -> f64 {
+    let sb = StringBounderSvg::new(FileFormat::Svg);
+    let font = UFont::sans_serif(FONT_SIZE).with_style(FontStyle::italic());
     let dim = sb.calculate_dimension(&font, text);
     dim.width()
 }
@@ -191,8 +200,13 @@ fn generate_dot_string(
             EntityKind::Usecase => "ellipse",
             _ => "box",
         };
-        let width_in = ed.svek_w / 72.0;
-        let height_in = ed.svek_h / 72.0;
+        // Round to 4 decimals before converting to inches: the external dot
+        // binary is sensitive to sub-pixel width differences.  Rust's text
+        // measurement produces floats like 36.469844… that round to 36.4698
+        // in the SVG (3-decimal cleaner) but differ from Java's exact 36.4698
+        // in the 5th decimal place, shifting dot positions by 0.01px.
+        let width_in = (ed.svek_w * 10000.0).round() / 10000.0 / 72.0;
+        let height_in = (ed.svek_h * 10000.0).round() / 10000.0 / 72.0;
         writeln!(
             sb,
             "sh{color:04} [shape={shape},label=\"\",width={width_in:.6},height={height_in:.6},color=\"#{color:06x}\"];"
@@ -211,6 +225,36 @@ fn generate_dot_string(
                 "sh{from_color:04}->sh{to_color:04}[arrowtail=none,arrowhead=none,minlen=1,color=\"#{color:06x}\"];"
             ).unwrap();
             color += 1;
+        }
+    }
+
+    // Add invisible edges for entities without any real edges.
+    // Smetana's internal Graphviz splits unconnected nodes into multiple ranks
+    // (roughly half per rank). We replicate this by adding invisible edges
+    // from the first half to the second half.
+    let entities_with_edges: std::collections::HashSet<&String> = links
+        .iter()
+        .flat_map(|l| [&l.from, &l.to])
+        .collect();
+    let unconnected: Vec<&String> = sorted_entities
+        .iter()
+        .filter_map(|(name, _)| {
+            (!entities_with_edges.contains(name)).then_some(*name)
+        })
+        .collect();
+    if unconnected.len() > 2 {
+        let split_point = unconnected.len().div_ceil(2);
+        for i in 0..split_point.min(unconnected.len() - split_point) {
+            let from_name = unconnected[i];
+            let to_name = unconnected[split_point + i];
+            if let (Some(&from_color), Some(&to_color)) =
+                (node_colors.get(from_name), node_colors.get(to_name))
+            {
+                writeln!(
+                    sb,
+                    "sh{from_color:04}->sh{to_color:04}[style=invis];"
+                ).unwrap();
+            }
         }
     }
 
@@ -268,7 +312,9 @@ struct DotEdgePath {
 struct DotSvgResult {
     #[allow(dead_code)]
     full_height: f64,
+    #[allow(dead_code)]
     svg_width: f64,
+    #[allow(dead_code)]
     svg_height: f64,
     nodes: HashMap<i32, DotNodePos>,
     edges: HashMap<i32, DotEdgePath>,
@@ -469,6 +515,7 @@ fn parse_point(s: &str) -> Option<(f64, f64)> {
 pub fn compute_layout(
     entities: &HashMap<String, ParsedEntity>,
     links: &[ParsedLink],
+    diagram_type: plantuml_core::DiagramType,
 ) -> CucaLayout {
     if entities.is_empty() && !links.iter().any(|l| l.from == "[*]" || l.to == "[*]") {
         return CucaLayout {
@@ -526,7 +573,10 @@ pub fn compute_layout(
     // Compute entity dimensions and SvekNode dimensions.
     let mut entity_data: HashMap<&String, EntityData> = HashMap::new();
     for (name, entity) in &entities {
-        let text_w = measure_text(&entity.display);
+        let text_w = match entity.kind {
+            EntityKind::Interface | EntityKind::Abstract => measure_text_italic(&entity.display),
+            _ => measure_text(&entity.display),
+        };
         let (svek_w, svek_h, rx, ry) = match entity.kind {
             EntityKind::Actor => {
                 let (w, h) = actor_dimensions(text_w);
@@ -537,8 +587,29 @@ pub fn compute_layout(
                 (2.0 * rx, 2.0 * ry, rx, ry)
             }
             _ => {
-                let w = text_w + 20.0;
-                let h = TEXT_HEIGHT + 12.0;
+                // Class/interface/abstract: width = max(name_text + 32, body_text + 26)
+                // Height = 32 + num_fields * LINE_HEIGHT + 8 + num_methods * LINE_HEIGHT + 8
+                let name_w = text_w + 32.0;
+                let mut max_body_w = 0.0_f64;
+                let mut num_fields = 0usize;
+                let mut num_methods = 0usize;
+                for line in &entity.body {
+                    let trimmed = line.trim();
+                    let rest = match trimmed.chars().next() {
+                        Some('+' | '-' | '#') => trimmed[1..].trim(),
+                        _ => trimmed,
+                    };
+                    let body_w = measure_text(rest) + 26.0;
+                    max_body_w = max_body_w.max(body_w);
+                    if rest.contains('(') {
+                        num_methods += 1;
+                    } else {
+                        num_fields += 1;
+                    }
+                }
+                let w = name_w.max(max_body_w);
+                let line_h = 14.0 * 1.361_994;
+                let h = 32.0 + num_fields as f64 * line_h + 8.0 + num_methods as f64 * line_h + 8.0;
                 (w, h, 0.0, 0.0)
             }
         };
@@ -596,27 +667,21 @@ pub fn compute_layout(
     }
 
 
-    // Use dot-based layout only for description diagrams (use cases, actors).
-    // Class/state/component diagrams use the fallback vertical stack layout.
-    let is_description = entities
-        .values()
-        .all(|e| matches!(e.kind, EntityKind::Actor | EntityKind::Usecase));
-
-    if is_description {
-        let (dot_string, node_colors) =
-            generate_dot_string(&sorted_entities, &entity_data, links);
-        let dot_svg = run_dot(&dot_string);
-        if let Some(svg) = dot_svg {
-            if let Some(dot_result) = parse_dot_svg(&svg, &node_colors) {
-                return build_layout_from_dot(
-                    &sorted_entities,
-                    &entity_data,
-                    links,
-                    &node_colors,
-                    &dot_result,
-                    &rank_of,
-                );
-            }
+    // Use dot-based layout for all diagram types (matches Java's Smetana engine).
+    let (dot_string, node_colors) =
+        generate_dot_string(&sorted_entities, &entity_data, links);
+    let dot_svg = run_dot(&dot_string);
+    if let Some(svg) = dot_svg {
+        if let Some(dot_result) = parse_dot_svg(&svg, &node_colors) {
+            return build_layout_from_dot(
+                &sorted_entities,
+                &entity_data,
+                links,
+                &node_colors,
+                &dot_result,
+                &rank_of,
+                diagram_type,
+            );
         }
     }
 
@@ -631,7 +696,13 @@ fn build_layout_from_dot(
     node_colors: &HashMap<String, i32>,
     dot_result: &DotSvgResult,
     rank_of: &HashMap<&String, usize>,
+    diagram_type: plantuml_core::DiagramType,
 ) -> CucaLayout {
+    let margin = if matches!(diagram_type, plantuml_core::DiagramType::Class) {
+        CANVAS_MARGIN
+    } else {
+        FALLBACK_MARGIN
+    };
 
 
     // Compute moveDelta: (6 - min_min_x, 6 - min_min_y) over all nodes
@@ -657,8 +728,8 @@ fn build_layout_from_dot(
         })
         .fold(f64::INFINITY, f64::min);
 
-    let dx = CANVAS_MARGIN - min_min_x;
-    let dy = CANVAS_MARGIN - min_min_y;
+    let dx = margin - min_min_x;
+    let dy = margin - min_min_y;
 
     // Create layout nodes — sorted by source_line for correct entity ID order
     let mut nodes = Vec::new();
@@ -742,8 +813,13 @@ fn build_layout_from_dot(
         {
             link_counter += 1;
             let link_id = format!("lnk{link_counter}");
-            let link_type = "dependency";
-            let path_id = format!("{}-to-{}", link.from, link.to);
+            let is_extension = link.arrow.contains("<|") || link.arrow.contains("|<");
+            let link_type = if is_extension { "extension" } else { "dependency" };
+            let path_id = if is_extension {
+                format!("{}-backto-{}", link.from, link.to)
+            } else {
+                format!("{}-to-{}", link.from, link.to)
+            };
 
             // Get the edge path from dot SVG
             let (path_d, arrow_points) = if let Some(edge_path) = dot_result.edges.get(&edge_color)
@@ -768,33 +844,58 @@ fn build_layout_from_dot(
                 } else {
                     pts
                 };
+                // For extension links (inheritance/realization), the arrow is at
+                // the START (parent end). For dependency links, the arrow is at
+                // the END (child end).
+                // Extension uses a hollow triangle (xWing=18, yAperture=6, decLen=18).
+                // Dependency uses a filled arrow (decLen=5).
+                if is_extension {
+                    let dec_len = 18.0;
+                    // Angle from start towards control1 (into the path)
+                    let path_angle = (pts[1].1 - pts[0].1).atan2(pts[1].0 - pts[0].0);
+                    // Shorten start by dec_len in path direction
+                    let sdx = dec_len * path_angle.cos();
+                    let sdy = dec_len * path_angle.sin();
+                    let shortened_start = (pts[0].0 + sdx, pts[0].1 + sdy);
+                    let shortened_ctrl1 = (pts[1].0 + sdx, pts[1].1 + sdy);
 
-                // Compute end angle from last control point to end point
-                let end_angle = (pts[3].1 - pts[2].1).atan2(pts[3].0 - pts[2].0);
+                    let path_d = format!(
+                        "M{},{} C{},{} {},{} {},{}",
+                        fmt_coord(shortened_start.0),
+                        fmt_coord(shortened_start.1),
+                        fmt_coord(shortened_ctrl1.0),
+                        fmt_coord(shortened_ctrl1.1),
+                        fmt_coord(pts[2].0),
+                        fmt_coord(pts[2].1),
+                        fmt_coord(pts[3].0),
+                        fmt_coord(pts[3].1),
+                    );
+                    // Triangle arrow: tip at start, pointing away from path
+                    let arrow_angle = path_angle + std::f64::consts::PI;
+                    let arrow_points = compute_triangle_polygon(pts[0].0, pts[0].1, arrow_angle, 18.0, 6.0);
+                    (path_d, arrow_points)
+                } else {
+                    let dec_len = 5.0;
+                    let end_angle = (pts[3].1 - pts[2].1).atan2(pts[3].0 - pts[2].0);
+                    let sdx = dec_len * end_angle.cos();
+                    let sdy = dec_len * end_angle.sin();
+                    let shortened_end = (pts[3].0 - sdx, pts[3].1 - sdy);
+                    let shortened_ctrl2 = (pts[2].0 - sdx, pts[2].1 - sdy);
 
-                // Shorten end point by DECORATION_LENGTH along path direction
-                let shorten_dx = DECORATION_LENGTH * end_angle.cos();
-                let shorten_dy = DECORATION_LENGTH * end_angle.sin();
-                let shortened_end = (pts[3].0 - shorten_dx, pts[3].1 - shorten_dy);
-                let shortened_ctrl2 = (pts[2].0 - shorten_dx, pts[2].1 - shorten_dy);
-
-                // Build path d attribute
-                let path_d = format!(
-                    "M{},{} C{},{} {},{} {},{}",
-                    fmt_coord(pts[0].0),
-                    fmt_coord(pts[0].1),
-                    fmt_coord(pts[1].0),
-                    fmt_coord(pts[1].1),
-                    fmt_coord(shortened_ctrl2.0),
-                    fmt_coord(shortened_ctrl2.1),
-                    fmt_coord(shortened_end.0),
-                    fmt_coord(shortened_end.1),
-                );
-
-                // Arrow polygon at original end point (before shortening)
-                let arrow_points = compute_arrow_polygon(pts[3].0, pts[3].1, end_angle);
-
-                (path_d, arrow_points)
+                    let path_d = format!(
+                        "M{},{} C{},{} {},{} {},{}",
+                        fmt_coord(pts[0].0),
+                        fmt_coord(pts[0].1),
+                        fmt_coord(pts[1].0),
+                        fmt_coord(pts[1].1),
+                        fmt_coord(shortened_ctrl2.0),
+                        fmt_coord(shortened_ctrl2.1),
+                        fmt_coord(shortened_end.0),
+                        fmt_coord(shortened_end.1),
+                    );
+                    let arrow_points = compute_arrow_polygon(pts[3].0, pts[3].1, end_angle);
+                    (path_d, arrow_points)
+                }
             } else {
                 // Fallback: simple straight line
                 let path_d = format!(
@@ -827,15 +928,34 @@ fn build_layout_from_dot(
                 is_line: false,
                 start: (0.0, 0.0),
                 end: (0.0, 0.0),
+                label: link.label.clone(),
+                arrow: link.arrow.clone(),
             });
 
             edge_color += 1;
         }
     }
 
-    // Compute SVG dimensions: dot SVG size + SVG_PADDING
-    let total_width = dot_result.svg_width + SVG_PADDING;
-    let total_height = dot_result.svg_height + SVG_PADDING;
+    // Compute SVG dimensions matching Java Smetana's formula.
+    // Java Smetana: total = minMax.getDimension().delta(15, 15)
+    // where minMax is from LimitFinder. The LimitFinder's drawRectangle uses
+    // addPoint(x-1, y-1) and addPoint(x+width-1, y+height-1), giving minX=-1.
+    // For entities with body, drawEmpty (from TextBlockMarged) uses addPoint
+    // without the -1 offset, extending maxX by 1 beyond the entity rect.
+    // After moveDelta(6-(-1), 6-(-1)) = moveDelta(7,7), entities are at (7,7).
+    //
+    // Empirically verified against plantuml.jar 1.2026.6:
+    //   total_width  = total_margin + floor(max_right)
+    //   total_height = total_margin + floor(max_bottom)
+    // where total_margin = margin + 8 for 2+ entities, margin + 6 for a single
+    // entity (the +8/+6 comes from LimitFinder delta(15,15) minus stroke-width
+    // adjustments; for class diagrams margin=7 → 15/13, for others margin=6 →
+    // 14/12).
+    let total_margin = if nodes.len() > 1 { margin + 8.0 } else { margin + 6.0 };
+    let max_right = nodes.iter().map(|n| n.x + n.width).fold(0.0_f64, f64::max);
+    let max_bottom = nodes.iter().map(|n| n.y + n.height).fold(0.0_f64, f64::max);
+    let total_width = total_margin + max_right.floor();
+    let total_height = total_margin + max_bottom.floor();
 
     CucaLayout {
         nodes,
@@ -857,7 +977,7 @@ fn build_fallback_layout(
     let mut sorted: Vec<(&String, &ParsedEntity)> = entities.iter().collect();
     sorted.sort_by_key(|(_, e)| e.source_line);
 
-    let mut y = CANVAS_MARGIN;
+    let mut y = FALLBACK_MARGIN;
     let mut entity_counter = 0u32;
 
     for (name, entity) in &sorted {
@@ -868,19 +988,19 @@ fn build_fallback_layout(
 
         let (cx, cy, text_x, text_y) = match entity.kind {
             EntityKind::Actor => {
-                let cx = CANVAS_MARGIN + ed.svek_w / 2.0;
+                let cx = FALLBACK_MARGIN + ed.svek_w / 2.0;
                 let cy = y + 8.0;
-                (cx, cy, CANVAS_MARGIN + (ed.svek_w - ed.text_w) / 2.0, y + ACTOR_HEIGHT + 14.4659)
+                (cx, cy, FALLBACK_MARGIN + (ed.svek_w - ed.text_w) / 2.0, y + ACTOR_HEIGHT + 14.4659)
             }
             EntityKind::Usecase => {
-                let cx = CANVAS_MARGIN + ed.rx;
+                let cx = FALLBACK_MARGIN + ed.rx;
                 let cy = y + ed.ry;
-                (cx, cy, CANVAS_MARGIN + (2.0 * ed.rx - ed.text_w) / 2.0, cy + 6.0339)
+                (cx, cy, FALLBACK_MARGIN + (2.0 * ed.rx - ed.text_w) / 2.0, cy + 6.0339)
             }
             _ => {
-                let cx = CANVAS_MARGIN + ed.svek_w / 2.0;
+                let cx = FALLBACK_MARGIN + ed.svek_w / 2.0;
                 let cy = y + ed.svek_h / 2.0;
-                (cx, cy, CANVAS_MARGIN + 10.0, y + TEXT_HEIGHT)
+                (cx, cy, FALLBACK_MARGIN + 10.0, y + TEXT_HEIGHT)
             }
         };
 
@@ -890,7 +1010,7 @@ fn build_fallback_layout(
             kind: entity.kind,
             source_line: entity.source_line,
             entity_id,
-            x: CANVAS_MARGIN,
+            x: FALLBACK_MARGIN,
             y,
             width: ed.svek_w,
             height: ed.svek_h,
@@ -911,8 +1031,8 @@ fn build_fallback_layout(
         .iter()
         .map(|n| n.x + n.width)
         .fold(0.0_f64, f64::max)
-        + CANVAS_MARGIN;
-    let total_height = y + CANVAS_MARGIN;
+        + FALLBACK_MARGIN;
+    let total_height = y + FALLBACK_MARGIN;
 
 
     // Build links as straight lines between entity centers.
@@ -936,20 +1056,29 @@ fn build_fallback_layout(
             );
             let arrow_angle = std::f64::consts::FRAC_PI_2;
             let arrow_points = compute_arrow_polygon(end.0, end.1, arrow_angle);
+            let is_extension = link.arrow.contains("<|") || link.arrow.contains("|<");
+            let link_type = if is_extension { "extension" } else { "dependency" };
+            let path_id = if is_extension {
+                format!("{}-backto-{}", link.from, link.to)
+            } else {
+                format!("{}-to-{}", link.from, link.to)
+            };
             layout_links.push(LayoutLink {
                 from: link.from.clone(),
                 to: link.to.clone(),
                 from_id: from_node.entity_id.clone(),
                 to_id: to_node.entity_id.clone(),
                 link_id: format!("lnk{link_counter}"),
-                link_type: "dependency".to_string(),
-                path_id: format!("{}-to-{}", link.from, link.to),
+                link_type: link_type.to_string(),
+                path_id,
                 source_line: link.source_line,
                 path_d,
                 arrow_points,
                 is_line: true,
                 start,
                 end,
+                label: link.label.clone(),
+                arrow: link.arrow.clone(),
             });
         }
     }
@@ -983,6 +1112,31 @@ fn compute_arrow_polygon(x: f64, y: f64, angle: f64) -> String {
         (-9.0, -4.0),
         (-5.0, 0.0),
         (-9.0, 4.0),
+        (0.0, 0.0),
+    ];
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    let mut result = String::new();
+    for (i, (px, py)) in pts.iter().enumerate() {
+        let rx = x + px * cos_a - py * sin_a;
+        let ry = y + px * sin_a + py * cos_a;
+        if i > 0 {
+            result.push(',');
+        }
+        write!(result, "{},{}", fmt_coord(rx), fmt_coord(ry)).unwrap();
+    }
+    result
+}
+
+/// Computes a hollow triangle arrow polygon (for extension/inheritance links).
+/// Ported from: `ExtremityTriangle.java` and `ExtremityFactoryTriangle.java`.
+/// Shape: (0,0), (-xWing,-yAperture), (-xWing,yAperture), (0,0) — 4 points.
+fn compute_triangle_polygon(x: f64, y: f64, angle: f64, x_wing: f64, y_aperture: f64) -> String {
+    let pts = [
+        (0.0, 0.0),
+        (-x_wing, -y_aperture),
+        (-x_wing, y_aperture),
         (0.0, 0.0),
     ];
     let cos_a = angle.cos();

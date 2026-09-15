@@ -186,9 +186,62 @@ fn round_coord_attr(key: &str, value: &str) -> String {
             .map(|s| round_one(s))
             .collect::<Vec<_>>()
             .join(" ")
+    } else if key == "d" {
+        // Round all numeric values in SVG path data to 3 decimal places.
+        round_path_data(value)
     } else {
         value.to_string()
     }
+}
+
+/// Rounds all numeric values in an SVG path `d` attribute to 3 decimal places.
+/// Path commands (M, C, L, Z, Q, H, V, A, etc.) are preserved; numbers are rounded.
+fn round_path_data(d: &str) -> String {
+    let mut result = String::with_capacity(d.len());
+    let mut num_buf = String::new();
+
+    for ch in d.chars() {
+        if ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == 'e' || ch == 'E' {
+            num_buf.push(ch);
+        } else {
+            if !num_buf.is_empty() {
+                if let Ok(v) = num_buf.parse::<f64>() {
+                    let r = (v * 1000.0).round() / 1000.0;
+                    let formatted = format!("{:.3}", r);
+                    let trimmed = formatted
+                        .trim_end_matches('0')
+                        .trim_end_matches('.');
+                    result.push_str(if trimmed.is_empty() || trimmed == "-0" {
+                        "0"
+                    } else {
+                        trimmed
+                    });
+                } else {
+                    result.push_str(&num_buf);
+                }
+                num_buf.clear();
+            }
+            result.push(ch);
+        }
+    }
+    // Flush remaining number
+    if !num_buf.is_empty() {
+        if let Ok(v) = num_buf.parse::<f64>() {
+            let r = (v * 1000.0).round() / 1000.0;
+            let formatted = format!("{:.3}", r);
+            let trimmed = formatted
+                .trim_end_matches('0')
+                .trim_end_matches('.');
+            result.push_str(if trimmed.is_empty() || trimmed == "-0" {
+                "0"
+            } else {
+                trimmed
+            });
+        } else {
+            result.push_str(&num_buf);
+        }
+    }
+    result
 }
 
 fn serialize_node(node: &CleanNode, indent: usize) -> String {
