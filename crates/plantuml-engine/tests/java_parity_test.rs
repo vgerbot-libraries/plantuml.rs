@@ -210,14 +210,14 @@ class Foo {
 
 // ── Activity diagram (expected to fail — simplified layout) ─────────────
 
-parity_test_ignored!(activity_basic_flow, r#"@startuml
+parity_test!(activity_basic_flow, r#"@startuml
 start
 :Do something;
 :Do another thing;
 stop
 @enduml"#);
 
-parity_test_ignored!(activity_if_else, r#"@startuml
+parity_test!(activity_if_else, r#"@startuml
 start
 if (condition?) then (yes)
   :Take yes path;
@@ -227,7 +227,7 @@ endif
 stop
 @enduml"#);
 
-parity_test_ignored!(activity_while_loop, r#"@startuml
+parity_test!(activity_while_loop, r#"@startuml
 start
 while (more data?) is (yes)
   :Process item;

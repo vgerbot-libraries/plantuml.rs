@@ -10,4 +10,4 @@ pub mod activity_parser;
 pub mod activity_renderer;
 
 pub use activity_diagram::ActivityDiagram;
-pub use activity_parser::{parse_activity_source, ActivityNode, ActivityNodeType, ActivitySource};
+pub use activity_parser::{parse_activity_source, ActivityBlock, ActivitySource};

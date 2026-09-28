@@ -1,228 +1,206 @@
 //! Activity diagram source parser.
 //!
-//! Ported from: `net/sourceforge/plantuml/activitydiagram/ActivityDiagram.java`
-//! and `Activity3Command.java`.
+//! Ported from: `net/sourceforge/plantuml/activitydiagram3/ActivityDiagram3.java`
+//! together with the `Instruction*` command objects (`InstructionIf`,
+//! `InstructionWhile`, `InstructionSimple`, ...).
 //!
-//! Parses the new-style activity syntax (`start`, `:action;`, `if/else/endif`,
-//! `while/endwhile`, `fork/end fork`).
+//! Parses the new-style activity syntax into a recursive tree of
+//! [`ActivityBlock`]s: actions, start/stop, `if/else/endif` and
+//! `while/endwhile`, each carrying its nested branch/body blocks.
 
-/// Type of activity node.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ActivityNodeType {
-    /// Start node (filled circle).
+/// One statement in an activity flow.
+///
+/// Ported from the `Instruction` hierarchy under
+/// `net/sourceforge/plantuml/activitydiagram3/`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActivityBlock {
+    /// Start node (filled circle). Ported from `InstructionStart`.
     Start,
-    /// Stop node (filled circle inside circle).
+    /// Stop node (filled circle inside a circle). Ported from `InstructionStop`.
     Stop,
-    /// Action node (rounded rectangle with label).
-    Action,
-    /// Decision node (diamond with condition).
-    If,
-    /// Else branch.
-    Else,
-    /// End if.
-    EndIf,
-    /// While loop start.
-    While,
-    /// End while.
-    EndWhile,
-    /// Fork (parallel split).
-    Fork,
-    /// Another fork branch.
-    ForkAgain,
-    /// End fork.
-    EndFork,
-    /// Note attached to a node.
-    Note,
+    /// Action (rounded rectangle). Ported from `InstructionSimple`.
+    Action(String),
+    /// Conditional with an optional else branch.
+    ///
+    /// Ported from `InstructionIf`; `otherwise` is `None` for an if without
+    /// `else`.
+    If {
+        /// Condition shown inside the decision diamond.
+        condition: String,
+        /// Label on the then branch.
+        then_label: Option<String>,
+        /// Statements on the then branch.
+        then_block: Vec<Self>,
+        /// Label on the else branch, if present.
+        else_label: Option<String>,
+        /// Statements on the else branch, if present.
+        else_block: Option<Vec<Self>>,
+    },
+    /// While loop.
+    ///
+    /// Ported from `InstructionWhile`.
+    While {
+        /// Condition shown inside the decision diamond.
+        condition: String,
+        /// Label on the looping (back) branch.
+        yes_label: Option<String>,
+        /// Loop body.
+        body: Vec<Self>,
+        /// Label on the exit branch.
+        out_label: Option<String>,
+    },
 }
 
-/// An activity node in the flow.
-#[derive(Debug, Clone)]
-pub struct ActivityNode {
-    /// Node type.
-    pub node_type: ActivityNodeType,
-    /// Label text (for actions, conditions, notes).
-    pub label: String,
-    /// Indentation level (for nested structures).
-    pub level: usize,
-}
-
-/// Parsed activity diagram source.
-#[derive(Debug, Clone, Default)]
+/// Parsed activity diagram: the ordered list of top-level statements.
+///
+/// Ported from the single `Swimlanes`/instruction list held by
+/// `ActivityDiagram3`.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ActivitySource {
-    /// Ordered list of activity nodes.
-    pub nodes: Vec<ActivityNode>,
+    /// Top-level statements in execution order.
+    pub blocks: Vec<ActivityBlock>,
 }
 
 /// Parses activity diagram source lines.
+///
+/// `lines` are the raw diagram lines, typically with the `@startuml`/
+/// `@enduml` wrappers already removed.
 #[must_use]
 pub fn parse_activity_source(lines: &[&str]) -> ActivitySource {
-    let mut source = ActivitySource::default();
-    let mut level = 0usize;
+    let cleaned: Vec<&str> = lines
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| {
+            !l.is_empty()
+                && !l.starts_with('\'')
+                && !l.starts_with("@start")
+                && !l.starts_with("@end")
+        })
+        .collect();
 
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('\'') {
-            continue;
+    let mut cursor = Cursor { lines: &cleaned, pos: 0 };
+    let blocks = parse_sequence(&mut cursor, &[]);
+    ActivitySource { blocks }
+}
+
+/// Indexed view over the trimmed source lines.
+struct Cursor<'a> {
+    lines: &'a [&'a str],
+    pos: usize,
+}
+
+impl<'a> Cursor<'a> {
+    /// Returns the current line without consuming it.
+    fn peek(&self) -> Option<&'a str> {
+        self.lines.get(self.pos).copied()
+    }
+
+    /// Consumes and returns the current line.
+    fn next(&mut self) -> Option<&'a str> {
+        let line = self.lines.get(self.pos).copied();
+        if line.is_some() {
+            self.pos += 1;
         }
+        line
+    }
+}
 
-        // Skip @start/@end directives.
-        if trimmed.starts_with("@start") || trimmed.starts_with("@end") {
-            continue;
+/// Parses statements until a terminator keyword (`else`, `endif`, `endwhile`)
+/// or end of input is reached.
+///
+/// Branch/body blocks share this parser; `terminators` lists the keywords that
+/// close the current block (they are left unconsumed for the caller).
+fn parse_sequence(cursor: &mut Cursor, terminators: &[&str]) -> Vec<ActivityBlock> {
+    let mut blocks = Vec::new();
+    while let Some(line) = cursor.peek() {
+        if terminators.iter().any(|t| line.starts_with(t)) {
+            break;
         }
+        cursor.next();
 
-        // Start node.
-        if trimmed == "start" {
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Start,
-                label: String::new(),
-                level,
-            });
-            continue;
-        }
-
-        // Stop/end node.
-        if trimmed == "stop" || trimmed == "end" {
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Stop,
-                label: String::new(),
-                level,
-            });
-            continue;
-        }
-
-        // Action: `:label;` or `:label`
-        if let Some(rest) = trimmed.strip_prefix(':') {
+        if line == "start" {
+            blocks.push(ActivityBlock::Start);
+        } else if line == "stop" || line == "end" {
+            blocks.push(ActivityBlock::Stop);
+        } else if let Some(rest) = line.strip_prefix(':') {
             let label = rest.trim_end_matches(';').trim().to_string();
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Action,
-                label,
-                level,
-            });
-            continue;
+            blocks.push(ActivityBlock::Action(label));
+        } else if line.starts_with("if ") {
+            blocks.push(parse_if(cursor, line));
+        } else if line.starts_with("while ") {
+            blocks.push(parse_while(cursor, line));
         }
+    }
+    blocks
+}
 
-        // If condition: `if (cond) then (yes)` or `if (cond) then`
-        if trimmed.starts_with("if ") {
-            let label = extract_condition(trimmed);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::If,
-                label,
-                level,
-            });
-            level += 1;
-            continue;
+/// Parses an `if` statement whose header line has already been consumed.
+fn parse_if(cursor: &mut Cursor, header: &str) -> ActivityBlock {
+    let condition = first_paren(header).unwrap_or_else(|| header.to_string());
+    let then_label = second_paren(header);
+    let then_block = parse_sequence(cursor, &["else", "endif"]);
+
+    let mut else_label = None;
+    let mut else_block = None;
+    if let Some(else_line) = cursor.peek() {
+        if else_line.starts_with("else") {
+            cursor.next();
+            else_label = first_paren(else_line);
+            else_block = Some(parse_sequence(cursor, &["endif"]));
         }
+    }
+    // Consume the closing `endif`.
+    if cursor.peek().is_some_and(|l| l == "endif") {
+        cursor.next();
+    }
 
-        // Else: `else (no)` or `else`
-        if trimmed.starts_with("else") {
-            level = level.saturating_sub(1);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Else,
-                label: extract_paren_content(trimmed).unwrap_or_default(),
-                level,
-            });
-            level += 1;
-            continue;
-        }
+    ActivityBlock::If {
+        condition,
+        then_label,
+        then_block,
+        else_label,
+        else_block,
+    }
+}
 
-        // EndIf
-        if trimmed == "endif" {
-            level = level.saturating_sub(1);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::EndIf,
-                label: String::new(),
-                level,
-            });
-            continue;
-        }
+/// Parses a `while` statement whose header line has already been consumed.
+fn parse_while(cursor: &mut Cursor, header: &str) -> ActivityBlock {
+    let condition = first_paren(header).unwrap_or_else(|| header.to_string());
+    let yes_label = second_paren(header);
+    let body = parse_sequence(cursor, &["endwhile"]);
 
-        // While: `while (cond) is (label)`
-        if trimmed.starts_with("while ") {
-            let label = extract_condition(trimmed);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::While,
-                label,
-                level,
-            });
-            level += 1;
-            continue;
-        }
-
-        // EndWhile: `endwhile (label)` or `endwhile`
-        if trimmed.starts_with("endwhile") {
-            level = level.saturating_sub(1);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::EndWhile,
-                label: extract_paren_content(trimmed).unwrap_or_default(),
-                level,
-            });
-            continue;
-        }
-
-        // Fork
-        if trimmed == "fork" {
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Fork,
-                label: String::new(),
-                level,
-            });
-            level += 1;
-            continue;
-        }
-
-        // Fork again
-        if trimmed == "fork again" {
-            level = level.saturating_sub(1);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::ForkAgain,
-                label: String::new(),
-                level,
-            });
-            level += 1;
-            continue;
-        }
-
-        // End fork
-        if trimmed == "end fork" || trimmed == "endfork" {
-            level = level.saturating_sub(1);
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::EndFork,
-                label: String::new(),
-                level,
-            });
-            continue;
-        }
-
-        // Note: `note left : text` or `note right : text`
-        if trimmed.starts_with("note ") {
-            let label = trimmed.split_once(" : ").map_or("", |(_, t)| t).to_string();
-            source.nodes.push(ActivityNode {
-                node_type: ActivityNodeType::Note,
-                label,
-                level,
-            });
-
+    let mut out_label = None;
+    if let Some(end_line) = cursor.next() {
+        if end_line.starts_with("endwhile") {
+            out_label = first_paren(end_line);
         }
     }
 
-    source
-}
-
-/// Extracts the condition from `if (cond) then` or `while (cond) is`.
-fn extract_condition(line: &str) -> String {
-    if let Some(start) = line.find('(') {
-        if let Some(end) = line[start..].find(')') {
-            return line[start + 1..start + end].trim().to_string();
-        }
+    ActivityBlock::While {
+        condition,
+        yes_label,
+        body,
+        out_label,
     }
-    line.to_string()
 }
 
-/// Extracts content from parentheses: `else (no)` → `no`.
-fn extract_paren_content(line: &str) -> Option<String> {
-    let start = line.find('(')?;
-    let end = line[start..].find(')')?;
-    Some(line[start + 1..start + end].trim().to_string())
+/// Returns the content of the first parenthesised group: `if (c) then` → `c`.
+fn first_paren(line: &str) -> Option<String> {
+    paren_group(line, 0)
+}
+
+/// Returns the content of the second parenthesised group:
+/// `if (c) then (yes)` → `yes`.
+fn second_paren(line: &str) -> Option<String> {
+    let first_close = line.find(')')?;
+    paren_group(&line[first_close..], 0)
+}
+
+/// Finds the first `( ... )` in `s` and returns its trimmed content.
+fn paren_group(s: &str, _from: usize) -> Option<String> {
+    let start = s.find('(')? + 1;
+    let end = s[start..].find(')')? + start;
+    Some(s[start..end].trim().to_string())
 }
 
 #[cfg(test)]
@@ -231,46 +209,94 @@ mod tests {
 
     #[test]
     fn test_parse_simple_flow() {
-        let lines = vec!["start", ":Do something;", "stop"];
-        let source = parse_activity_source(&lines);
-        assert_eq!(source.nodes.len(), 3);
-        assert_eq!(source.nodes[0].node_type, ActivityNodeType::Start);
-        assert_eq!(source.nodes[1].node_type, ActivityNodeType::Action);
-        assert_eq!(source.nodes[1].label, "Do something");
-        assert_eq!(source.nodes[2].node_type, ActivityNodeType::Stop);
+        let source = parse_activity_source(&["start", ":Do something;", "stop"]);
+        assert_eq!(
+            source.blocks,
+            vec![
+                ActivityBlock::Start,
+                ActivityBlock::Action("Do something".to_string()),
+                ActivityBlock::Stop,
+            ]
+        );
     }
 
     #[test]
     fn test_parse_if_else() {
-        let lines = vec![
+        let source = parse_activity_source(&[
             "start",
             "if (condition?) then (yes)",
-            ":Do yes;",
+            ":Take yes path;",
             "else (no)",
-            ":Do no;",
+            ":Take no path;",
             "endif",
             "stop",
-        ];
-        let source = parse_activity_source(&lines);
-        assert_eq!(source.nodes.len(), 7);
-        assert_eq!(source.nodes[1].node_type, ActivityNodeType::If);
-        assert_eq!(source.nodes[1].label, "condition?");
-        assert_eq!(source.nodes[3].node_type, ActivityNodeType::Else);
-        assert_eq!(source.nodes[6].node_type, ActivityNodeType::Stop);
+        ]);
+        assert_eq!(source.blocks.len(), 3);
+        match &source.blocks[1] {
+            ActivityBlock::If {
+                condition,
+                then_label,
+                then_block,
+                else_label,
+                else_block,
+            } => {
+                assert_eq!(condition, "condition?");
+                assert_eq!(then_label.as_deref(), Some("yes"));
+                assert_eq!(
+                    then_block,
+                    &[ActivityBlock::Action("Take yes path".to_string())]
+                );
+                assert_eq!(else_label.as_deref(), Some("no"));
+                assert_eq!(
+                    else_block.as_deref(),
+                    Some(&[ActivityBlock::Action("Take no path".to_string())][..])
+                );
+            }
+            other => panic!("expected if, got {other:?}"),
+        }
+        assert_eq!(source.blocks[2], ActivityBlock::Stop);
     }
 
     #[test]
     fn test_parse_while() {
-        let lines = vec![
+        let source = parse_activity_source(&[
             "start",
             "while (more data?) is (yes)",
-            ":process;",
+            ":Process item;",
             "endwhile (no)",
             "stop",
-        ];
-        let source = parse_activity_source(&lines);
-        assert_eq!(source.nodes.len(), 5);
-        assert_eq!(source.nodes[1].node_type, ActivityNodeType::While);
-        assert_eq!(source.nodes[3].node_type, ActivityNodeType::EndWhile);
+        ]);
+        assert_eq!(source.blocks.len(), 3);
+        match &source.blocks[1] {
+            ActivityBlock::While {
+                condition,
+                yes_label,
+                body,
+                out_label,
+            } => {
+                assert_eq!(condition, "more data?");
+                assert_eq!(yes_label.as_deref(), Some("yes"));
+                assert_eq!(body, &[ActivityBlock::Action("Process item".to_string())]);
+                assert_eq!(out_label.as_deref(), Some("no"));
+            }
+            other => panic!("expected while, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_if_in_while() {
+        let source = parse_activity_source(&[
+            "while (c?) is (y)",
+            "if (x?) then (a)",
+            ":one;",
+            "else (b)",
+            ":two;",
+            "endif",
+            "endwhile (n)",
+        ]);
+        match &source.blocks[0] {
+            ActivityBlock::While { body, .. } => assert_eq!(body.len(), 1),
+            other => panic!("expected while, got {other:?}"),
+        }
     }
 }

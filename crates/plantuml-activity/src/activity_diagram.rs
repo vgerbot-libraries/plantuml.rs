@@ -59,7 +59,7 @@ impl Diagram for ActivityDiagram {
     }
 
     fn get_warning_or_error(&self) -> Option<String> {
-        if self.source.nodes.is_empty() {
+        if self.source.blocks.is_empty() {
             Some("No activity nodes found".to_string())
         } else {
             None

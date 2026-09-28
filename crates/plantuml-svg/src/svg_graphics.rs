@@ -1221,10 +1221,10 @@ mod tests {
 
     #[test]
     fn test_shorten_color() {
-        assert_eq!(shorten_color("#000000"), "#000");
-        assert_eq!(shorten_color("#FFFFFF"), "#FFF");
+        // The 1.2026.6 jar never shortens colors (full `#RRGGBB`).
+        assert_eq!(shorten_color("#000000"), "#000000");
+        assert_eq!(shorten_color("#FFFFFF"), "#FFFFFF");
         assert_eq!(shorten_color("#E2E2F0"), "#E2E2F0");
-        assert_eq!(shorten_color("#181818"), "#181818");
     }
 
     #[test]
@@ -1236,8 +1236,9 @@ mod tests {
 
     #[test]
     fn test_format_opacity() {
-        assert_eq!(format_opacity(0.0), "0");
-        assert_eq!(format_opacity(1.0), "1");
-        assert_eq!(format_opacity(0.5), "0.5");
+        // The 1.2026.6 jar emits five untrimmed decimals.
+        assert_eq!(format_opacity(0.0), "0.00000");
+        assert_eq!(format_opacity(1.0), "1.00000");
+        assert_eq!(format_opacity(0.5), "0.50000");
     }
 }

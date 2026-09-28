@@ -77,6 +77,44 @@ const AWT_ASCII_ITALIC_WIDTHS: [f64; 128] = [
     7.7280, 7.4720, 7.1200, 5.6000, 8.8160, 5.6000, 9.1520, 0.0,
 ];
 
+/// Per-character widths (pixels, font size 11, chars 0x20–0x7E) measured from
+/// Java AWT `getStringBounds` with the jar's exact `FontRenderContext`.
+///
+/// AWT quantizes glyph advances at each ppem, so scaled 16 pt widths are
+/// ~0.0004 px short; a size-exact table is required for byte-parity.
+#[allow(clippy::unreadable_literal)]
+const AWT_SIZE_11_PLAIN: [f64; 95] = [
+    2.859985, 2.958984, 4.487961, 7.105942, 6.291946, 9.140930, 8.051941, 2.474976,
+    3.299973, 3.299973, 6.060959, 6.291946, 2.947983, 3.541977, 2.947983, 4.091965,
+    6.291946, 6.291946, 6.291946, 6.291946, 6.291946, 6.291946, 6.291946, 6.291946,
+    6.291946, 6.291946, 2.947983, 2.947983, 6.291946, 6.291946, 6.291946, 4.773972,
+    9.888931, 7.028946, 7.149948, 6.951950, 8.029938, 6.115952, 5.708954, 8.007935,
+    8.150940, 3.728973, 3.002975, 6.808945, 5.763962, 9.976929, 8.359940, 8.590942,
+    6.654953, 8.590942, 6.841949, 6.038956, 6.115952, 8.040939, 6.599945, 10.229919,
+    6.445953, 6.225952, 6.291946, 3.618973, 4.091965, 3.618973, 6.291946, 4.883957,
+    3.090973, 6.170959, 6.764954, 5.279968, 6.764954, 6.203949, 3.783966, 6.764954,
+    6.797943, 2.837982, 2.837982, 5.873962, 2.837982, 10.284927, 6.797943, 6.654953,
+    6.764954, 6.764954, 4.542969, 5.268967, 3.970978, 6.797943, 5.587952, 8.645935,
+    5.818954, 5.609955, 5.169968, 4.179962, 6.060959, 4.179962, 6.291946,
+];
+
+/// Per-character widths (pixels, font size 12, chars 0x20–0x7E).
+#[allow(clippy::unreadable_literal)]
+const AWT_SIZE_12_PLAIN: [f64; 95] = [
+    3.120026, 3.228027, 4.896042, 7.752060, 6.864044, 9.972076, 8.784058, 2.700012,
+    3.600021, 3.600021, 6.612045, 6.864044, 3.216019, 3.864029, 3.216019, 4.464035,
+    6.864044, 6.864044, 6.864044, 6.864044, 6.864044, 6.864044, 6.864044, 6.864044,
+    6.864044, 6.864044, 3.216019, 3.216019, 6.864044, 6.864044, 6.864044, 5.208038,
+    10.788071, 7.668060, 7.800049, 7.584061, 8.760056, 6.672043, 6.228043, 8.736069,
+    8.892059, 4.068024, 3.276016, 7.428055, 6.288040, 10.884079, 9.120071, 9.372070,
+    7.260056, 9.372070, 7.464050, 6.588043, 6.672043, 8.772064, 7.200058, 11.160080,
+    7.032043, 6.792053, 6.864044, 3.948029, 4.464035, 3.948029, 6.864044, 5.328033,
+    3.372025, 6.732040, 7.380051, 5.760040, 7.380051, 6.768051, 4.128036, 7.380051,
+    7.416046, 3.096024, 3.096024, 6.408051, 3.096024, 11.220078, 7.416046, 7.260056,
+    7.380051, 7.380051, 4.956039, 5.748047, 4.332031, 7.416046, 6.096039, 9.432068,
+    6.348038, 6.120041, 5.640045, 4.560028, 6.612045, 4.560028, 6.864044,
+];
+
 /// A `StringBounder` that matches Java AWT font metrics for SVG output.
 ///
 /// Uses pre-computed AWT character widths for ASCII text and falls back to
@@ -117,25 +155,50 @@ impl StringBounderSvg {
         }
         self.fallback_blocks[block].get_width((cp & 0xFF) as u8)
     }
+
+    /// Sums the size-exact ASCII width for `text`, or `None` if the size has
+    /// no exact table or the text contains a character outside 0x20–0x7E.
+    fn exact_ascii_width(size: f64, text: &str) -> Option<f64> {
+        let table: &[f64; 95] = if (size - 11.0).abs() < f64::EPSILON {
+            &AWT_SIZE_11_PLAIN
+        } else if (size - 12.0).abs() < f64::EPSILON {
+            &AWT_SIZE_12_PLAIN
+        } else {
+            return None;
+        };
+        let mut width = 0.0_f64;
+        for cp in text.chars().map(|c| c as u32) {
+            if !(0x20..=0x7e).contains(&cp) {
+                return None;
+            }
+            width += table[(cp - 0x20) as usize];
+        }
+        Some(width)
+    }
 }
 
 impl StringBounder for StringBounderSvg {
     fn calculate_dimension(&self, font: &UFont, text: &str) -> XDimension2D {
         let size = font.size_2d();
-        let factor = size / REFERENCE_SIZE;
-        // Java AWT Font.getStringBounds() returns height ≈ size * 1.362
-        // (ascent + descent of the visual bounds, not just the font size).
-        // Measured from Java AWT SansSerif at 14pt: 19.0679 / 14 = 1.361994.
+        // Java AWT returns a visual height ≈ size * 1.362 (ascent + descent).
         let height = size * 1.362;
         let italic = font.style().italic;
+
+        // Size-exact tables reproduce AWT's per-ppem advance quantization.
+        if !italic {
+            if let Some(width) = Self::exact_ascii_width(size, text) {
+                let _ = font.family(text, plantuml_core::u_font::UFontContext::Svg);
+                return XDimension2D::new_or_zero(width, height);
+            }
+        }
+
+        let factor = size / REFERENCE_SIZE;
         let mut width = 0.0_f64;
         for cp in text.chars().map(|c| c as u32) {
             width += self.get_char_width(cp, italic);
         }
-        // Java's FontMetrics.getStringBounds() returns a width slightly less
-        // than the sum of per-character advance widths.  The correction factor
-        // differs between plain and italic styles, measured against Java
-        // 1.2026.6 AWT SansSerif with fractional metrics at 14 pt.
+        // Scaled 16 pt per-character advances slightly over-state the whole
+        // string; a measured correction factor (plain vs italic, 14 pt).
         let correction = if italic { 0.000_003_76 } else { 0.000_006_3 };
         let width = width * (1.0 - correction) * factor;
         let _ = font.family(text, plantuml_core::u_font::UFontContext::Svg);

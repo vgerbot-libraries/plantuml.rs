@@ -234,7 +234,6 @@ fn test_gantt_renders_svg() {
 
 /// Verifies that activity diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
 fn test_activity_renders_svg() {
     let source = "@startuml\nstart\n:Do something;\nstop\n@enduml";
     let result = render_svg(source);
@@ -247,7 +246,6 @@ fn test_activity_renders_svg() {
 
 /// Verifies that activity diagrams with if/else render.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
 fn test_activity_if_else_renders_svg() {
     let source = "@startuml\nstart\nif (cond?) then (yes)\n:yes action;\nelse (no)\n:no action;\nendif\nstop\n@enduml";
     let result = render_svg(source);
@@ -256,9 +254,20 @@ fn test_activity_if_else_renders_svg() {
     assert!(svg.contains("<svg"), "Activity if/else must produce SVG");
     assert!(svg.contains("cond?"), "Activity SVG must contain condition");
     assert!(svg.contains("yes action"), "Activity SVG must contain yes branch");
+    assert!(svg.contains("no action"), "Activity SVG must contain no branch");
+    // Fork/merge topology: the two branches must occupy horizontally distinct
+    // columns (a vertical stack is the original regression).
+    let xs: Vec<f64> = svg
+        .match_indices("<rect")
+        .filter_map(|(i, _)| {
+            let j = svg[i..].find("x=\"")?;
+            svg[i + j + 3..].split('"').next()?.parse().ok()
+        })
+        .collect();
+    assert!(xs.len() >= 2, "expected two branch boxes, got {xs:?}");
+    assert_ne!(xs[0], xs[1], "branches must not share an x column");
     assert_java_parity(source, &svg, "Activity if/else");
 }
-
 /// Verifies that a truly unsupported diagram type returns ParseFailed.
 #[test]
 fn test_unsupported_type_returns_parse_failed() {

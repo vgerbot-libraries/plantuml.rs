@@ -152,6 +152,14 @@ impl SvgOption {
     pub fn set_backcolor(&mut self, color: HColor) {
         self.backcolor = Some(color);
     }
+
+    /// Sets the minimum canvas dimension.
+    ///
+    /// Ported from: `SvgOption.withMinDim(XDimension2D)`. The SVG canvas is
+    /// enlarged to at least this size during construction.
+    pub fn set_min_dim(&mut self, width: f64, height: f64) {
+        self.min_dim = (width, height);
+    }
 }
 
 impl Default for SvgOption {

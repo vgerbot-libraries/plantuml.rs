@@ -49,7 +49,3 @@ endwhile (no)
 stop
 @enduml
 ```
-
----
-
-plantuml.rs uses a simplified layout algorithm for this diagram type. Pixel-perfect parity with the Java original is deferred.

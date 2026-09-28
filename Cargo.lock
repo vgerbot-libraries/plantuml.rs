@@ -349,6 +349,7 @@ dependencies = [
  "indexmap",
  "log",
  "plantuml-core",
+ "plantuml-klimt",
  "plantuml-svg",
  "thiserror",
 ]
@@ -466,6 +467,7 @@ dependencies = [
  "indexmap",
  "log",
  "plantuml-core",
+ "plantuml-klimt",
  "plantuml-svg",
  "quick-xml",
  "thiserror",
