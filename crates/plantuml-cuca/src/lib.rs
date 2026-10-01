@@ -15,6 +15,8 @@
 pub mod cuca_diagram;
 pub mod cuca_layout;
 pub mod cuca_renderer;
+pub(crate) mod native_layout;
+pub(crate) mod pathplan;
 pub mod entity_link_parser;
 
 pub use cuca_diagram::CucaDiagram;

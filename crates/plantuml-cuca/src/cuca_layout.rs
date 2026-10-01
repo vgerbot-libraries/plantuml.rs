@@ -293,31 +293,21 @@ fn run_dot(dot_string: &str) -> Option<String> {
 
 /// Parsed node position from dot SVG (after Y-flip).
 #[derive(Debug, Clone)]
-struct DotNodePos {
-    min_x: f64,
-    min_y: f64,
-    #[allow(dead_code)]
-    width: f64,
-    #[allow(dead_code)]
-    height: f64,
+pub(crate) struct DotNodePos {
+    pub(crate) min_x: f64,
+    pub(crate) min_y: f64,
 }
 
 /// Parsed edge path from dot SVG (after Y-flip). Single cubic bezier: start, ctrl1, ctrl2, end.
 #[derive(Debug, Clone)]
-struct DotEdgePath {
-    points: [(f64, f64); 4],
+pub(crate) struct DotEdgePath {
+    pub(crate) points: [(f64, f64); 4],
 }
 
 /// Result of parsing the dot SVG output.
-struct DotSvgResult {
-    #[allow(dead_code)]
-    full_height: f64,
-    #[allow(dead_code)]
-    svg_width: f64,
-    #[allow(dead_code)]
-    svg_height: f64,
-    nodes: HashMap<i32, DotNodePos>,
-    edges: HashMap<i32, DotEdgePath>,
+pub(crate) struct DotSvgResult {
+    pub(crate) nodes: HashMap<i32, DotNodePos>,
+    pub(crate) edges: HashMap<i32, DotEdgePath>,
 }
 
 /// Parses the dot SVG output to extract node positions and edge paths.
@@ -330,7 +320,6 @@ struct DotSvgResult {
 fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvgResult> {
     // Extract fullHeight from <svg width="Wpt" height="Hpt"
     let svg_height = extract_attr_f64(svg, "svg", "height")?;
-    let svg_width = extract_attr_f64(svg, "svg", "width")?;
     let full_height = svg_height;
 
     let mut nodes = HashMap::new();
@@ -354,15 +343,7 @@ fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvg
                 let ry = extract_attr_f64_in(element, "ry")?;
                 let min_x = cx - rx;
                 let min_y = cy + full_height - ry;
-                nodes.insert(
-                    color,
-                    DotNodePos {
-                        min_x,
-                        min_y,
-                        width: 2.0 * rx,
-                        height: 2.0 * ry,
-                    },
-                );
+                nodes.insert(color, DotNodePos { min_x, min_y });
             } else if element.contains("polygon") {
                 // Rect node: extract polygon points
                 let points_str = extract_attr_str_in(element, "points")?;
@@ -370,20 +351,8 @@ fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvg
                 if pts.len() >= 2 {
                     let min_x = pts.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
                     let min_y_dot = pts.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
-                    let max_x = pts.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
-                    let max_y_dot = pts.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
                     let min_y = min_y_dot + full_height;
-                    let width = max_x - min_x;
-                    let height = max_y_dot - min_y_dot;
-                    nodes.insert(
-                        color,
-                        DotNodePos {
-                            min_x,
-                            min_y,
-                            width,
-                            height,
-                        },
-                    );
+                    nodes.insert(color, DotNodePos { min_x, min_y });
                 }
             }
         }
@@ -411,13 +380,7 @@ fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvg
         }
     }
 
-    Some(DotSvgResult {
-        full_height,
-        svg_width,
-        svg_height,
-        nodes,
-        edges,
-    })
+    Some(DotSvgResult { nodes, edges })
 }
 
 /// Extracts a float attribute value from an XML element string.
@@ -667,25 +630,34 @@ pub fn compute_layout(
     }
 
 
-    // Use dot-based layout for all diagram types (matches Java's Smetana engine).
+    // Pure-Rust layout solver; no external `dot` required (works under WASM).
+    let sorted_data: Vec<(&String, &EntityData)> = sorted_entities
+        .iter()
+        .map(|(name, _)| (*name, &entity_data[name]))
+        .collect();
+
+    // Prefer the external `dot` engine when it is on PATH (native builds;
+    // bit-exact with Java/Smetana). Under WASM, or wherever `dot` is missing,
+    // fall back to the pure-Rust solver instead of the old vertical stack.
     let (dot_string, node_colors) =
         generate_dot_string(&sorted_entities, &entity_data, links);
-    let dot_svg = run_dot(&dot_string);
-    if let Some(svg) = dot_svg {
-        if let Some(dot_result) = parse_dot_svg(&svg, &node_colors) {
-            return build_layout_from_dot(
-                &sorted_entities,
-                &entity_data,
-                links,
-                &node_colors,
-                &dot_result,
-                &rank_of,
-                diagram_type,
-            );
+    let dot_result = if let Some(svg) = run_dot(&dot_string) {
+        match parse_dot_svg(&svg, &node_colors) {
+            Some(parsed) => parsed,
+            None => crate::native_layout::solve(&sorted_data, links),
         }
-    }
-
-    build_fallback_layout(&entities, &entity_data, links, &rank_of)
+    } else {
+        crate::native_layout::solve(&sorted_data, links)
+    };
+    build_layout_from_dot(
+        &sorted_entities,
+        &entity_data,
+        links,
+        &node_colors,
+        &dot_result,
+        &rank_of,
+        diagram_type,
+    )
 }
 
 #[allow(clippy::similar_names)]
@@ -965,131 +937,6 @@ fn build_layout_from_dot(
     }
 }
 
-/// Fallback layout when dot binary is not available.
-fn build_fallback_layout(
-    entities: &HashMap<String, ParsedEntity>,
-    entity_data: &HashMap<&String, EntityData>,
-    links: &[ParsedLink],
-    rank_of: &HashMap<&String, usize>,
-) -> CucaLayout {
-    // Simple vertical stack layout
-    let mut nodes = Vec::new();
-    let mut sorted: Vec<(&String, &ParsedEntity)> = entities.iter().collect();
-    sorted.sort_by_key(|(_, e)| e.source_line);
-
-    let mut y = FALLBACK_MARGIN;
-    let mut entity_counter = 0u32;
-
-    for (name, entity) in &sorted {
-        entity_counter += 1;
-        let entity_id = format!("ent{entity_counter:04}");
-        let ed = entity_data.get(*name).unwrap();
-        let rank = rank_of.get(*name).copied().unwrap_or(0);
-
-        let (cx, cy, text_x, text_y) = match entity.kind {
-            EntityKind::Actor => {
-                let cx = FALLBACK_MARGIN + ed.svek_w / 2.0;
-                let cy = y + 8.0;
-                (cx, cy, FALLBACK_MARGIN + (ed.svek_w - ed.text_w) / 2.0, y + ACTOR_HEIGHT + 14.4659)
-            }
-            EntityKind::Usecase => {
-                let cx = FALLBACK_MARGIN + ed.rx;
-                let cy = y + ed.ry;
-                (cx, cy, FALLBACK_MARGIN + (2.0 * ed.rx - ed.text_w) / 2.0, cy + 6.0339)
-            }
-            _ => {
-                let cx = FALLBACK_MARGIN + ed.svek_w / 2.0;
-                let cy = y + ed.svek_h / 2.0;
-                (cx, cy, FALLBACK_MARGIN + 10.0, y + TEXT_HEIGHT)
-            }
-        };
-
-        nodes.push(LayoutNode {
-            name: (*name).clone(),
-            display: entity.display.clone(),
-            kind: entity.kind,
-            source_line: entity.source_line,
-            entity_id,
-            x: FALLBACK_MARGIN,
-            y,
-            width: ed.svek_w,
-            height: ed.svek_h,
-            center_x: cx,
-            center_y: cy,
-            rx: ed.rx,
-            ry: ed.ry,
-            text_x,
-            text_y,
-            text_width: ed.text_w,
-            rank,
-        });
-
-        y += ed.svek_h + RANKSEP_PX;
-    }
-
-    let total_width = nodes
-        .iter()
-        .map(|n| n.x + n.width)
-        .fold(0.0_f64, f64::max)
-        + FALLBACK_MARGIN;
-    let total_height = y + FALLBACK_MARGIN;
-
-
-    // Build links as straight lines between entity centers.
-    let node_map: HashMap<&String, &LayoutNode> = nodes.iter().map(|n| (&n.name, n)).collect();
-    let entity_count = nodes.len();
-    let mut link_counter = entity_count;
-    let mut layout_links = Vec::new();
-    for link in links {
-        if let (Some(from_node), Some(to_node)) =
-            (node_map.get(&link.from), node_map.get(&link.to))
-        {
-            link_counter += 1;
-            let start = (from_node.center_x, from_node.center_y + from_node.height / 2.0);
-            let end = (to_node.center_x, to_node.center_y - to_node.height / 2.0);
-            let path_d = format!(
-                "M{},{} C{},{} {},{} {},{}",
-                fmt_coord(start.0), fmt_coord(start.1),
-                fmt_coord(start.0), fmt_coord(start.1),
-                fmt_coord(end.0), fmt_coord(end.1),
-                fmt_coord(end.0), fmt_coord(end.1),
-            );
-            let arrow_angle = std::f64::consts::FRAC_PI_2;
-            let arrow_points = compute_arrow_polygon(end.0, end.1, arrow_angle);
-            let is_extension = link.arrow.contains("<|") || link.arrow.contains("|<");
-            let link_type = if is_extension { "extension" } else { "dependency" };
-            let path_id = if is_extension {
-                format!("{}-backto-{}", link.from, link.to)
-            } else {
-                format!("{}-to-{}", link.from, link.to)
-            };
-            layout_links.push(LayoutLink {
-                from: link.from.clone(),
-                to: link.to.clone(),
-                from_id: from_node.entity_id.clone(),
-                to_id: to_node.entity_id.clone(),
-                link_id: format!("lnk{link_counter}"),
-                link_type: link_type.to_string(),
-                path_id,
-                source_line: link.source_line,
-                path_d,
-                arrow_points,
-                is_line: true,
-                start,
-                end,
-                label: link.label.clone(),
-                arrow: link.arrow.clone(),
-            });
-        }
-    }
-
-    CucaLayout {
-        nodes,
-        links: layout_links,
-        total_width,
-        total_height,
-    }
-}
 
 // ── Arrow polygon ───────────────────────────────────────────────────────
 
@@ -1156,10 +1003,11 @@ fn compute_triangle_polygon(x: f64, y: f64, angle: f64, x_wing: f64, y_aperture:
 
 // ── Helper struct ───────────────────────────────────────────────────────
 
-struct EntityData {
-    text_w: f64,
-    svek_w: f64,
-    svek_h: f64,
-    rx: f64,
-    ry: f64,
+pub(crate) struct EntityData {
+    pub(crate) text_w: f64,
+    pub(crate) svek_w: f64,
+    pub(crate) svek_h: f64,
+    pub(crate) rx: f64,
+    pub(crate) ry: f64,
 }
+
