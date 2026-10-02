@@ -25,8 +25,7 @@ const RANKSEP: f64 = 36.0;
 const FUDGE: f64 = 4.0;
 /// Minimum corridor width added on each side (dotsplines.c `MINW`).
 const MINW: f64 = 16.0;
-/// Half the default penwidth, added to the node boundary when clipping.
-const PEN_HALF: f64 = 0.5;
+
 /// Length of the normal arrow head (`10 * lenfact(1) * arrowsize(.75)`).
 const ARROW_LEN: f64 = 7.5;
 
@@ -119,9 +118,20 @@ pub(crate) fn solve(records: &[Record], root_idx: usize) -> Layout {
         })
         .collect();
 
-    // ── Ranking: tree depth ──────────────────────────────────────────────
+    // ── Ranking: tree depth via a traversal from the root ────────────────
+    // Relaxing ranks over post-order edges is unsound: a grandchild edge is
+    // visited before its parent node received its own rank. Assign ranks by
+    // a pre-order walk so depth is independent of edge emission order.
+    let mut child_of: Vec<Vec<usize>> = vec![Vec::new(); n];
     for e in &real_edges {
-        nodes[e.head].rank = nodes[e.tail].rank + 1;
+        child_of[e.tail].push(e.head);
+    }
+    let mut stack = vec![root_idx];
+    while let Some(t) = stack.pop() {
+        for &c in &child_of[t] {
+            nodes[c].rank = nodes[t].rank + 1;
+            stack.push(c);
+        }
     }
     let max_rank = nodes.iter().map(|x| x.rank).max().unwrap_or(0);
 
@@ -207,10 +217,7 @@ pub(crate) fn solve(records: &[Record], root_idx: usize) -> Layout {
     let max = (0..n)
         .map(|i| nodes[i].center.y + nodes[i].half_h)
         .fold(0.0_f64, f64::max);
-    for (i, nd) in nodes.iter().enumerate() {
-        eprintln!("NODE{i} center=({},{}) half_w={} half_h={} wdrawn={:.6} hdrawn={:.6}",
-            nd.center.x, nd.center.y, nd.half_w, nd.half_h, records[i].width, records[i].height);
-    }
+
     // ── Route edges ─────────────────────────────────────────────────────
     let mut edges = Vec::with_capacity(real_edges.len());
     for e in &real_edges {
@@ -305,9 +312,10 @@ fn route_edge(
         ll: Point::new(h_ll, head.center.y),
         ur: Point::new(h_ur, head.center.y + rank_ht[rh]),
     };
-    // Shortest-path end sits one unit beyond the head top edge (endpath
-    // REGULAREDGE: box LL.y = P.end.p.y, then P.end.p.y += 1).
-    let end = Point::new(head.center.x, head.center.y + head.half_h + 1.0);
+    // +1 unit beyond the head center toward the tail: the standard inside
+    // epsilon for the default port (matches dot's start.p offsets).
+    let away = if tail.center.y > head.center.y { 1.0 } else { -1.0 };
+    let end = Point::new(head.center.x, head.center.y + away);
 
     let boxes: Vec<GvBox> = [tail_box, inter_box, head_box]
         .into_iter()
@@ -321,12 +329,13 @@ fn route_edge(
         .map(|(k, &a)| GvEdge { a, b: polygon[(k + 1) % polygon.len()] })
         .collect();
 
-    // REGULAREDGE ends are constrained vertical: start theta -pi/2, end
-    // theta +pi/2 (the end vector is negated), both (0,-1).
-    let tv = Point::new(0.0, -1.0);
-    let mut fitted = route_spline(&barriers, &pl, tv, tv);
-    eprintln!("DBG pl={:?}", pl);
-    eprintln!("DBG fitted({})={:?}", fitted.len(), fitted);
+    // The tail port is always tangent to the rank direction: a vertical
+    // `(0,-1)` in the internal frame, regardless of where the head sits. The
+    // lateral displacement is carried by the shortest-path waypoints, not the
+    // initial tangent.
+    let ev0 = Point::new(0.0, -1.0);
+    let ev1 = Point::new(0.0, 0.0);
+    let fitted = route_spline(&barriers, &pl, ev0, ev1);
 
     // Reduce to the final 4 control points (first, second, penultimate, last).
     let mut curve = if fitted.len() >= 4 {
@@ -339,20 +348,27 @@ fn route_edge(
         let mid = Point::new((p0.x + p3.x) / 2.0, (p0.y + p3.y) / 2.0);
         [p0, mid, mid, p3]
     };
-    fitted.clear();
+    // Head shape clip: the default Center port clips to the parsed record
+    // OUTER FIELD box `fld0.b` (shapes__c.record_inside), not the node box:
 
-    // Clip the head end to the head node boundary (shape clip).
+    // its half-height is 0.5 inward from the node half-height, half-width
+    // equal to the node half-width. The binary-search stop tolerance leaves
+    // the tip ~0.37 beyond the geometric boundary.
     let head_ep = Endpoint {
         center: head.center,
         shape: NodeShape::Rect {
-            half_w: head.half_w + PEN_HALF,
-            half_h: head.half_h + PEN_HALF,
+            half_w: head.half_w,
+            half_h: head.half_h - 0.5,
         },
     };
+
     bezier_clip(&mut curve, head_ep, false);
     let ep_point = curve[3];
-    eprintln!("DBG after rect clip={:?} ep={:?}", curve, ep_point);
-    // Clip again by the normal-arrow length about the boundary endpoint.
+
+    // arrowEndClip (arrows.c): build a reversed endpoint cubic, clip it to a
+    // circle of radius ARROW_LEN centered on the contact point with the far
+    // end inside, then reverse back.
+    let mut rev = [ep_point, curve[2], curve[1], curve[0]];
     let arrow_ep = Endpoint {
         center: ep_point,
         shape: NodeShape::Ellipse {
@@ -360,7 +376,8 @@ fn route_edge(
             half_h: ARROW_LEN,
         },
     };
-    bezier_clip(&mut curve, arrow_ep, false);
+    bezier_clip(&mut rev, arrow_ep, true);
+    curve = [rev[3], rev[2], rev[1], rev[0]];
 
     EdgeRoute { points: curve, ep: Some(ep_point) }
 }

@@ -7,6 +7,7 @@
 //! paths. This Rust implementation replicates that pipeline for exact
 //! behavioral parity with Java PlantUML 1.2026.6.
 
+use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::io::Write;
@@ -38,6 +39,13 @@ const ACTOR_HEIGHT: f64 = 60.0;
 /// Text height = font_size * 1.361994 (Java AWT FontMetrics.getStringBounds:
 /// 19.067917 at 14pt). Slightly less than 1.362, affects clamped-alpha ellipses.
 const TEXT_HEIGHT: f64 = 14.0 * 1.361_994;
+/// Font size for an edge label (one point below the entity label).
+const LABEL_FONT_SIZE: i32 = 13;
+/// Baseline offset of an edge label below the rank-gap midpoint.
+///
+/// The 19px label table sits in the gap center; the 13px baseline lands
+/// 5.397 (≈ half the 19.0679 line height − cap adjustment) below center.
+const LABEL_BASELINE_OFFSET: f64 = 5.397;
 
 // ── Structs ─────────────────────────────────────────────────────────────
 
@@ -111,6 +119,11 @@ pub struct LayoutLink {
     pub end: (f64, f64),
     /// Optional label text displayed on the link.
     pub label: Option<String>,
+    /// Baseline anchor of the optional edge label (post-move placed space).
+    pub label_anchor: Option<(f64, f64)>,
+    /// Far corner (right, bottom) of the edge-label `UEmpty` spacer, used to
+    /// size the canvas; `None` for an unlabeled link.
+    pub label_spacer_right: Option<f64>,
     /// Arrow type string (e.g. "-->", "<|--", "<|..").
     pub arrow: String,
 }
@@ -131,11 +144,16 @@ pub struct CucaLayout {
 // ── Text measurement ────────────────────────────────────────────────────
 
 /// Measures text width using StringBounderSvg (matches Java AWT).
-fn measure_text(text: &str) -> f64 {
+fn measure_text_size(text: &str, size: i32) -> f64 {
     let sb = StringBounderSvg::new(FileFormat::Svg);
-    let font = UFont::sans_serif(FONT_SIZE);
+    let font = UFont::sans_serif(size);
     let dim = sb.calculate_dimension(&font, text);
     dim.width()
+}
+
+/// Measures text width using StringBounderSvg (matches Java AWT).
+fn measure_text(text: &str) -> f64 {
+    measure_text_size(text, FONT_SIZE)
 }
 
 /// Measures text width with italic font (for interface/abstract entity names).
@@ -486,54 +504,6 @@ pub fn compute_layout(
     links: &[ParsedLink],
     diagram_type: plantuml_core::DiagramType,
 ) -> CucaLayout {
-    if entities.is_empty() && !links.iter().any(|l| l.from == "[*]" || l.to == "[*]") {
-        return CucaLayout {
-            nodes: Vec::new(),
-            links: Vec::new(),
-            total_width: CANVAS_MARGIN * 2.0,
-            total_height: CANVAS_MARGIN * 2.0,
-        };
-    }
-
-    // Auto-create [*] pseudo-entities for initial/final state transitions.
-    let mut entities = entities.clone();
-    for link in links {
-        if link.from == "[*]" && !entities.contains_key("[*]") {
-            entities.insert(
-                "[*]".to_string(),
-                ParsedEntity {
-                    name: "[*]".to_string(),
-                    display: "[*]".to_string(),
-                    kind: EntityKind::State,
-                    stereotype: None,
-                    body: Vec::new(),
-                    source_line: 0,
-                    parent: None,
-                    composite: false,
-                    members: Vec::new(),
-                    inner_links: Vec::new(),
-                },
-            );
-        }
-        if link.to == "[*]" && !entities.contains_key("[*]") {
-            entities.insert(
-                "[*]".to_string(),
-                ParsedEntity {
-                    name: "[*]".to_string(),
-                    display: "[*]".to_string(),
-                    kind: EntityKind::State,
-                    stereotype: None,
-                    body: Vec::new(),
-                    source_line: 0,
-                    parent: None,
-                    composite: false,
-                    members: Vec::new(),
-                    inner_links: Vec::new(),
-                },
-            );
-        }
-    }
-
     if entities.is_empty() {
         return CucaLayout {
             nodes: Vec::new(),
@@ -547,11 +517,36 @@ pub fn compute_layout(
     let mut sorted_entities: Vec<(&String, &ParsedEntity)> = entities.iter().collect();
     sorted_entities.sort_by_key(|(_, e)| e.source_line);
 
+    // Resolve written bracket-form endpoints (`[Web Server]`, `[*]`) to the
+    // qualified entity keys layout/routing use. Build a source-ordered
+    // IndexMap so `resolve_endpoint` sees a stable lookup order.
+    let ordered: IndexMap<String, ParsedEntity> = sorted_entities
+        .iter()
+        .map(|(name, entity)| ((**name).clone(), (**entity).clone()))
+        .collect();
+    let links: Vec<ParsedLink> = links
+        .iter()
+        .map(|link| ParsedLink {
+            from: crate::entity_link_parser::resolve_endpoint(&link.from, true, &ordered),
+            to: crate::entity_link_parser::resolve_endpoint(&link.to, false, &ordered),
+            arrow: link.arrow.clone(),
+            label: link.label.clone(),
+            source_line: link.source_line,
+        })
+        .collect();
+
     // Compute entity dimensions and SvekNode dimensions.
     let mut entity_data: HashMap<&String, EntityData> = HashMap::new();
-    for (name, entity) in &entities {
+    for (name, entity) in entities {
         let text_w = match entity.kind {
-            EntityKind::Interface | EntityKind::Abstract => measure_text_italic(&entity.display),
+            EntityKind::Abstract => measure_text_italic(&entity.display),
+            EntityKind::Interface
+                if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
+            {
+                // Lollipop label below the circle is drawn upright.
+                measure_text(&entity.display)
+            }
+            EntityKind::Interface => measure_text_italic(&entity.display),
             _ => measure_text(&entity.display),
         };
         let (svek_w, svek_h, rx, ry) = match entity.kind {
@@ -563,6 +558,11 @@ pub fn compute_layout(
                 let (rx, ry) = usecase_ellipse(text_w);
                 (2.0 * rx, 2.0 * ry, rx, ry)
             }
+            EntityKind::Node => {
+                // USymbolNode, Margin(15, 25, 20, 10):
+                // 3D box wraps the label plus 40 horizontal / 30 vertical.
+                (text_w + 40.0, TEXT_HEIGHT + 30.0, 0.0, 0.0)
+            }
             EntityKind::Component => {
                 // USymbolComponent2 (UML 2 notation), Margin(15, 25, 20, 10):
                 // box wraps the label plus 40 horizontal / 30 vertical.
@@ -572,6 +572,32 @@ pub fn compute_layout(
                 // USymbolDatabase, Margin(10, 10, 24, 5):
                 // cylinder wraps the label plus 20 horizontal / 29 vertical.
                 (text_w + 20.0, TEXT_HEIGHT + 29.0, 0.0, 0.0)
+            }
+            EntityKind::Interface
+                if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
+            {
+                // Dot receives an HTML shield table: an 18x18 port cell
+                // padded to the label width and a 19.0679 line each side,
+                // then inflates the plaintext node by +16 wide / +8 tall
+                // (floored at 54x36) after rounding the table to integers.
+                let table_w = text_w.max(18.0).round();
+                let table_h = (18.0 + 2.0 * TEXT_HEIGHT).round();
+                let w = (table_w + 16.0).max(54.0);
+                let h = (table_h + 8.0).max(36.0);
+                (w, h, 0.0, 0.0)
+            }
+            EntityKind::State => {
+                // Rounded state box: at least 50x50, wide enough for the name
+                // plus a 10px margin each side.
+                (50.0_f64.max(text_w + 20.0), 50.0, 0.0, 0.0)
+            }
+            EntityKind::Start => {
+                // Initial pseudo-state: filled r=10 circle.
+                (20.0, 20.0, 10.0, 10.0)
+            }
+            EntityKind::End => {
+                // Final pseudo-state: outer r=11 ring (drives the box).
+                (22.0, 22.0, 11.0, 11.0)
             }
             _ => {
                 // Class/interface/abstract: width = max(name_text + 32, body_text + 26)
@@ -600,6 +626,14 @@ pub fn compute_layout(
                 (w, h, 0.0, 0.0)
             }
         };
+        let port_circle = if matches!(entity.kind, EntityKind::Interface)
+            && matches!(diagram_type, plantuml_core::DiagramType::Description)
+        {
+            // Edges clip to the 18x18 centre port cell (half extent 9).
+            Some(9.0)
+        } else {
+            None
+        };
         entity_data.insert(
             name,
             EntityData {
@@ -608,6 +642,7 @@ pub fn compute_layout(
                 svek_h,
                 rx,
                 ry,
+                port_circle,
             },
         );
     }
@@ -617,7 +652,7 @@ pub fn compute_layout(
     let mut incoming: HashMap<&String, HashSet<&String>> = HashMap::new();
     let mut outgoing: HashMap<&String, HashSet<&String>> = HashMap::new();
 
-    for link in links {
+    for link in &links {
         if entity_names.contains(&link.from) && entity_names.contains(&link.to) {
             incoming.entry(&link.to).or_default().insert(&link.from);
             outgoing.entry(&link.from).or_default().insert(&link.to);
@@ -664,19 +699,19 @@ pub fn compute_layout(
     // bit-exact with Java/Smetana). Under WASM, or wherever `dot` is missing,
     // fall back to the pure-Rust solver instead of the old vertical stack.
     let (dot_string, node_colors) =
-        generate_dot_string(&sorted_entities, &entity_data, links);
+        generate_dot_string(&sorted_entities, &entity_data, &links);
     let dot_result = if let Some(svg) = run_dot(&dot_string) {
         match parse_dot_svg(&svg, &node_colors) {
             Some(parsed) => parsed,
-            None => crate::native_layout::solve(&sorted_data, links),
+            None => crate::native_layout::solve(&sorted_data, &links),
         }
     } else {
-        crate::native_layout::solve(&sorted_data, links)
+        crate::native_layout::solve(&sorted_data, &links)
     };
     build_layout_from_dot(
         &sorted_entities,
         &entity_data,
-        links,
+        &links,
         &node_colors,
         &dot_result,
         &rank_of,
@@ -693,13 +728,17 @@ pub fn compute_layout(
 /// exactly at the placed origin.
 fn min_border_x(kind: EntityKind) -> f64 {
     match kind {
-        EntityKind::Component => -1.0,
+        // URectangle-backed symbols record (x-1).
+        EntityKind::Component | EntityKind::State => -1.0,
+        // The 3D node's fold flap starts 10px left of the placed box.
+        EntityKind::Node => -10.0,
         _ => 0.0,
     }
 }
 fn min_border_y(kind: EntityKind) -> f64 {
     match kind {
-        EntityKind::Component => -1.0,
+        // URectangle-backed symbols record (y-1).
+        EntityKind::Component | EntityKind::State => -1.0,
         EntityKind::Actor => 0.5,
         _ => 0.0,
     }
@@ -709,11 +748,11 @@ fn min_border_y(kind: EntityKind) -> f64 {
 ///
 /// `USymbolDatabase.drawDatabase` finishes by drawing an `UEmpty(10,10)`
 /// translated to `(width,height)`; its `drawEmpty` records the far corner
-/// `origin+(width+10,height+10)`, adding 10 to both maxima. Component
-/// rectangles and other symbols end exactly at their placed box.
 fn max_extent_x(kind: EntityKind) -> f64 {
     match kind {
         EntityKind::Database => 10.0,
+        // The 3D node's back face extends ~11px right for routing/bbox.
+        EntityKind::Node => 11.0,
         _ => 0.0,
     }
 }
@@ -763,13 +802,36 @@ fn build_layout_from_dot(
     let dx = margin - min_min_x;
     let dy = margin - min_min_y;
 
+    // Entity uid counter is shared with links (`cpt1`): every created leaf
+    // and every created link consume it, in source order; on a single line
+    // the leaf is created before its link. Reproduce that ordering to get
+    // the same `ent%04d` ids.
+    let mut events: Vec<(usize, u8, Option<&String>, Option<usize>)> = sorted_entities
+        .iter()
+        .map(|(name, entity)| (entity.source_line, 0, Some(*name), None))
+        .collect();
+    for (i, link) in links.iter().enumerate() {
+        events.push((link.source_line, 1, None, Some(i)));
+    }
+    events.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut entity_uid: HashMap<&String, u32> = HashMap::new();
+    let mut link_uid: Vec<u32> = vec![0; links.len()];
+    let mut uid_counter = 0u32;
+    for (_, _, name, link_idx) in events {
+        uid_counter += 1;
+        if let Some(name) = name {
+            entity_uid.insert(name, uid_counter);
+        }
+        if let Some(i) = link_idx {
+            link_uid[i] = uid_counter;
+        }
+    }
+
     // Create layout nodes — sorted by source_line for correct entity ID order
     let mut nodes = Vec::new();
-    let mut entity_counter = 0u32;
 
     for (name, entity) in sorted_entities {
-        entity_counter += 1;
-        let entity_id = format!("ent{entity_counter:04}");
+        let entity_id = format!("ent{:04}", entity_uid.get(name).copied().unwrap_or(0));
 
         let ed = entity_data.get(*name).unwrap();
         let color = node_colors.get(*name).copied().unwrap_or(0);
@@ -794,6 +856,14 @@ fn build_layout_from_dot(
                     let text_y = cy + 6.0339;
                     (corner_x, corner_y, cx, cy, text_x, text_y)
                 }
+                EntityKind::Node => {
+                    // USymbolNode Margin(15, 25, 20, 10): label at (15, 34.9659).
+                    let cx = corner_x + ed.svek_w / 2.0;
+                    let cy = corner_y + ed.svek_h / 2.0;
+                    let text_x = corner_x + 15.0;
+                    let text_y = corner_y + 34.9659;
+                    (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
                 EntityKind::Component => {
                     // USymbolComponent2 Margin(15, 25, 20, 10): label at (15, 34.9659).
                     let cx = corner_x + ed.svek_w / 2.0;
@@ -809,6 +879,35 @@ fn build_layout_from_dot(
                     let text_x = corner_x + 10.0;
                     let text_y = corner_y + 38.9659;
                     (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
+                EntityKind::Interface
+                    if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
+                {
+                    // The circle is the centre port cell at the shield table's
+                    // geometric centre; the label is centred on it and drawn
+                    // below (circle_cy + 8 + 19.0679 + 4.9 = +31.9659).
+                    let cx = corner_x + ed.svek_w / 2.0;
+                    let cy = corner_y + ed.svek_h / 2.0;
+                    let text_x = cx - ed.text_w / 2.0;
+                    let text_y = cy + 31.9659;
+                    (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
+                EntityKind::State => {
+                    let cx = corner_x + ed.svek_w / 2.0;
+                    let cy = corner_y + ed.svek_h / 2.0;
+                    let text_x = corner_x + (ed.svek_w - ed.text_w) / 2.0;
+                    let text_y = corner_y + 19.9659;
+                    (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
+                EntityKind::Start => {
+                    let cx = corner_x + 10.0;
+                    let cy = corner_y + 10.0;
+                    (corner_x, corner_y, cx, cy, corner_x, corner_y)
+                }
+                EntityKind::End => {
+                    let cx = corner_x + 11.0;
+                    let cy = corner_y + 11.0;
+                    (corner_x, corner_y, cx, cy, corner_x, corner_y)
                 }
                 _ => {
                     let cx = corner_x + ed.svek_w / 2.0;
@@ -848,26 +947,72 @@ fn build_layout_from_dot(
 
     // Create layout links
     let node_map: HashMap<&String, &LayoutNode> = nodes.iter().map(|n| (&n.name, n)).collect();
-    let mut link_counter = entity_counter;
     let mut layout_links = Vec::new();
 
     // Edge colors are sequential after node colors
     let max_node_color = node_colors.values().copied().max().unwrap_or(5);
     let mut edge_color = max_node_color + 1;
 
-    for link in links {
+    for (li, link) in links.iter().enumerate() {
         if let (Some(from_node), Some(to_node)) =
             (node_map.get(&link.from), node_map.get(&link.to))
         {
-            link_counter += 1;
-            let link_id = format!("lnk{link_counter}");
+            let link_id = format!("lnk{}", link_uid[li]);
             let is_extension = link.arrow.contains("<|") || link.arrow.contains("|<");
-            let link_type = if is_extension { "extension" } else { "dependency" };
-            let path_id = if is_extension {
-                format!("{}-backto-{}", link.from, link.to)
+            // A plain edge with no arrowhead (`--`) is an association; an
+            // edge ending in `>` is a dependency.
+            let is_association = !is_extension && !link.arrow.contains('>');
+            let link_type = if is_extension {
+                "extension"
+            } else if is_association {
+                "association"
             } else {
-                format!("{}-to-{}", link.from, link.to)
+                "dependency"
             };
+            let path_name = |node: &LayoutNode| match node.kind {
+                EntityKind::Start => "*start*".to_string(),
+                EntityKind::End => "*end*".to_string(),
+                _ => node.name.clone(),
+            };
+            let pn_from = path_name(from_node);
+            let pn_to = path_name(to_node);
+            let path_id = if is_extension {
+                format!("{pn_from}-backto-{pn_to}")
+            } else if is_association {
+                format!("{pn_from}-{pn_to}")
+            } else {
+                format!("{pn_from}-to-{pn_to}")
+            };
+
+/// x coordinate of a cubic Bezier at the given y via binary search, assuming
+/// y is monotonic over the span (inter-rank edge curves).
+fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
+    let at = |t: f64| -> (f64, f64) {
+        let mt = 1.0 - t;
+        let w = [mt * mt * mt, 3.0 * mt * mt * t, 3.0 * mt * t * t, t * t * t];
+        let mut x = 0.0;
+        let mut y = 0.0;
+        for (i, (px, py)) in pts.iter().enumerate() {
+            x += w[i] * px;
+            y += w[i] * py;
+        }
+        (x, y)
+    };
+    let mut lo = 0.0;
+    let mut hi = 1.0;
+    for _ in 0..60 {
+        let m = (lo + hi) / 2.0;
+        if at(m).1 < target_y {
+            lo = m;
+        } else {
+            hi = m;
+        }
+    }
+    at((lo + hi) / 2.0).0
+}
+
+            // Final tail->head cubic points, captured for label placement.
+            let mut curve_pts: Option<[(f64, f64); 4]> = None;
 
             // Get the edge path from dot SVG
             let (path_d, arrow_points) = if let Some(edge_path) = dot_result.edges.get(&edge_color)
@@ -887,11 +1032,12 @@ fn build_layout_from_dot(
                     + (pts[0].0 - to_node.center_x).hypot(pts[0].1 - to_node.center_y);
 
                 let pts = if dist_reversed < dist_normal {
-                    // Reverse: swap start/end and control points
+                    // Reverse: swap start/end and box
                     [pts[3], pts[2], pts[1], pts[0]]
                 } else {
                     pts
                 };
+                curve_pts = Some(pts);
                 // For extension links (inheritance/realization), the arrow is at
                 // the START (parent end). For dependency links, the arrow is at
                 // the END (child end).
@@ -922,6 +1068,21 @@ fn build_layout_from_dot(
                     let arrow_angle = path_angle + std::f64::consts::PI;
                     let arrow_points = compute_triangle_polygon(pts[0].0, pts[0].1, arrow_angle, 18.0, 6.0);
                     (path_d, arrow_points)
+                } else if is_association {
+                    // Plain association: the cubic is drawn unshortened and
+                    // carries no arrowhead.
+                    let path_d = format!(
+                        "M{},{} C{},{} {},{} {},{}",
+                        fmt_coord(pts[0].0),
+                        fmt_coord(pts[0].1),
+                        fmt_coord(pts[1].0),
+                        fmt_coord(pts[1].1),
+                        fmt_coord(pts[2].0),
+                        fmt_coord(pts[2].1),
+                        fmt_coord(pts[3].0),
+                        fmt_coord(pts[3].1),
+                    );
+                    (path_d, String::new())
                 } else {
                     let dec_len = 5.0;
                     let end_angle = (pts[3].1 - pts[2].1).atan2(pts[3].0 - pts[2].0);
@@ -962,6 +1123,38 @@ fn build_layout_from_dot(
                 (path_d, arrow_points)
             };
 
+            // Edge label: a 13px label with a 1px pad each side, laid in a
+            // `UEmpty(30.275, 19.706)` spacer whose far corner has no −1.
+            // Baseline sits 5.397 below the midpoint of the rank gap.
+            let (label_anchor, label_spacer_right) = match (&link.label, curve_pts) {
+                (Some(text), Some(pts)) if (pts[0].0 - pts[3].0).abs() > 1.0 => {
+                    let lw = measure_text_size(text, LABEL_FONT_SIZE);
+                    let gap_center =
+                        (from_node.y + from_node.height + to_node.y) / 2.0;
+                    let baseline_y = gap_center + LABEL_BASELINE_OFFSET;
+                    // Box vertical-centre y (baseline minus ascent/2 offset).
+                    let box_center_y = baseline_y - (14.9659 - 9.5);
+                    // The label rides on the curve: its left edge sits 4.5px
+                    // right of the spline at the box's vertical centre.
+                    let label_x = cubic_x_at_y(pts, box_center_y) + 4.5;
+                    (
+                        Some((label_x, baseline_y)),
+                        Some(label_x + lw),
+                    )
+                }
+                (Some(text), _) => {
+                    let lw = measure_text_size(text, LABEL_FONT_SIZE);
+                    let gap_center =
+                        (from_node.y + from_node.height + to_node.y) / 2.0;
+                    let label_x = from_node.center_x + 1.0;
+                    (
+                        Some((label_x, gap_center + LABEL_BASELINE_OFFSET)),
+                        Some(label_x + lw),
+                    )
+                }
+                _ => (None, None),
+            };
+
             layout_links.push(LayoutLink {
                 from: link.from.clone(),
                 to: link.to.clone(),
@@ -977,6 +1170,8 @@ fn build_layout_from_dot(
                 start: (0.0, 0.0),
                 end: (0.0, 0.0),
                 label: link.label.clone(),
+                label_anchor,
+                label_spacer_right,
                 arrow: link.arrow.clone(),
             });
 
@@ -1015,11 +1210,20 @@ fn build_layout_from_dot(
     // `margin + 16` (rather than the anchored placed-edge formula). Use that
     // span only when a database participates, so existing diagrams are
     // untouched.
-    let total_width = total_margin + max_right.floor();
+    let node_width = total_margin + max_right.floor();
+    // An edge label sits in a `UEmpty` spacer whose far corner has no −1, so
+    // it sizes from the 15px delta directly.
+    let max_spacer = layout_links
+        .iter()
+        .filter_map(|l| l.label_spacer_right)
+        .fold(0.0_f64, f64::max);
+    let total_width = (node_width).max(15.0 + max_spacer.floor());
     let has_database = nodes.iter().any(|n| n.kind == EntityKind::Database);
     let total_height = if has_database {
         let min_draw_y = nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
-        (max_bottom - min_draw_y + margin + 16.0).floor()
+        // Structural span plus the top origin (margin) and a 15px bottom delta.
+        let span = max_bottom - min_draw_y;
+        span.floor() + min_draw_y + 15.0
     } else {
         total_margin + max_bottom.floor()
     };
@@ -1104,6 +1308,9 @@ pub(crate) struct EntityData {
     pub(crate) svek_h: f64,
     pub(crate) rx: f64,
     pub(crate) ry: f64,
+    /// Radius of a centre circle port when the node is an HTML shield table
+    /// (component-diagram lollipop); edges clip to this circle, not the box.
+    pub(crate) port_circle: Option<f64>,
 }
 
 

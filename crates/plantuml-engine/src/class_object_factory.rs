@@ -54,12 +54,24 @@ impl PSystemFactory for ClassDiagramFactory {
             .map(|l| l.get_string().to_string())
             .collect();
 
-        // Check if source contains class-related keywords.
-        let has_class_content = lines
+        // The class engine does not parse anonymous bracket components; a
+        // source containing one belongs to the description engine, which is
+        // registered next.
+        let has_bracket_component = lines
             .iter()
-            .any(|line| CLASS_KEYWORDS.iter().any(|kw| line.to_lowercase().contains(kw)));
+            .any(|line| crate::description_factory::starts_with_bracket_component(line));
+        if has_bracket_component {
+            return Err(PSystemError::syntax(
+                "Bracket components are not class diagram elements",
+                DiagramType::Class,
+            ));
+        }
 
-        if !has_class_content {
+        // Check if source contains class-related keywords.
+        if !lines
+            .iter()
+            .any(|line| CLASS_KEYWORDS.iter().any(|kw| line.to_lowercase().contains(kw)))
+        {
             return Err(PSystemError::syntax(
                 "No class declarations found",
                 DiagramType::Class,

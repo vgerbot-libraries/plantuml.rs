@@ -154,7 +154,7 @@ impl NodeShape {
         match *self {
             Self::Rect { half_w, half_h } => p.x.abs() <= half_w && p.y.abs() <= half_h,
             Self::Ellipse { half_w, half_h } => {
-                (p.x / half_w).hypot(p.y / half_h) < 1.0
+                (p.x / half_w).hypot(p.y / half_h) <= 1.0
             }
         }
     }
@@ -192,12 +192,16 @@ pub fn bezier_clip(curve: &mut [Point; 4], end: Endpoint, left_inside: bool) {
             } else {
                 high = t;
             }
+        } else {
+            // Crossed to the outside: keep this subcurve. The coarse stop
+            // tolerance lets it overshoot the geometric boundary slightly.
             best = *seg;
             found = true;
-        } else if left_inside {
-            high = t;
-        } else {
-            low = t;
+            if left_inside {
+                high = t;
+            } else {
+                low = t;
+            }
         }
         if (opt.x - pt.x).abs() <= 0.5 && (opt.y - pt.y).abs() <= 0.5 {
             break;

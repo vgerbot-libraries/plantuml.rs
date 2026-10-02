@@ -53,6 +53,8 @@ const STROKE_WIDTH_BOX: f64 = 0.5;
 const FONT_SIZE_NAME: i32 = 14;
 /// Font size for body text (matches Java's 14).
 const FONT_SIZE_BODY: i32 = 14;
+/// Font size for an edge label (one point below the entity label).
+const FONT_SIZE_LABEL: i32 = 13;
 /// Line height for body text = font_size * 1.361994 (Java AWT FontMetrics).
 const LINE_HEIGHT: f64 = 14.0 * 1.361_994;
 /// Font ascent for 14pt SansSerif (derived from Java AWT FontMetrics).
@@ -133,10 +135,8 @@ pub fn render_cuca_svg(
 
     // Render entities first (Java renders entities before links).
     for node in &layout.nodes {
-        if node.name == "[*]" {
-            render_star_state(&mut svg, node, entities);
-        } else if let Some(entity) = entities.get(&node.name) {
-            render_entity(&mut svg, node, entity);
+        if let Some(entity) = entities.get(&node.name) {
+            render_entity(&mut svg, node, entity, diagram_type);
         }
     }
 
@@ -166,11 +166,24 @@ fn fmt_coord(v: f64) -> String {
 // ── Entity rendering ─────────────────────────────────────────────────────
 
 /// Renders an entity with a wrapper `<g>` group.
-fn render_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
-    let attrs: [(&str, &str); 4] = [
-        ("class", "entity"),
+fn render_entity(
+    svg: &mut SvgGraphics,
+    node: &LayoutNode,
+    entity: &ParsedEntity,
+    diagram_type: plantuml_core::DiagramType,
+) {
+    // The start/end pseudo-states get their own wrapper class, matching
+    // EntityImageCircleStart/End.
+    let group_class = match entity.kind {
+        EntityKind::Start => "start_entity",
+        EntityKind::End => "end_entity",
+        _ => "entity",
+    };
+    let source_line = node.source_line.to_string();
+    let attrs: Vec<(&str, &str)> = vec![
+        ("class", group_class),
         ("data-qualified-name", &entity.display),
-        ("data-source-line", &node.source_line.to_string()),
+        ("data-source-line", &source_line),
         ("id", &node.entity_id),
     ];
     svg.open_group_with_attrs(&attrs);
@@ -179,7 +192,15 @@ fn render_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity
         EntityKind::Actor => render_actor(svg, node, entity),
         EntityKind::Usecase => render_usecase(svg, node, entity),
         EntityKind::Component => render_component_entity(svg, node, entity),
+        EntityKind::Node => render_node_entity(svg, node, entity),
         EntityKind::Database => render_database_entity(svg, node, entity),
+        EntityKind::Interface
+            if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
+        {
+            render_lollipop_entity(svg, node, entity)
+        }
+        EntityKind::State => render_state_entity(svg, node, entity),
+        EntityKind::Start | EntityKind::End => render_star_state(svg, node, entity),
         _ => render_box_entity(svg, node, entity),
     }
 
@@ -209,6 +230,53 @@ fn render_component_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &Pa
     svg.svg_rectangle(node.x + node.width - 20.0, node.y + 5.0, 15.0, 10.0, 0.0, 0.0, 0.0);
     svg.svg_rectangle(node.x + node.width - 22.0, node.y + 7.0, 4.0, 2.0, 0.0, 0.0, 0.0);
     svg.svg_rectangle(node.x + node.width - 22.0, node.y + 11.0, 4.0, 2.0, 0.0, 0.0, 0.0);
+
+    render_symbol_label(svg, node, entity);
+}
+/// Renders an interface in a component/deployment diagram as a lollipop:
+/// an r=8 circle with its display label centred 8px below it.
+///
+/// Ported from: `svek/CircleInterface2.java` and
+/// `svek/image/EntityImageDescription.drawU()`.
+fn render_lollipop_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    svg.set_fill_color(FILL_COMPONENT);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_ellipse(node.center_x, node.center_y, 8.0, 8.0, 0.0);
+
+    render_symbol_label(svg, node, entity);
+}
+/// Renders a deployment node as a 3D box: the six-vertex polygon with a
+/// 10px fold, three fold strokes (diagonal flap, horizontal top, vertical
+/// back edge), and the label.
+///
+/// Ported from: `USymbolNode.drawNode()`.
+fn render_node_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let x = node.x;
+    let y = node.y;
+    let w = node.width;
+    let h = node.height;
+    const FOLD: f64 = 10.0;
+
+    // Six vertices plus an explicit return to the first (matches the JAR).
+    let points = [
+        x, y + FOLD,
+        x + FOLD, y,
+        x + w, y,
+        x + w, y + h - FOLD,
+        x + w - FOLD, y + h,
+        x, y + h,
+        x, y + FOLD,
+    ];
+    svg.set_fill_color(FILL_COMPONENT);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_polygon(0.0, &points);
+
+    // Fold strokes.
+    svg.svg_line(x + w - FOLD, y + FOLD, x + w, y, 0.0);
+    svg.svg_line(x, y + FOLD, x + w - FOLD, y + FOLD, 0.0);
+    svg.svg_line(x + w - FOLD, y + FOLD, x + w - FOLD, y + h, 0.0);
 
     render_symbol_label(svg, node, entity);
 }
@@ -737,20 +805,70 @@ fn render_box_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEn
     }
 }
 
-/// Renders a `[*]` initial/final state pseudo-entity.
+/// Renders a state as a rounded rectangle: fill, centered non-italic name and
+/// a single separator line under the header.
+///
+/// Ported from: `net/sourceforge/plantuml/states/EntityImageState.java`.
+fn render_state_entity(svg: &mut SvgGraphics, node: &LayoutNode, _entity: &ParsedEntity) {
+    // Rounded box.
+    svg.set_fill_color(FILL_STATE);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_rectangle(node.x, node.y, node.width, node.height, 12.5, 12.5, 0.0);
+
+    // Single separator under the header.
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_line(node.x, node.y + 29.0679, node.x + node.width, node.y + 29.0679, 0.0);
+
+    // Centered name.
+    let mut attrs = indexmap::IndexMap::new();
+    attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        &node.display,
+        node.text_x,
+        node.text_y,
+        Some(FONT_FAMILY),
+        FONT_SIZE_NAME,
+        None,
+        None,
+        None,
+        node.text_width,
+        &attrs,
+        None,
+    );
+}
+
+/// Renders a `[*]` initial (filled circle) or final (ring + dot) pseudo-state.
+///
+/// Ported from: `net/sourceforge/plantuml/states/EntityImageCircle.java`.
 fn render_star_state(
     svg: &mut SvgGraphics,
     node: &LayoutNode,
-    _entities: &HashMap<String, ParsedEntity>,
+    entity: &ParsedEntity,
 ) {
     let cx = node.center_x;
     let cy = node.center_y;
-    let r = 7.0;
-
-    svg.set_fill_color("#000000");
-    svg.set_stroke_color(Some("#000000"));
-    svg.set_stroke_width(1.0, None);
-    svg.svg_ellipse(cx, cy, r, r, 0.0);
+    match entity.kind {
+        EntityKind::End => {
+            // Outer ring (unfilled), inner dot.
+            svg.set_fill_color("none");
+            svg.set_stroke_color(Some("#222222"));
+            svg.set_stroke_width(1.0, None);
+            svg.svg_ellipse(cx, cy, 11.0, 11.0, 0.0);
+            svg.set_fill_color("#222222");
+            svg.set_stroke_color(Some("#222222"));
+            svg.set_stroke_width(1.0, None);
+            svg.svg_ellipse(cx, cy, 6.0, 6.0, 0.0);
+        }
+        _ => {
+            // Initial: filled r=10 circle.
+            svg.set_fill_color("#222222");
+            svg.set_stroke_color(Some("#222222"));
+            svg.set_stroke_width(1.0, None);
+            svg.svg_ellipse(cx, cy, 10.0, 10.0, 0.0);
+        }
+    }
 }
 
 // ── Link rendering ──────────────────────────────────────────────────────
@@ -792,33 +910,34 @@ fn render_link(svg: &mut SvgGraphics, link: &LayoutLink, diagram_type: plantuml_
     svg.set_stroke_dasharray_str(None);
 
     // Arrow polygon: hollow triangle for extension, filled for dependency.
+    // Associations carry no extremity and skip this entirely.
     let points: Vec<f64> = link
         .arrow_points
         .split(',')
         .filter_map(|s| s.trim().parse::<f64>().ok())
         .collect();
-    if is_extension {
-        svg.set_fill_color("none");
-    } else {
-        svg.set_fill_color(STROKE_LINK);
+    if !points.is_empty() {
+        if is_extension {
+            svg.set_fill_color("none");
+        } else {
+            svg.set_fill_color(STROKE_LINK);
+        }
+        svg.set_stroke_color(Some(STROKE_LINK));
+        svg.set_stroke_width(STROKE_WIDTH_LINK, None);
+        svg.svg_polygon(0.0, &points);
     }
-    svg.set_stroke_color(Some(STROKE_LINK));
-    svg.set_stroke_width(STROKE_WIDTH_LINK, None);
-    svg.svg_polygon(0.0, &points);
 
-    // Render link label at midpoint.
-    if let Some(ref label) = link.label {
-        let mid_x = (link.start.0 + link.end.0) / 2.0;
-        let mid_y = (link.start.1 + link.end.1) / 2.0 - 5.0;
-        let label_w = text_width(label, FONT_SIZE_BODY);
+    // Render the edge label at its precomputed anchor.
+    if let Some((label, anchor)) = link.label.as_ref().zip(link.label_anchor) {
+        let label_w = text_width(label, FONT_SIZE_LABEL);
         let mut label_attrs = indexmap::IndexMap::new();
         label_attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
         svg.text(
             label,
-            mid_x,
-            mid_y,
+            anchor.0,
+            anchor.1,
             Some(FONT_FAMILY),
-            FONT_SIZE_BODY,
+            FONT_SIZE_LABEL,
             None,
             None,
             None,
@@ -906,7 +1025,6 @@ fn entity_text_width(text: &str, font_size: i32, kind: EntityKind) -> f64 {
 mod tests {
     use super::*;
     use crate::cuca_layout::compute_layout;
-    use plantuml_core::string_bounder::StringBounder;
     #[test]
     fn render_empty_layout() {
         let layout = CucaLayout {
@@ -937,6 +1055,9 @@ mod tests {
                 stereotype: None,
                 body: vec![],
                 source_line: 1,
+                parent: None,
+                group: false,
+                members: Vec::new(),
             },
         );
         let layout = compute_layout(&entities, &[], plantuml_core::DiagramType::Description);
@@ -958,6 +1079,9 @@ mod tests {
             stereotype: None,
             body: body.iter().map(|s| s.to_string()).collect(),
             source_line: 1,
+            parent: None,
+            group: false,
+            members: Vec::new(),
         }
     }
 
@@ -997,7 +1121,6 @@ mod tests {
             to: "Bob".to_string(),
             arrow: "-->".to_string(),
             label: None,
-            direction: crate::entity_link_parser::LinkDirection::Right,
             source_line: 3,
         }];
         let layout = compute_layout(&entities, &links, plantuml_core::DiagramType::Class);
@@ -1020,6 +1143,9 @@ mod tests {
                 stereotype: None,
                 body: vec![],
                 source_line: 1,
+                parent: None,
+                group: false,
+                members: Vec::new(),
             },
         );
         let layout = compute_layout(&entities, &[], plantuml_core::DiagramType::Class);

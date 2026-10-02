@@ -75,6 +75,21 @@ const PLAIN14: [f64; 95] = [
     5.782, 6.706, 5.054, 8.652, 7.112, 11.004, 7.406, 7.14, 6.58, 5.32, 7.714, 5.32, 8.008,
 ];
 
+/// Advance width of a non-ASCII glyph in the 14 SansSerif face.
+///
+/// Most symbols are absent from the ASCII tables; only the handful the
+/// JSON/YAML short-string renderer emits need explicit advances. All other
+/// characters fall back to the generic 8.0 cell width.
+fn glyph14(ch: char) -> Option<f64> {
+    match ch {
+        // No-break space shares the ordinary space advance.
+        '\u{00A0}' => Some(PLAIN14[0]),
+        // Checked / unchecked ballot box.
+        '\u{2611}' | '\u{2610}' => Some(12.5506),
+        _ => None,
+    }
+}
+
 /// Advance width of a string in the bold 14 face.
 fn bold_width(text: &str) -> f64 {
     text.chars()
@@ -85,7 +100,13 @@ fn bold_width(text: &str) -> f64 {
 /// Advance width of a string in the plain 14 face.
 fn plain_width(text: &str) -> f64 {
     text.chars()
-        .map(|ch| PLAIN14.get((ch as usize).saturating_sub(0x20)).copied().unwrap_or(8.0))
+        .map(|ch| {
+            PLAIN14
+                .get((ch as usize).saturating_sub(0x20))
+                .copied()
+                .or_else(|| glyph14(ch))
+                .unwrap_or(8.0)
+        })
         .sum()
 }
 
@@ -164,26 +185,33 @@ impl Record {
         self.rows.len()
     }
 }
+/// Value rendered in a container's own row in place of its children.
+///
+/// Java's record-label machinery emits the blank field as three
+/// non-breaking spaces (U+00A0) so the whitespace survives serialization
+/// (`SmetanaForJson.getDotLabelMap`/`getDotLabelArray`, rendered through
+/// `SvgGraphics.text` as `&#160;&#160;&#160;`).
+const CONTAINER_PLACEHOLDER: &str = "\u{00A0}\u{00A0}\u{00A0}";
+
 /// Returns the display text for a scalar value.
 ///
-/// Ported from: `TextBlockJson.getShortString()`.
-fn short_string(value: &Value) -> String {
+/// Ported from: `TextBlockJson.getShortString()` (JSON). The YAML path uses
+/// plain `true`/`false` rather than the ballot-box glyphs.
+fn short_string(value: &Value, is_yaml: bool) -> String {
     match value {
         Value::String(s) => s.clone(),
         Value::Null => '\u{2400}'.to_string(),
-        Value::Number(_) | Value::Bool(_) => {
-            if value.is_boolean() {
-                if value.as_bool().unwrap_or(false) {
-                    "\u{2611} true".to_string()
-                } else {
-                    "\u{2610} false".to_string()
-                }
+        Value::Bool(b) => {
+            if is_yaml {
+                if *b { "true".to_string() } else { "false".to_string() }
+            } else if *b {
+                "\u{2611} true".to_string()
             } else {
-                value.to_string()
+                "\u{2610} false".to_string()
             }
         }
-        // Container placeholder: three spaces.
-        _ => "   ".to_string(),
+        Value::Number(_) => value.to_string(),
+        _ => CONTAINER_PLACEHOLDER.to_string(),
     }
 }
 
@@ -196,7 +224,7 @@ fn is_container(value: &Value) -> bool {
 ///
 /// Records are appended to `records` in depth-first order; edges reference
 /// child records by index.
-fn build_records(value: &Value, records: &mut Vec<Record>) -> usize {
+fn build_records(value: &Value, records: &mut Vec<Record>, is_yaml: bool) -> usize {
     let mut rows = Vec::new();
     let mut children = Vec::new();
 
@@ -205,17 +233,16 @@ fn build_records(value: &Value, records: &mut Vec<Record>) -> usize {
             for (k, v) in obj {
                 let row_index = rows.len();
                 if is_container(v) {
-                    let placeholder = "   ".to_string();
                     rows.push(Row {
                         key: k.clone(),
                         key_w: bold_width(k),
-                        value: Some(placeholder),
+                        value: Some(CONTAINER_PLACEHOLDER.to_string()),
                         value_w: plain_width("   "),
                     });
-                    let child_idx = build_records(v, records);
+                    let child_idx = build_records(v, records, is_yaml);
                     children.push((row_index, child_idx));
                 } else {
-                    let text = short_string(v);
+                    let text = short_string(v, is_yaml);
                     let w = plain_width(&text);
                     rows.push(Row {
                         key: k.clone(),
@@ -233,13 +260,13 @@ fn build_records(value: &Value, records: &mut Vec<Record>) -> usize {
                     rows.push(Row {
                         key: String::new(),
                         key_w: 0.0,
-                        value: Some("   ".to_string()),
+                        value: Some(CONTAINER_PLACEHOLDER.to_string()),
                         value_w: plain_width("   "),
                     });
-                    let child_idx = build_records(v, records);
+                    let child_idx = build_records(v, records, is_yaml);
                     children.push((row_index, child_idx));
                 } else {
-                    let text = short_string(v);
+                    let text = short_string(v, is_yaml);
                     let w = plain_width(&text);
                     rows.push(Row {
                         key: String::new(),
@@ -251,7 +278,7 @@ fn build_records(value: &Value, records: &mut Vec<Record>) -> usize {
             }
         }
         _ => {
-            let text = short_string(value);
+            let text = short_string(value, is_yaml);
             let w = plain_width(&text);
             rows.push(Row {
                 key: String::new(),
@@ -388,9 +415,9 @@ fn draw_record(svg: &mut SvgGraphics, record: &Record) {
 /// Ported from: `SmetanaForJson.drawMe()` + `JsonDiagram.drawU()`.
 #[must_use]
 pub fn render_json_svg(root: &Value, _highlights: &[Highlight], diagram_type: &str) -> String {
+    let is_yaml = diagram_type == "YAML";
     let mut records = Vec::new();
-    let root_idx = build_records(root, &mut records);
-
+    let root_idx = build_records(root, &mut records, is_yaml);
     let layout = crate::layout::solve(&records, root_idx);
 
     // Assign card top-left positions from internal-frame node centers.
@@ -420,9 +447,19 @@ pub fn render_json_svg(root: &Value, _highlights: &[Highlight], diagram_type: &s
 
     let mut svg = SvgGraphics::new(0, option);
 
-    // All records first, then all edges (matches the Java draw order).
-    for record in &records {
-        draw_record(&mut svg, record);
+    // Cards are drawn root-first, then depth-first in child order (the
+    // `manageOneNode` creation order), not by record Vec index: children
+    // records are pushed before their parent.
+    let mut order = Vec::new();
+    fn push_preorder(idx: usize, records: &[Record], order: &mut Vec<usize>) {
+        order.push(idx);
+        for &(_, child) in &records[idx].children {
+            push_preorder(child, records, order);
+        }
+    }
+    push_preorder(root_idx, &records, &mut order);
+    for &idx in &order {
+        draw_record(&mut svg, &records[idx]);
     }
     for edge in &layout.edges {
         draw_edge(&mut svg, edge, layout.max);
@@ -504,7 +541,7 @@ fn draw_arrow(svg: &mut SvgGraphics, p1: (f64, f64), p2: (f64, f64)) {
         num(p4.0) + "," + &num(p4.1),
     );
     svg.set_fill_color(NODE_STROKE);
-    svg.set_stroke_color(None);
+    svg.set_stroke_width(0.0, None);
     svg.svg_path(&d, 0.0);
 }
 

@@ -47,12 +47,38 @@ fn dot_roundtrip_px(px: f64) -> f64 {
     inches * 72.0
 }
 
-/// A node placed by the solver.
+/// A directed edge with its dot `minlen` constraint.
+#[derive(Clone, Copy)]
+struct REdge<'a> {
+    /// Tail name.
+    a: &'a String,
+    /// Head name.
+    b: &'a String,
+    /// Dot minlen: 0 for a single-dash `->` (rank=same), 1 otherwise.
+    minlen: usize,
+    /// Whether the edge carries a label (enlarges the rank gap by 19).
+    has_label: bool,
+}
+
+/// Returns dot `minlen` for an arrow string.
+///
+/// A single dash `->` contracts to rank=same; double dash `-->`, dotted
+/// `..>` and plain `--` keep one rank apart.
+fn edge_minlen(arrow: &str) -> usize {
+    if arrow.trim() == "->" {
+        0
+    } else {
+        1
+    }
+}
 struct Node {
     center: Point,
     half_w: f64,
     half_h: f64,
     is_ellipse: bool,
+    /// When set, edges clip to this r circle at the node centre instead of
+    /// the placement box (component-diagram lollipop port).
+    port_radius: Option<f64>,
     rank: usize,
     order: usize,
 }
@@ -99,6 +125,27 @@ fn acyclic_edges<'a>(
         })
         .copied()
         .collect()
+}
+
+/// Inserts `n` into the same-rank order after all its precedence
+/// predecessors, recursively placing those first. Already-placed nodes are
+/// skipped; source order is preserved for independent nodes.
+fn place_in_rank<'a>(
+    n: &'a String,
+    prec: &HashMap<&'a String, Vec<&'a String>>,
+    placed: &mut HashSet<&'a String>,
+    ordered: &mut Vec<&'a String>,
+) {
+    if placed.contains(n) {
+        return;
+    }
+    if let Some(deps) = prec.get(n) {
+        for &d in deps {
+            place_in_rank(d, prec, placed, ordered);
+        }
+    }
+    placed.insert(n);
+    ordered.push(n);
 }
 /// Three-color DFS visitor; records back edges into `excluded`.
 fn dfs(
@@ -149,17 +196,23 @@ pub fn solve(
                 half_w,
                 half_h,
                 is_ellipse,
+                port_radius: ed.port_circle,
                 rank: 0,
                 order: 0,
             },
         );
     }
 
-    // Real edges between known entities, in source order.
-    let real_edges: Vec<(&String, &String)> = links
+    // Real edges between known entities, in source order, carrying minlen.
+    let real_redges: Vec<REdge> = links
         .iter()
         .filter(|l| raw.contains_key(&l.from) && raw.contains_key(&l.to))
-        .map(|l| (&l.from, &l.to))
+        .map(|l| REdge {
+            a: &l.from,
+            b: &l.to,
+            minlen: edge_minlen(&l.arrow),
+            has_label: l.label.is_some(),
+        })
         .collect();
 
     // Synthetic invisible edges for entities with no real edges, mirroring
@@ -175,42 +228,88 @@ pub fn solve(
         .copied()
         .filter(|n| !with_edge.remove(n))
         .collect();
-    let mut graph_edges: Vec<(&String, &String)> = real_edges.clone();
+    let mut all_redges: Vec<REdge> = real_redges.clone();
     if unconnected.len() > 2 {
         let split = unconnected.len().div_ceil(2);
         for i in 0..split.min(unconnected.len() - split) {
-            graph_edges.push((unconnected[i], unconnected[split + i]));
+            all_redges.push(REdge {
+                a: unconnected[i],
+                b: unconnected[split + i],
+                minlen: 1,
+                has_label: false,
+            });
         }
     }
-    let edges = graph_edges;
 
     // Drop cycle-closing edges before ranking. Graphviz's network simplex
-    // (`lib/dotgen/acyclic.c`) removes the minimum feedback edge set first;
-    // the longest-path relaxation below only converges on a DAG. Edges thus
-    // removed (e.g. the final-state edge in `... -> [*]`) are still routed.
-    let dag_edges = acyclic_edges(&names, &edges);
+    // (`lib/dotgen/acyclic.c`) removes the minimum feedback edge set first.
+    // Run the DFS over tuple views, then reattach each kept edge's minlen.
+    let tuple_views: Vec<(&String, &String)> =
+        all_redges.iter().map(|e| (e.a, e.b)).collect();
+    let kept_pairs = acyclic_edges(&names, &tuple_views);
+    let minlen_of: HashMap<(&String, &String), usize> = all_redges
+        .iter()
+        .map(|e| ((e.a, e.b), e.minlen))
+        .collect();
+    let label_of: HashMap<(&String, &String), bool> = all_redges
+        .iter()
+        .map(|e| ((e.a, e.b), e.has_label))
+        .collect();
+    let dag_edges: Vec<REdge> = kept_pairs
+        .iter()
+        .map(|&(a, b)| REdge {
+            a,
+            b,
+            minlen: *minlen_of.get(&(a, b)).unwrap_or(&1),
+            has_label: *label_of.get(&(a, b)).unwrap_or(&false),
+        })
+        .collect();
 
-    // ── Ranking: longest path (minlen = 1) ────────────────────────────────
+    // ── Ranking: longest path with per-edge minlen ───────────────────────
     let mut rank: HashMap<&String, usize> = names.iter().map(|n| (*n, 0usize)).collect();
     let mut changed = true;
     while changed {
         changed = false;
-        for (a, b) in &dag_edges {
-            let nr = rank[a] + 1;
-            if nr > rank[b] {
-                rank.insert(*b, nr);
+        for e in &dag_edges {
+            let nr = rank[e.a] + e.minlen;
+            if nr > rank[e.b] {
+                rank.insert(e.b, nr);
                 changed = true;
             }
         }
     }
     let max_rank = rank.values().copied().max().unwrap_or(0);
 
-    // Rank members in source order; assign within-rank order.
+    // Rank members in source order.
     let mut members: Vec<Vec<&String>> = vec![Vec::new(); max_rank + 1];
+    for name in &names {
+        members[rank[name]].push(*name);
+    }
+
+    // A minlen-0 edge places its tail left of its head within the same rank.
+    // Reorder each rank to honor those precedence constraints while keeping
+    // the source order otherwise.
+    for r in &mut members {
+        let member_set: std::collections::HashSet<&String> = r.iter().copied().collect();
+        let mut prec: HashMap<&String, Vec<&String>> = HashMap::new();
+        for e in &dag_edges {
+            if e.minlen == 0 && member_set.contains(e.a) && member_set.contains(e.b) {
+                prec.entry(e.b).or_default().push(e.a);
+            }
+        }
+        if prec.values().any(|v| !v.is_empty()) {
+            let mut ordered: Vec<&String> = Vec::new();
+            let mut placed: std::collections::HashSet<&String> = HashSet::new();
+            for &n in r.iter() {
+                place_in_rank(n, &prec, &mut placed, &mut ordered);
+            }
+            *r = ordered;
+        }
+    }
+
     for name in &names {
         let r = rank[name];
         raw.get_mut(name).expect("node present").rank = r;
-        members[r].push(*name);
     }
     for r in &members {
         for (i, name) in r.iter().enumerate() {
@@ -224,12 +323,21 @@ pub fn solve(
         .map(|r| r.iter().map(|n| raw[n].half_h).fold(0.0_f64, f64::max))
         .collect();
 
+    // A labeled edge reserves a 19px FIXEDSIZE table in the rank gap.
+    let mut label_gap = vec![0.0f64; max_rank + 1];
+    for e in &dag_edges {
+        if e.has_label && e.minlen > 0 {
+            let r = rank[e.a];
+            label_gap[r] = label_gap[r].max(19.0);
+        }
+    }
+
     // ── y coordinates (set_ycoords) ──────────────────────────────────────
     let mut rank_y = vec![0.0f64; max_rank + 1];
     rank_y[max_rank] = rank_ht[max_rank];
     if max_rank > 0 {
         for r in (0..max_rank).rev() {
-            let d0 = rank_ht[r + 1] + rank_ht[r] + RANKSEP;
+            let d0 = rank_ht[r + 1] + rank_ht[r] + RANKSEP + label_gap[r];
             let d1 = rank_ht[r + 1] + rank_ht[r] + CL_OFFSET;
             rank_y[r] = rank_y[r + 1] + d0.max(d1);
         }
@@ -242,30 +350,67 @@ pub fn solve(
     // ── x coordinates (position.c) ───────────────────────────────────────
     // Child lists over the edge graph (tail -> heads).
     let mut children: HashMap<&String, Vec<&String>> = names.iter().map(|n| (*n, Vec::new())).collect();
-    for (a, b) in &dag_edges {
-        children.get_mut(a).expect("tail present").push(*b);
+    for e in &dag_edges {
+        // Same-rank (minlen 0) edges only order nodes within the rank; they
+        // are not parent links in the bottom-up x placement.
+        if e.minlen == 0 {
+            continue;
+        }
+        children.get_mut(e.a).expect("tail present").push(e.b);
     }
 
     let mut center_x: HashMap<&String, f64> = HashMap::new();
+    // `ideal_x`: position from the child mean alone, before within-rank
+    // packing. The delta (packed - ideal) is propagated down unique-child
+    // subtrees so a flat edge that pushes a rank member sideways carries its
+    // descendants with it (network simplex tree alignment).
+    let mut ideal_x: HashMap<&String, f64> = HashMap::new();
     for r in (0..=max_rank).rev() {
         let mut prev: Option<&String> = None;
         for name in &members[r] {
             let node = &raw[name];
-            let mut c = if children[name].is_empty() {
+            let ideal = if children[name].is_empty() {
                 node.half_w
             } else {
                 let sum: f64 = children[name].iter().map(|c| center_x[c]).sum();
                 sum / children[name].len() as f64
             };
+            let mut c = ideal;
             if let Some(p) = prev {
                 let minlen = (raw[p].half_w + NODESEP + node.half_w).round();
                 c = c.max(center_x[p] + minlen);
             }
+            ideal_x.insert(*name, ideal);
             center_x.insert(*name, c);
             prev = Some(name);
         }
     }
-    // Global shift so min left edge is zero.
+    // Parent links (minlen > 0), used to carry a packing delta top-down.
+    let mut parents_of: HashMap<&String, Vec<&String>> =
+        names.iter().map(|n| (*n, Vec::new())).collect();
+    for e in &dag_edges {
+        if e.minlen > 0 {
+            parents_of.get_mut(e.b).expect("child").push(e.a);
+        }
+    }
+    // Carry each node's packing delta into its descendants, top-down. A node
+    // keeps its own packed x; its children inherit the accumulated ancestor
+    // shift so the whole subtree moves with the displaced member.
+    let mut carry: HashMap<&String, f64> = HashMap::new();
+    for r in 0..=max_rank {
+        for name in &members[r] {
+            let inherited = parents_of[name]
+                .iter()
+                .map(|p| carry.get(*p).copied().unwrap_or(0.0))
+                .sum::<f64>()
+                / parents_of[name].len().max(1) as f64;
+            let own = center_x[name] - ideal_x[name];
+            carry.insert(*name, inherited + own);
+            if inherited != 0.0 {
+                center_x.insert(*name, center_x[name] + inherited);
+            }
+        }
+    }
     let min_left = names
         .iter()
         .map(|n| center_x[n] - raw[n].half_w)
@@ -326,10 +471,27 @@ pub fn solve(
         }
     }
 
+    // A bidirectional pair (u->v and v->u both present) splits its ports:
+    // the rank-increasing forward edge routes on the LEFT, the feedback edge
+    // stays centered. Build the set of forward edges that have a reverse.
+    let edge_pairs: std::collections::HashSet<(&String, &String)> = real_redges
+        .iter()
+        .map(|e| (e.a, e.b))
+        .collect();
+    let forward_pairs: std::collections::HashSet<(&String, &String)> = real_redges
+        .iter()
+        .filter(|e| edge_pairs.contains(&(e.b, e.a)))
+        .filter(|e| rank[e.a] < rank[e.b])
+        .map(|e| (e.a, e.b))
+        .collect();
+
     // ── Route edges ──────────────────────────────────────────────────────
     let mut out_edges = HashMap::new();
     let first_color = (names.len() + 6) as i32;
-    for (i, (tail_name, head_name)) in real_edges.iter().enumerate() {
+    for (i, re) in real_redges.iter().enumerate() {
+        let tail_name = re.a;
+        let head_name = re.b;
+        let same_rank = re.minlen == 0;
         let tail = &raw[tail_name];
         let head = &raw[head_name];
         let rt = tail.rank;
@@ -366,12 +528,70 @@ pub fn solve(
         let (t_ll, t_ur) = maximal_bbox(tail_name);
         let (h_ll, h_ur) = maximal_bbox(head_name);
 
-        // beginpath generic REGULAREDGE: bottom half of the tail corridor.
+/// Builds the clip endpoint for `node`: a centre 18x18 port cell when present
+/// (an unstroked rectangle, clipped at half 9 exactly), otherwise the node's
+/// ellipse/rectangle outline expanded by half a pen.
+fn node_endpoint(node: &Node) -> Endpoint {
+    if let Some(half) = node.port_radius {
+        return Endpoint {
+            center: node.center,
+            shape: NodeShape::Rect {
+                half_w: half,
+                half_h: half,
+            },
+        };
+    }
+    Endpoint {
+        center: node.center,
+        shape: if node.is_ellipse {
+            NodeShape::Ellipse {
+                half_w: node.half_w + PEN_HALF,
+                half_h: node.half_h + PEN_HALF,
+            }
+        } else {
+            NodeShape::Rect {
+                half_w: node.half_w + PEN_HALF,
+                half_h: node.half_h + PEN_HALF,
+            }
+        },
+    }
+}
+
+        if same_rank {
+            // A rank=same edge is a flat horizontal cubic in the internal
+            // frame: from the tail's right edge to the head's left edge, then
+            // clipped exactly as a regular edge.
+            let y = tail.center.y;
+            // makeSimpleFlat: centers with controls at 1/3 and 2/3 of the span.
+            let p0 = Point::new(tail.center.x, y);
+            let p3 = Point::new(head.center.x, y);
+            let p1 = Point::new((2.0 * p0.x + p3.x) / 3.0, y);
+            let p2 = Point::new((p0.x + 2.0 * p3.x) / 3.0, y);
+            let mut curve = [p0, p1, p2, p3];
+            let tail_ep = node_endpoint(tail);
+            let head_ep = node_endpoint(head);
+            bezier_clip(&mut curve, tail_ep, true);
+            bezier_clip(&mut curve, head_ep, false);
+            let pts = curve.map(|p| (q2(p.x), q2(-p.y)));
+            out_edges.insert(first_color + i as i32, DotEdgePath { points: pts });
+            continue;
+        }
+
+        let is_forward_pair = forward_pairs.contains(&(tail_name, head_name));
+        // Forward edge of a bidirectional pair exits/enters the node's LEFT
+        // edge; other edges use the node center.
+        let port_x = |node: &Node| {
+            if is_forward_pair {
+                node.center.x - node.half_w
+            } else {
+                node.center.x
+            }
+        };
         let tail_box = GvBox {
             ll: Point::new(t_ll, tail.center.y - rank_ht[rt]),
             ur: Point::new(t_ur, tail.center.y),
         };
-        let start = Point::new(tail.center.x, tail.center.y - 1.0);
+        let start = Point::new(port_x(tail), tail.center.y - 1.0);
 
         // rank_box: full-width inter-rank corridor.
         let inter_box = GvBox {
@@ -384,7 +604,7 @@ pub fn solve(
             ll: Point::new(h_ll, head.center.y),
             ur: Point::new(h_ur, head.center.y + rank_ht[rh]),
         };
-        let end = Point::new(head.center.x, head.center.y + 1.0);
+        let end = Point::new(port_x(head), head.center.y + 1.0);
 
         let boxes: Vec<GvBox> = [tail_box, inter_box, head_box]
             .into_iter()
@@ -408,34 +628,8 @@ pub fn solve(
         if fitted.len() >= 4 {
             let n = fitted.len();
             let mut curve = [fitted[0], fitted[1], fitted[n - 2], fitted[n - 1]];
-            let tail_ep = Endpoint {
-                center: tail.center,
-                shape: if tail.is_ellipse {
-                    NodeShape::Ellipse {
-                        half_w: tail.half_w + PEN_HALF,
-                        half_h: tail.half_h + PEN_HALF,
-                    }
-                } else {
-                    NodeShape::Rect {
-                        half_w: tail.half_w + PEN_HALF,
-                        half_h: tail.half_h + PEN_HALF,
-                    }
-                },
-            };
-            let head_ep = Endpoint {
-                center: head.center,
-                shape: if head.is_ellipse {
-                    NodeShape::Ellipse {
-                        half_w: head.half_w + PEN_HALF,
-                        half_h: head.half_h + PEN_HALF,
-                    }
-                } else {
-                    NodeShape::Rect {
-                        half_w: head.half_w + PEN_HALF,
-                        half_h: head.half_h + PEN_HALF,
-                    }
-                },
-            };
+            let tail_ep = node_endpoint(tail);
+            let head_ep = node_endpoint(head);
             bezier_clip(&mut curve, tail_ep, true);
             bezier_clip(&mut curve, head_ep, false);
             fitted = curve.to_vec();

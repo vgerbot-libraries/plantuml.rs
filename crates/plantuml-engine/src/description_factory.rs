@@ -45,6 +45,20 @@ const DESCRIPTION_KEYWORDS: &[&str] = &[
     "control ",
     "entity ",
 ];
+/// A trimmed line that begins with an anonymous component in brackets,
+/// optionally followed by a link, e.g. `[Client] ..> API` or `[Server]`.
+pub(crate) fn starts_with_bracket_component(line: &str) -> bool {
+    let t = line.trim_start();
+    let Some(close) = t.find(']') else {
+        return false;
+    };
+    let inner = &t[1..close];
+    if inner.is_empty() || inner.contains('[') || inner.contains(']') {
+        return false;
+    }
+    let after = t[close + 1..].trim_start();
+    after.is_empty() || after.starts_with(['-', '.'])
+}
 
 impl PSystemFactory for DescriptionDiagramFactory {
     fn get_diagram_type(&self) -> DiagramType {
@@ -60,6 +74,7 @@ impl PSystemFactory for DescriptionDiagramFactory {
         let has_desc_content = lines.iter().any(|line| {
             let lower = line.to_lowercase();
             DESCRIPTION_KEYWORDS.iter().any(|kw| lower.contains(kw))
+                || starts_with_bracket_component(line)
         });
 
         if !has_desc_content {
