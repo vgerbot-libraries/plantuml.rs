@@ -178,10 +178,101 @@ fn render_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity
     match entity.kind {
         EntityKind::Actor => render_actor(svg, node, entity),
         EntityKind::Usecase => render_usecase(svg, node, entity),
+        EntityKind::Component => render_component_entity(svg, node, entity),
+        EntityKind::Database => render_database_entity(svg, node, entity),
         _ => render_box_entity(svg, node, entity),
     }
 
     svg.close_group();
+}
+/// Renders a component using UML 2 notation: a rounded rectangle with the
+/// small component icon (a 15x10 box with two 4x2 tabs) in its top-right
+/// corner, plus the label.
+///
+/// Ported from: `USymbolComponent2.drawComponent2()`.
+fn render_component_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    // Main rounded rectangle.
+    svg.set_fill_color(FILL_COMPONENT);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_rectangle(
+        node.x,
+        node.y,
+        node.width,
+        node.height,
+        BOX_RX,
+        BOX_RX,
+        0.0,
+    );
+
+    // Component icon: 15x10 box and two 4x2 tabs, top-right (5px margins).
+    svg.svg_rectangle(node.x + node.width - 20.0, node.y + 5.0, 15.0, 10.0, 0.0, 0.0, 0.0);
+    svg.svg_rectangle(node.x + node.width - 22.0, node.y + 7.0, 4.0, 2.0, 0.0, 0.0, 0.0);
+    svg.svg_rectangle(node.x + node.width - 22.0, node.y + 11.0, 4.0, 2.0, 0.0, 0.0, 0.0);
+
+    render_symbol_label(svg, node, entity);
+}
+
+/// Renders a database as a cylinder: the body path with rounded top and
+/// bottom, the top-cap curve (unfilled), and the label.
+///
+/// Ported from: `USymbolDatabase.drawDatabase()`.
+fn render_database_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let x = node.x;
+    let y = node.y;
+    let w = node.width;
+    let h = node.height;
+    let half_w = w / 2.0;
+
+    // Cylinder body (filled).
+    let body = format!(
+        "M{x},{ytop} C{x},{y} {hw},{y} {hw},{y} C{hw},{y} {xr},{y} {xr},{ytop} \
+         L{xr},{ybot} C{xr},{yb} {hw},{yb} {hw},{yb} C{hw},{yb} {x},{yb} {x},{ybot} L{x},{ytop}",
+        x = fmt_coord(x),
+        y = fmt_coord(y),
+        yb = fmt_coord(y + h),
+        xr = fmt_coord(x + w),
+        hw = fmt_coord(x + half_w),
+        ytop = fmt_coord(y + 10.0),
+        ybot = fmt_coord(y + h - 10.0),
+    );
+    svg.set_fill_color(FILL_COMPONENT);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_path(&body, 0.0);
+
+    // Top cap curve (stroked only, no fill).
+    let cap = format!(
+        "M{x},{ytop} C{x},{ymid} {hw},{ymid} {hw},{ymid} C{hw},{ymid} {xr},{ymid} {xr},{ytop}",
+        x = fmt_coord(x),
+        xr = fmt_coord(x + w),
+        hw = fmt_coord(x + half_w),
+        ytop = fmt_coord(y + 10.0),
+        ymid = fmt_coord(y + 20.0),
+    );
+    svg.set_fill_color("none");
+    svg.svg_path(&cap, 0.0);
+
+    render_symbol_label(svg, node, entity);
+}
+
+/// Draws the label for a simple symbol (component, database).
+fn render_symbol_label(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    let mut attrs = indexmap::IndexMap::new();
+    attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        &entity.display,
+        node.text_x,
+        node.text_y,
+        Some(FONT_FAMILY),
+        FONT_SIZE_NAME,
+        None,
+        None,
+        None,
+        node.text_width,
+        &attrs,
+        None,
+    );
 }
 
 /// Renders a use case as an ellipse with centered text.

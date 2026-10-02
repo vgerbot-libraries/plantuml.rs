@@ -6,6 +6,7 @@ description = "JSON and YAML diagram rendering for plantuml.rs"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }
+plantuml-klimt = { path = "../plantuml-klimt" }
 plantuml-svg = { path = "../plantuml-svg" }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"

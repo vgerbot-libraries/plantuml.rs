@@ -101,6 +101,67 @@ const CAPTION_GAP: f64 = 14.0;
 const FOOTER_GAP: f64 = 2.0;
 /// Default header font color (gray).
 const HEADER_FONT_COLOR: &str = "#888888";
+/// Extra width of the bordered title block over its bold text width.
+///
+/// Derived from `Style.createTextBlockBordered` (padding 5+5, `TextBlockBordered`
+/// +1 and the style margin); grounded empirically on the 1.2026.6 jar at 14px.
+const TITLE_BLOCK_W_EXTRA: f64 = 11.0;
+/// Canvas width allowance beyond the bold text width (block + page margins).
+const TITLE_CANVAS_W_EXTRA: f64 = 26.2;
+/// Vertical offset the bordered title block pushes participants down by.
+///
+/// Title block height (`DecorateEntityImage.addTop`): style margin 5+5,
+/// border padding 5+5, text height 19.0679, +1.
+/// Baseline offset of the title text inside its bordered block
+/// (rect top + 7.0769 top padding + 12.889 ascent).
+const TITLE_TEXT_OFFSET: f64 = 19.9659;
+const TITLE_SHIFT_Y: f64 = 40.0679;
+/// Baseline Y of the title text (canvas coordinates) when participants exist.
+const TITLE_BASELINE_Y: f64 = 29.9659;
+
+/// Per-character advances (px) for bold 14px sans-serif, measured from the
+/// PlantUML jar `textLength` attributes (single-char strings plus trailing
+/// context for punctuation); bold uses per-glyph advances different from the
+/// plain tables in `plantuml-klimt`.
+const BOLD14_WIDTHS: &[(&str, f64)] = &[
+    (" ", 3.6399), ("!", 4.0040), ("\"", 6.6080), ("#", 9.0440),
+    ("$", 8.0080), ("%", 12.6140), ("&", 10.5), ("'", 3.7240),
+    ("(", 4.7460), (")", 4.7460), ("*", 7.63), ("+", 8.0080),
+    (",", 3.99), ("-", 4.5080), (".", 3.99), ("/", 5.7820),
+    ("0", 8.0080), ("1", 8.0080), ("2", 8.0080), ("3", 8.0080),
+    ("4", 8.0080), ("5", 8.0080), ("6", 8.0080), ("7", 8.0080),
+    ("8", 8.0080), ("9", 8.0080), (":", 3.99), (";", 3.99),
+    ("<", 8.0080), ("=", 8.0080), (">", 8.0080), ("?", 6.6780),
+    ("@", 12.5580), ("A", 9.66), ("B", 9.4080), ("C", 8.9180),
+    ("D", 10.36), ("E", 7.84), ("F", 7.6860), ("G", 10.1360),
+    ("H", 10.71), ("I", 5.4460), ("J", 4.6340), ("K", 9.2960),
+    ("L", 7.91), ("M", 13.2020), ("N", 11.3820), ("O", 11.1440),
+    ("P", 8.7920), ("Q", 11.1440), ("R", 9.24), ("S", 7.7140),
+    ("T", 8.1060), ("U", 10.5840), ("V", 9.1), ("W", 13.5379),
+    ("X", 9.3380), ("Y", 8.7360), ("Z", 8.1060), ("[", 4.6340),
+    ("\\", 5.7820), ("]", 4.6340), ("^", 8.0080), ("_", 5.7540),
+    ("`", 5.0680), ("a", 8.4560), ("b", 8.8620), ("c", 7.1960),
+    ("d", 8.8620), ("e", 8.2740), ("f", 5.4180), ("g", 8.8620),
+    ("h", 9.1980), ("i", 4.27), ("j", 4.27), ("k", 8.68),
+    ("l", 4.27), ("m", 13.7479), ("n", 9.1980), ("o", 8.6660),
+    ("p", 8.8620), ("q", 8.8620), ("r", 6.3560), ("s", 6.9580),
+    ("t", 6.0760), ("u", 9.1980), ("v", 7.9660), ("w", 11.9839),
+    ("x", 8.0920), ("y", 7.9660), ("z", 6.8320), ("{", 5.5160),
+    ("|", 7.7140), ("}", 5.5160), ("~", 8.0080),
+];
+
+/// Returns the bold 14px advance width of `text` using [`BOLD14_WIDTHS`].
+fn bold14_width(text: &str) -> f64 {
+    text.chars()
+        .map(|c| {
+            let key = &c.to_string()[..];
+            BOLD14_WIDTHS
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map_or(8.0, |(_, w)| *w)
+        })
+        .sum()
+}
 /// Default header font size.
 const HEADER_FONT_SIZE: f64 = 10.0;
 /// Legend corner radius.
@@ -162,6 +223,8 @@ fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
 
 /// Note vertical margin (from `Opale.marginY`).
 const NOTE_MARGIN_Y: f64 = 5.0;
+/// Extra participant-box outer margin (Puma2 `DrawableSetInitializer`: `outMargin = 5`).
+const NOTE_OUT_MARGIN: f64 = 5.0;
 /// Note fold corner size (from `Opale.cornersize`).
 const NOTE_CORNERSIZE: f64 = 10.0;
 /// Note horizontal padding (from `Rose.paddingX`).
@@ -170,6 +233,12 @@ const NOTE_PADDING_X: f64 = 5.0;
 const NOTE_OLD_PADDING_X1: f64 = 6.0;
 /// Note old padding X2 (from `ClockwiseTopRightBottomLeft` right, non-CENTER alignment).
 const NOTE_OLD_PADDING_X2: f64 = 15.0;
+/// Total vertical extent of a standalone one-line note tile in the Y gauge.
+/// `ComponentRoseNote.getPreferredHeight` = textBlock height (17.706) + 2*paddingY(5).
+/// Ported from: skin/rose/ComponentRoseNote.java
+const STANDALONE_NOTE_H: f64 = 37.706;
+/// Each additional text line adds the line height to a standalone note tile.
+const STANDALONE_NOTE_LINE_H: f64 = 13.0;
 
 // ── Colors ───────────────────────────────────────────────────────────────
 
@@ -190,18 +259,39 @@ const GROUP_MARGIN_Y: f64 = 4.0;
 /// Magic vertical margin (`MARGINY_MAGIC` in `GroupingTile`).
 const GROUP_MARGIN_Y_MAGIC: f64 = 20.0;
 /// Group header tab height (from `ComponentGroupingHeaderTeoz` preferred height).
-const GROUP_HEADER_HEIGHT: f64 = 15.0;
+const GROUP_HEADER_HEIGHT: f64 = 20.706;
 /// Group header offset added to first message Y inside a group.
-/// = `header_height` + `MARGINY_MAGIC/2` + `EXTERNAL_MARGINY` = 15 + 10 + 4.
-const GROUP_HEADER_OFFSET: f64 = 29.0;
+/// = header preferred height (19.706) … measured: first group message is
+/// 26.706 below the ungrouped position (jar-verified).
+const GROUP_HEADER_OFFSET: f64 = 26.706;
 /// Extra header height for partitions: `TITLE_VPAD`*2 - (`GROUP_HEADER_HEIGHT` - `font_height`) = 4*2 - (15-13) = 6.
 /// Partition titles are drawn directly on the frame (no tab), with 4px padding above and below.
 const PARTITION_HEADER_EXTRA: f64 = 6.0;
 /// Gap between consecutive group frames = 2*`EXTERNAL_MARGINY` + `MARGINY_MAGIC/2`.
 const GROUP_GAP: f64 = 18.0;
-/// Else tile height (from ComponentRoseGroupingElse.getPreferredHeight in teoz mode).
-/// = getTextHeight(13) + 4 = 17.
-const ELSE_TILE_HEIGHT: f64 = 17.0;
+/// Else tile height in the legacy (Puma) renderer the jar uses.
+/// Jar-verified: the else section's chained advance is 16.982 (not the
+/// 17.0 the Teoz port uses).
+const ELSE_TILE_HEIGHT: f64 = 16.982;
+// ── Divider (`== label ==`) geometry, legacy Puma ─────────────────────
+/// Bold13 label rect height = component text height.
+const DIVIDER_LABEL_H: f64 = 25.706;
+/// Added to text height for the tile's preferred height (`+20`).
+const DIVIDER_TILE_EXTRA: f64 = 20.0;
+/// Full divider tile height = label_h + 20 (jar-verified advance).
+const DIVIDER_TILE_H: f64 = DIVIDER_LABEL_H + DIVIDER_TILE_EXTRA;
+/// Label rect width = rendered bold textLength + this (jar-verified).
+const DIVIDER_LABEL_PAD_X: f64 = 17.38;
+/// Band rect local Y inside the tile.
+const DIVIDER_BAND_Y: f64 = 21.853;
+/// Band rect height.
+const DIVIDER_BAND_H: f64 = 3.0;
+/// Label rect local Y inside the tile.
+const DIVIDER_LABEL_Y: f64 = 10.0;
+/// Label text baseline local Y inside the tile.
+const DIVIDER_TEXT_BASELINE: f64 = 27.897;
+/// Divider band/label background fill.
+const COLOR_DIVIDER_BG: &str = "#EEEEEE";
 /// Group frame stroke width.
 const GROUP_STROKE_WIDTH: f64 = 1.5;
 /// Group header tab corner cut size.
@@ -214,10 +304,14 @@ const GROUP_EXTERNAL_MARGIN_X2: f64 = 9.0;
 const GROUP_TEXT_PADDING: f64 = 15.0;
 /// Group header text Y offset from frame y (ascent for 13px bold).
 const GROUP_TEXT_Y_OFFSET: f64 = 11.111;
+/// Visual folded-tab height (jar-verified): tab bottom sits 19.706 below fy.
+const GROUP_TAB_HEIGHT: f64 = 19.706;
+/// Tab title baseline offset within the tab (13px bold, jar-verified).
+const GROUP_TAB_TITLE_BASELINE: f64 = 14.897;
 /// Group header fill color.
-const COLOR_GROUP_HEADER: &str = "#EEE";
+const COLOR_GROUP_HEADER: &str = "#EEEEEE";
 /// Group frame stroke color.
-const COLOR_GROUP_STROKE: &str = "#000";
+const COLOR_GROUP_STROKE: &str = "#000000";
 
 /// Wraps message text to fit within `max_width`, splitting by words.
 /// Ported from Java's `StringBounder` word-wrap logic for `MaxMessageSize`.
@@ -281,7 +375,45 @@ fn add_disjoint_constraint(
         plantuml_real::ensure_bigger_than(&pos_c[target_idx], &constraint);
     }
 }
-/// Renders a sequence diagram to an SVG string.
+/// Draws every explicit activation (live) box, outer level first.
+///
+/// Java emits this set twice (`LiveBoxes.drawBoxes` is invoked once over the
+/// full height behind the lifelines and a second time after the heads): once
+/// before the lifeline group and again after the heads, before the messages.
+/// Each box is wrapped in `<g><title>..</title><rect/></g>`.
+fn draw_activation_bars(
+    svg: &mut SvgGraphics,
+    activations: &[(usize, f64, f64, i32)],
+    participants: &[plantuml_sequence::Participant],
+    pos_c: &[f64],
+    x_offset: f64,
+) {
+    // Outer level first, matching Java's ascending level iteration.
+    let mut ordered: Vec<(usize, f64, f64, i32)> = activations.to_vec();
+    ordered.sort_by_key(|&(pi, _, _, level)| (level, pi));
+    for &(pi, start_y, end_y, level) in &ordered {
+        let cx = pos_c[pi] + x_offset;
+        let level_dx = (level as f64 - 1.0) * ACTIVATION_BAR_EXPLICIT_OFFSET;
+        svg.open_group(None);
+        svg.title(participants[pi].display());
+        svg.set_fill_color("#FFFFFF");
+        svg.set_stroke_color(Some(COLOR_STROKE));
+        svg.set_stroke_width(1.0, None);
+        svg.set_filter(None);
+        svg.svg_rectangle(
+            cx - ACTIVATION_BAR_EXPLICIT_OFFSET + level_dx,
+            start_y,
+            ACTIVATION_BAR_EXPLICIT_WIDTH,
+            end_y - start_y,
+            0.0,
+            0.0,
+            0.0,
+        );
+        svg.set_filter(None);
+        svg.close_group();
+    }
+}
+
 #[must_use]
 pub fn render_sequence_svg(
     diagram: &SequenceDiagram,
@@ -292,6 +424,8 @@ pub fn render_sequence_svg(
     hide_footbox: bool,
     notes: &[NoteInfo],
     groups: &[GroupInfo],
+    dividers: &[DividerInfo],
+    autonumber: bool,
     msg_activates: &[Vec<String>],
     msg_deactivates: &[Vec<String>],
     msg_parallel: &[bool],
@@ -343,10 +477,15 @@ pub fn render_sequence_svg(
         STICKMAN_HEAD_DIAM + STICKMAN_BODY_LEN + STICKMAN_LEGS_Y + 2.0 * STICKMAN_THICKNESS + 1.0; // 60
     const STICKMAN_WIDTH: f64 = STICKMAN_ARMS_LEN.max(STICKMAN_LEGS_X) * 2.0 + 2.0 * STICKMAN_THICKNESS; // 27
     const ACTOR_PADDING_H: f64 = 3.0; // Actor horizontal padding (from ComponentRoseActor)
-    // Actor text height: textBlock height + padding(0,0) = same as regular text block height
-    // Actor head height = stickman(60) + text_block(19) = 79 in Java
-    // head_layout_height = headHeight - STARTING_Y = 79 - 5 = 74
-    const ACTOR_HEAD_LAYOUT_HEIGHT: f64 = 74.0; // headHeight(79) - STARTING_Y(5)
+    // Own preferred head component heights (each includes its trailing pixel).
+    // Box: ComponentRoseParticipant height = rect 33.0679 + 1 = 34.0679.
+    // Actor: ComponentRoseActor.getPreferredHeight = stickman(60) + text(19.0679) = 79.0679.
+    // Heads are bottom aligned (LivingSpaces.drawHeads uses VerticalAlignment.BOTTOM)
+    // and the lifeline starts at origin + max(own heights).
+    const ACTOR_OWN_HEIGHT: f64 = 79.0679;
+    // Actor text block: preferred height 19.0679; baseline offset 14.9659.
+    const ACTOR_TEXT_HEIGHT: f64 = 19.0679;
+    const ACTOR_TEXT_BASELINE: f64 = 14.9659;
     // Shadow delta for rose skin: Java's Fashion.getDeltaShadow() = 4.0
     // (from feOffset dx="4" in shadow filter). This extends getPreferredWidth()
     // but NOT the drawn rectangle width.
@@ -364,6 +503,7 @@ pub fn render_sequence_svg(
     let mut head_widths: Vec<f64> = Vec::with_capacity(participants.len());
     let mut preferred_widths: Vec<f64> = Vec::with_capacity(participants.len());
     let mut is_actor: Vec<bool> = Vec::with_capacity(participants.len());
+    let mut own_heights: Vec<f64> = Vec::with_capacity(participants.len());
     for p in participants {
         let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
         let actor = p.ptype() == ParticipantType::Actor;
@@ -374,6 +514,7 @@ pub fn render_sequence_svg(
             let hw = STICKMAN_WIDTH.max(text_w + ACTOR_PADDING_H + ACTOR_PADDING_H);
             head_widths.push(hw);
             preferred_widths.push(hw + delta_shadow);
+            own_heights.push(ACTOR_OWN_HEIGHT);
         } else {
             // Java: getPreferredWidth = getTextWidth + margin.left + margin.right + deltaShadow
             // getTextWidth = text_width + padding.left + padding.right; padding=(5,7,5,7)
@@ -381,18 +522,24 @@ pub fn render_sequence_svg(
             let hw = text_w + PADDING_H + PADDING_H;
             head_widths.push(hw);
             preferred_widths.push(hw + delta_shadow);
+            own_heights.push(TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA);
         }
     }
-    // head_layout_height = max of all participants' head layout heights
+    // Heads are bottom aligned to a common height: LivingSpaces.getHeadHeight
+    // returns max(own preferred heights). Each component's preferred height
+    // already includes its trailing pixel (box = rect 33.0679 + 1; actor =
+    // stickman 60 + text 19.0679), so the lifeline offset is exactly common_own.
+    let common_own = own_heights
+        .iter()
+        .copied()
+        .fold(0.0_f64, f64::max);
+    let head_layout_height = common_own;
+    // head_rect_height: tail contribution to footbox_bottom. The tail is placed
+    // one pixel above footbox_y (tail_y = footbox_y - 1), so a box tail adds its
+    // rectangle height (33.0679) while an actor tail adds its full 79.0679.
     let has_actor = is_actor.iter().any(|&a| a);
-    let head_layout_height = if has_actor {
-        ACTOR_HEAD_LAYOUT_HEIGHT.max(TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA)
-    } else {
-        TEXT_BLOCK_HEIGHT + HEIGHT_EXTRA
-    };
-    // head_rect_height for footbox_bottom computation: the max head component height
     let head_rect_height = if has_actor {
-        (ACTOR_HEAD_LAYOUT_HEIGHT).max(TEXT_BLOCK_HEIGHT) // 74 for actors
+        ACTOR_OWN_HEIGHT
     } else {
         TEXT_BLOCK_HEIGHT
     };
@@ -530,6 +677,18 @@ pub fn render_sequence_svg(
             pre_wrapped_widths.push(max_w);
         }
     }
+    // Autonumber: bold13 number per message and its prefix width
+    // (number advance + 4px gap). The prefix joins the tile reservation only
+    // when the message also has a label; the number is drawn regardless.
+    let auto_font_bold = UFont::sans_serif(FONT_SIZE_MESSAGE).with_style(FontStyle::bold());
+    let auto_num_strings: Vec<String> = (0..pre_wrapped_widths.len())
+        .map(|i| (i + 1).to_string())
+        .collect();
+    let auto_num_widths: Vec<f64> = auto_num_strings
+        .iter()
+        .map(|s| bounder.calculate_dimension(&auto_font_bold, s).width())
+        .collect();
+    let auto_prefix: Vec<f64> = auto_num_widths.iter().map(|w| w + 4.0).collect();
     let mut min_spacing = vec![PARTICIPANT_SPACING; participants.len().max(1)];
     // Each constraint stores: (lo, hi, point1_offset, point2_pre_offset, arrow_width)
     // Matching Java CommunicationTile.addConstraints() exactly:
@@ -548,6 +707,11 @@ pub fn render_sequence_svg(
             let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
             let label = msg.label();
             let text_w = pre_wrapped_widths[spacing_msg_idx];
+            let text_w = if autonumber && !label.is_empty() {
+                text_w + auto_prefix[spacing_msg_idx]
+            } else {
+                text_w
+            };
             let exo = msg_exo.get(spacing_msg_idx).copied().flatten();
             if let Some(exo_type) = exo {
                 // Exo arrows: skip regular constraint handling
@@ -722,6 +886,10 @@ pub fn render_sequence_svg(
         touched.sort_unstable();
         let leftmost = *touched.first().unwrap();
         let rightmost = *touched.last().unwrap();
+        // Leftmost head renders at PAGE_MARGIN past its solver value; Java places
+        // it at x=20 and the frame edge 10px left of it, so floor posB at 15.
+        let indent_floor = plantuml_real::add_fixed(&xorigin, 15.0);
+        plantuml_real::ensure_bigger_than(&pos_b[leftmost], &indent_floor);
 
         // Compute group header title width (matching Java getPreferredDimensionIfEmpty)
         // For regular groups: ComponentRoseGroupingHeader.getPreferredWidth = pureText + 45
@@ -1071,15 +1239,25 @@ pub fn render_sequence_svg(
     // ── Adjust X positions for title width ───────────────────────────────
     let mut title_width = 0.0_f64;
     if let Some(title_text) = title {
-        title_width = bounder.calculate_dimension(&font_p, title_text).width();
-        let title_block_width = PAGE_MARGIN + title_width + PAGE_MARGIN;
-        let participant_width = pos_d_vals.last().copied().unwrap_or(0.0)
+        title_width = bold14_width(title_text);
+        // Java: `DecorateEntityImage` stacks the bordered title block above the
+        // raw diagram; when the block (`bold` width + TITLE_BLOCK_W_EXTRA) is
+        // wider than the participant span, participants are shifted right by
+        // half the excess so the title can center on the raw diagram width.
+        let participant_span = pos_d_vals.last().copied().unwrap_or(0.0)
             - pos_b_vals.first().copied().unwrap_or(0.0);
-        if title_block_width > participant_width {
-            let shift = (title_block_width + 1.0 - participant_width) / 2.0;
-            for v in &mut pos_b_vals { *v += shift; }
-            for v in &mut pos_c_vals { *v += shift; }
-            for v in &mut pos_d_vals { *v += shift; }
+        let excess = title_width + TITLE_BLOCK_W_EXTRA - participant_span;
+        if excess > 0.0 {
+            let shift = excess / 2.0;
+            for v in &mut pos_b_vals {
+                *v += shift;
+            }
+            for v in &mut pos_c_vals {
+                *v += shift;
+            }
+            for v in &mut pos_d_vals {
+                *v += shift;
+            }
         }
     }
 
@@ -1095,10 +1273,7 @@ pub fn render_sequence_svg(
         let tw = bounder.calculate_dimension(&font, t).width();
         (tw, header_font_size) // width, height (no padding)
     });
-    let title_dim = title.map(|t| {
-        let tw = bounder.calculate_dimension(&font_p, t).width();
-        (tw + 10.0, 24.0) // width with 5px padding each side, height 24
-    });
+    let title_dim = title.map(|t| (bold14_width(t) + TITLE_BLOCK_W_EXTRA, 40.0679));
     let legend_dim = legend_text.map(|t| {
         let font = UFont::sans_serif(legend_font_size as i32);
         let tw = bounder.calculate_dimension(&font, t).width();
@@ -1126,7 +1301,7 @@ pub fn render_sequence_svg(
     let footer_font_color = style_rules.get("footer").and_then(|r| r.get("FontColor")).and_then(|v| resolve_color(v)).unwrap_or_else(|| COLOR_TEXT.to_string());
 
     // ── Compute Y positions for each message ─────────────────────────────
-    let title_height = if title.is_some() { TITLE_HEIGHT } else { 0.0 };
+    let title_height = if title.is_some() { TITLE_SHIFT_Y } else { 0.0 };
     // Header adds extra Y offset: header_height + HEADER_GAP replaces STARTING_Y.
     let header_extra = if header_text.is_some() {
         HEADER_FONT_SIZE + HEADER_GAP - STARTING_Y
@@ -1202,6 +1377,35 @@ pub fn render_sequence_svg(
     // The +GROUP_HEADER_HEIGHT-2 offset for parallel groups is only needed when
     // the group follows parallel standalone messages (not when it's the first parallel tile).
     let mut has_parallel_in_cluster = false;
+    // Total height of standalone notes ("note right of X: ...") sitting in the
+    // gap AFTER each message index. Standalone notes are independent tiles in
+    // the Y gauge and stack cumulatively (each one-line note adds
+    // STANDALONE_NOTE_H), unlike attached notes ("note right:") which only
+    // grow the same message tile via a maximum.
+    let mut standalone_gap_h: Vec<f64> = vec![0.0; diagram.events().iter().filter(|e| matches!(e, SequenceEvent::Message(_))).count().max(1)];
+    for note in notes {
+        if note.participant.is_none() {
+            continue;
+        }
+        if note.msg_index >= standalone_gap_h.len() {
+            continue;
+        }
+        let line_count = note.text.split("\\n").count().max(1) as f64;
+        let h = STANDALONE_NOTE_H + (line_count - 1.0) * STANDALONE_NOTE_LINE_H;
+        standalone_gap_h[note.msg_index] += h;
+    }
+    // Divider tiles in the gap before each following message. A divider is an
+    // independent tile (like a standalone note): add its full preferred height
+    // to the gap after message `before_msg - 1`.
+    let mut divider_gap_h: Vec<f64> = vec![0.0; standalone_gap_h.len()];
+    for div in dividers {
+        if div.before_msg > 0 {
+            let gi = div.before_msg - 1;
+            if gi < divider_gap_h.len() {
+                divider_gap_h[gi] += DIVIDER_TILE_H;
+            }
+        }
+    }
     for event in diagram.events() {
         if let SequenceEvent::Message(msg) = event {
             let _has_text = !msg.label().is_empty();
@@ -1300,6 +1504,14 @@ pub fn render_sequence_svg(
                 let prev_self_extra = if prev_is_self { SELF_ARROW_HEIGHT } else { 0.0 };
                 current_y += text_h + ARROW_DELTA_Y + 2.0 * MSG_PADDING_Y + prev_self_extra;
             }
+            // Standalone notes between the previous message and this one are
+            // independent gauge tiles: always add the previous gap's total.
+            if msg_idx > 0 && !is_parallel {
+                current_y += standalone_gap_h[msg_idx - 1];
+            }
+            if msg_idx > 0 && !is_parallel {
+                current_y += divider_gap_h[msg_idx - 1];
+            }
 
             // Update cluster_start_y for non-parallel group starts and non-grouped messages.
             // This tracks the chaining point of the previous TILE (not every message),
@@ -1354,7 +1566,7 @@ pub fn render_sequence_svg(
                 }
             }
             arrow_ys.push(current_y);
-            prev_note_h = notes.iter().find(|n| n.msg_index == msg_idx).map(|note| {
+            prev_note_h = notes.iter().find(|n| n.msg_index == msg_idx && n.participant.is_none()).map(|note| {
                 let note_lines = note.text.split("\\n").count();
                 (note_lines as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y + NOTE_CORNERSIZE
             });
@@ -1379,7 +1591,7 @@ pub fn render_sequence_svg(
                     } else {
                         1.0 + last_text_h
                     };
-                    let last_note = notes.iter().find(|n| n.msg_index == last_mi);
+                    let last_note = notes.iter().find(|n| n.msg_index == last_mi && n.participant.is_none());
                     let body_height = if let Some(note) = last_note {
                         let note_lines = note.text.split("\\n").count();
                         let note_h = (note_lines as f64) * 13.0
@@ -1512,7 +1724,7 @@ pub fn render_sequence_svg(
         } else {
             1.0 + last_text_h
         };
-        let last_note = notes.iter().find(|n| n.msg_index == last_mi);
+        let last_note = notes.iter().find(|n| n.msg_index == last_mi && n.participant.is_none());
         let last_h = if let Some(note) = last_note {
             let note_lines = note.text.split("\\n").count();
             let note_h = (note_lines as f64) * 13.0
@@ -1525,12 +1737,21 @@ pub fn render_sequence_svg(
         let body_height = arrow_ys[last_mi] - arrow_ys[group.msg_start] + last_h;
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
+        // Frame wraps the participant head rectangles (± 10px), verified
+        // against the jar: frame left = leftmost head x - 10, frame right =
+        // rightmost head (x+w) + 10.
+        let mut hd_min = f64::MAX;
+        let mut hd_max = f64::MIN;
         let mut msg_iter_idx = 0usize;
         for event in diagram.events() {
             if let SequenceEvent::Message(msg) = event {
                 if msg_iter_idx >= group.msg_start && msg_iter_idx < group.msg_end {
                     let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
                     let p2_idx = pcode_to_idx.get(msg.p2().code()).copied().unwrap_or(0);
+                    for &pi in &[p1_idx, p2_idx] {
+                        hd_min = hd_min.min(pos_b_vals[pi]);
+                        hd_max = hd_max.max(pos_b_vals[pi] + head_widths[pi]);
+                    }
                     let exo = msg_exo.get(msg_iter_idx).copied().flatten();
                     let is_self = exo.is_none() && msg.p1().code() == msg.p2().code();
                     let is_reverse = if is_self {
@@ -1542,7 +1763,7 @@ pub fn render_sequence_svg(
                     };
                     let text_h = msg_text_heights[msg_iter_idx];
                     let _ = text_h; // Used in X range computation below
-                    let mi_note = notes.iter().find(|n| n.msg_index == msg_iter_idx);
+                    let mi_note = notes.iter().find(|n| n.msg_index == msg_iter_idx && n.participant.is_none());
                     // Drawn X range
                     let p1_c = pos_c_vals[p1_idx];
                     let p2_c = pos_c_vals[p2_idx];
@@ -1702,13 +1923,12 @@ pub fn render_sequence_svg(
             let innermost = *msg_start_innermost.get(&group.msg_start).unwrap_or(&group.nesting_level);
             let headers_to_subtract = (innermost + 1) - group.nesting_level;
             let first_text_h = msg_text_heights[group.msg_start];
-            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - first_text_h + 11.0 - p_extra;
+            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - first_text_h + 3.0 - p_extra;
             let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
             (fy, fh)
         };
-        let frame_x = min_x - GROUP_MARGIN_X;
-        let content_span = max_x - min_x + 2.0 * GROUP_MARGIN_X;
-        let frame_width = content_span; // Header width added after nesting extension
+        let frame_x = hd_min - 10.0;
+        let frame_width = hd_max - hd_min + 20.0;
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
         let _ = gi;
     }
@@ -1724,7 +1944,7 @@ pub fn render_sequence_svg(
         } else {
             group.group_type.clone()
         };
-        let tab_label_w = max_line_width(&bounder, &font_m, &tab_label);
+        let tab_label_w = max_line_width(&bounder, &font_bold, &tab_label);
         let tab_width = tab_label_w + 3.0 * GROUP_TEXT_PADDING;
         header_widths[gi] = if group.group_type != "group" && !group.comment.is_empty() {
             let cond_label = format!("[{}]", group.comment);
@@ -1757,7 +1977,7 @@ pub fn render_sequence_svg(
             let new_left = pfx.min(efx);
             let new_right = (pfx + pfw).max(efx + efw);
             let new_width = new_right - new_left;
-            let else_bottom = efy + efh + GROUP_MARGIN_Y_MAGIC / 2.0 - GROUP_MARGIN_Y;
+            let else_bottom = arrow_ys[groups[gi].msg_end - 1] + 8.0;
             let new_height = pfh.max(else_bottom - pfy);
             group_frames[pgi] = (new_left, pfy, new_width, new_height);
         }
@@ -1826,7 +2046,7 @@ pub fn render_sequence_svg(
         }
         let (fx, fy, fw, fh) = group_frames[gi];
         let frame_max = fx + fw;
-        let header_max = fx + header_widths[gi] + GROUP_MARGIN_X;
+        let header_max = fx + header_widths[gi] + PAGE_MARGIN;
         if header_max > frame_max {
             group_frames[gi] = (fx, fy, header_max - fx, fh);
         }
@@ -1850,7 +2070,9 @@ pub fn render_sequence_svg(
             let new_left = pfx.min(efx);
             let new_right = (pfx + pfw).max(efx + efw);
             let new_width = new_right - new_left;
-            let else_bottom = efy + efh + GROUP_MARGIN_Y_MAGIC / 2.0 - GROUP_MARGIN_Y;
+            // Legacy frame ends 8px below the else section's last arrow.
+            let else_last = groups[gi].msg_end - 1;
+            let else_bottom = arrow_ys[else_last] + 8.0;
             let new_height = pfh.max(else_bottom - pfy);
             group_frames[pgi] = (new_left, pfy, new_width, new_height);
         }
@@ -1874,13 +2096,11 @@ pub fn render_sequence_svg(
             group_frames[gi] = (pfx, efy, pfw, efh);
         }
     }
-    for _gf in group_frames.iter() {
-    }
 
     // Compute note heights for each message
     let mut note_heights: Vec<f64> = vec![0.0; arrow_ys.len()];
     for note in notes {
-        if note.msg_index < note_heights.len() {
+        if note.participant.is_none() && note.msg_index < note_heights.len() {
             let note_lines = note.text.split("\\n").count();
             let note_h = (note_lines as f64) * 13.0 + 2.0 * NOTE_MARGIN_Y;
             if note_h > note_heights[note.msg_index] {
@@ -1918,6 +2138,10 @@ pub fn render_sequence_svg(
     } else {
         0.0
     };
+    // Standalone notes after the last message extend the lifeline by their
+    // total tile height (the Y gauge max + paddingY chain).
+    let standalone_lifeline_bottom = normal_lifeline_bottom
+        + standalone_gap_h.get(last_arrow_idx).copied().unwrap_or(0.0);
     // Compute group_lifeline_bottom based on nesting and parallel messages.
     // - Groups with nesting extension: frame_bottom - nesting_y_ext + MARGINY_MAGIC + MARGINY (24)
     // - Groups without nesting, no parallel msgs: frame_bottom + 24
@@ -1967,7 +2191,14 @@ pub fn render_sequence_svg(
                     .fold(0.0_f64, f64::max);
                 group_msg_ygauge_max + PAGE_MARGIN
             } else {
-                frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y
+                // Lifeline runs to the last message's Y-gauge bottom
+                // (arrowY + preferred height 25); the frame (which may
+                // contain else labels) provides a lower floor.
+                let group_msg_ygauge_max = arrow_ys.iter().enumerate()
+                    .filter(|&(mi, _)| mi >= g.msg_start && mi < g.msg_end)
+                    .map(|(_, &y)| y + java_preferred_height)
+                    .fold(frame_bottom + GROUP_MARGIN_Y, f64::max);
+                group_msg_ygauge_max
             };
             val
         })
@@ -1987,7 +2218,7 @@ pub fn render_sequence_svg(
     } else {
         normal_lifeline_bottom
     };
-    let lifeline_bottom = normal_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
+    let lifeline_bottom = standalone_lifeline_bottom.max(note_lifeline_bottom).max(group_lifeline_bottom);
     // Flush remaining pending activations (autoactivate without explicit deactivate)
     for (pi, stack) in pending_activations.iter().enumerate() {
         for &(start_y, level) in stack {
@@ -2008,7 +2239,7 @@ pub fn render_sequence_svg(
     // to determine how far left notes extend, then set x_offset accordingly.
     let mut min_layout_left = 0.0_f64;
     for note in notes {
-        if note.msg_index >= arrow_ys.len() {
+        if note.participant.is_some() || note.msg_index >= arrow_ys.len() {
             continue;
         }
         if note.position != NotePosition::Left {
@@ -2101,7 +2332,7 @@ pub fn render_sequence_svg(
     // which is smaller than layout_w (= getPreferredWidth = x2 + 2*paddingX + deltaShadow).
     let mut max_note_path_right = 0.0_f64;
     for note in notes {
-        if note.msg_index >= arrow_ys.len() {
+        if note.participant.is_some() || note.msg_index >= arrow_ys.len() {
             continue;
         }
         if note.position != NotePosition::Right {
@@ -2166,9 +2397,24 @@ pub fn render_sequence_svg(
             max_note_path_right = path_right;
         }
     }
+    // Standalone notes use a different (tile-level) geometry; compute their
+    // right edges independently for the canvas width.
+    let mut max_standalone_right = 0.0_f64;
+    for note in notes {
+        if note.participant.is_none() {
+            continue;
+        }
+        let target = note.participant.as_deref().unwrap_or("");
+        let code = target.split(',').next().unwrap_or(target);
+        let p_idx = pcode_to_idx.get(code).copied().unwrap_or(0);
+        let text_w = max_line_width(&bounder, &font_m, &note.text);
+        let polygon_w = (text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2).trunc();
+        let polygon_x = (pos_c_vals[p_idx] + x_offset + NOTE_PADDING_X).round();
+        max_standalone_right = max_standalone_right.max(polygon_x + polygon_w + 1.0);
+    }
     let max_frame_right: f64 = group_frames
         .iter()
-        .map(|&(fx, _, fw, _)| fx + fw + GROUP_EXTERNAL_MARGIN_X2 + x_offset)
+        .map(|&(fx, _, fw, _)| fx + fw + PAGE_MARGIN + x_offset)
         .fold(0.0_f64, f64::max);
 
     let footbox_bottom = if hide_footbox {
@@ -2183,7 +2429,23 @@ pub fn render_sequence_svg(
     let caption_w = caption_dim.map_or(0.0, |(w, _)| w);
     let footer_w = footer_dim.map_or(0.0, |(w, _)| w);
     let max_element_width = header_w.max(title_w).max(legend_w).max(caption_w).max(footer_w);
-    let content_right = rightmost_x.max(title_rightmost).max(max_note_right).max(max_frame_right);
+    // `CommunicationTileSelf.getMaxX` = posC2 + compWidth (the loop's layout
+    // reservation to the right; includes unused slack when the label is short).
+    let self_tile_right: f64 = max_forward_comp_width
+        .iter()
+        .enumerate()
+        .map(|(p, &cw)| {
+            let pos_c2 = pos_c_vals[p]
+                + 5.0 * max_participant_levels.get(p).copied().unwrap_or(0) as f64;
+            pos_c2 + cw
+        })
+        .fold(0.0_f64, f64::max);
+    let content_right = rightmost_x
+        .max(title_rightmost)
+        .max(max_note_right)
+        .max(max_frame_right)
+        .max(self_tile_right)
+        .max(max_standalone_right);
     let has_extra_elements = header_text.is_some() || footer_text.is_some() || legend_text.is_some() || caption_text.is_some();
     let total_width = if has_extra_elements {
         content_right.max(max_element_width + PAGE_MARGIN * 2.0) + 2.0 * PAGE_MARGIN
@@ -2308,19 +2570,20 @@ pub fn render_sequence_svg(
 
     // ── Draw title (if present) ──────────────────────────────────────────
     if let Some(title_text) = title {
-        let text_w = bounder.calculate_dimension(&font_p, title_text).width();
+        let text_w = bold14_width(title_text);
         let rect_w = text_w + 10.0; // 5px padding each side
-        let rect_h = 24.0;
-        let rect_y = PAGE_MARGIN + STARTING_Y + header_extra;
-        // When no header/footer/legend/caption: title uses fixed x = PAGE_MARGIN + 10
-        // When extra elements present: title is centered using centering_width
+        let rect_h = 29.0679;
+        let rect_y = PAGE_MARGIN + STARTING_Y + header_extra + 5.0;
+        // Java centers the bordered title block on the raw diagram width; the
+        // text sits 5px inside the block. With no header/footer/legend/caption
+        // the block starts at x = PAGE_MARGIN (5); with extras it is centered.
         let (rect_x, text_x) = if has_extra_elements {
             let rx = (centering_width - rect_w) / 2.0;
             (rx, rx + 5.0)
         } else {
-            (PAGE_MARGIN + 10.0, PAGE_MARGIN + 10.0)
+            (PAGE_MARGIN, PAGE_MARGIN + 5.0)
         };
-        let text_y = rect_y + 15.889; // 3px top padding + ASCENT_14
+        let text_y = rect_y + TITLE_TEXT_OFFSET;
         let line_str = title_line.map(|n| n.to_string());
         let mut attrs = vec![("class", "title")];
         if let Some(ref ls) = line_str {
@@ -2416,6 +2679,9 @@ pub fn render_sequence_svg(
         }
     }
 
+    // ── Draw explicit activation boxes (first pass, behind lifelines) ─────
+    draw_activation_bars(&mut svg, &activations, participants, &pos_c_vals, x_offset);
+
     // ── Draw lifelines (background) ───────────────────────────────────────
     // ── Draw lifelines + activation bars + destroy marks (per participant) ──
     for (i, p) in participants.iter().enumerate() {
@@ -2476,33 +2742,6 @@ pub fn render_sequence_svg(
         svg.close_group();
         svg.close_group();
 
-        // Draw activation bars for this participant, sorted by level (ascending)
-        // Java renders LifeEventTiles in ascending level order (outermost first).
-        let mut participant_acts: Vec<(usize, f64, f64, i32)> = activations.iter()
-            .filter(|(pi, _, _, _)| *pi == i)
-            .copied()
-            .collect();
-        participant_acts.sort_by_key(|(_, _, _, level)| *level);
-        for &(_pi, start_y, end_y, level) in &participant_acts {
-            svg.open_group(None);
-            svg.title("");
-            svg.set_fill_color("#FFF");
-            svg.set_stroke_color(Some(color_lifeline));
-            svg.set_stroke_width(1.0, None);
-            let level_dx = (level as f64 - 1.0) * ACTIVATION_BAR_EXPLICIT_OFFSET;
-            svg.set_filter(skin.shadow_filter_id.as_deref());
-            svg.svg_rectangle(
-                cx - ACTIVATION_BAR_EXPLICIT_OFFSET + level_dx,
-                start_y,
-                ACTIVATION_BAR_EXPLICIT_WIDTH,
-                end_y - start_y,
-                0.0,
-                0.0,
-                0.0,
-            );
-            svg.set_filter(None);
-            svg.close_group();
-        }
 
         // Draw destroy X marks for this participant
         for &(pi, dy) in &destroys {
@@ -2522,7 +2761,9 @@ pub fn render_sequence_svg(
         let x = pos_b_vals[i] + x_offset;
         let w = head_widths[i];
         let cx = pos_c_vals[i] + x_offset;
-
+        // Bottom align each head: offset its own origin so its bottom lands at
+        // head_y + common_own (mirrors LivingSpaces.drawHeads BOTTOM).
+        let hy = head_y + (common_own - own_heights[i]);
         // Wrapper <g class="participant participant-head" ...>
         let uid = p.uid();
         let source_line = participant_source_lines.get(i).copied().flatten();
@@ -2545,7 +2786,7 @@ pub fn render_sequence_svg(
             // Text below stickman
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
             let text_x = cx - text_w / 2.0 - ACTOR_PADDING_H;
-            let text_y = head_y + STICKMAN_HEIGHT + ASCENT_14 - 2.0;
+            let text_y = hy + STICKMAN_HEIGHT + ACTOR_TEXT_BASELINE;
 
             svg.set_fill_color(COLOR_TEXT);
             svg.set_stroke_color(None);
@@ -2565,7 +2806,7 @@ pub fn render_sequence_svg(
             );
 
             // Stickman head circle
-            let head_cy = head_y + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
+            let head_cy = hy + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
             svg.set_fill_color(color_back);
             svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(STICKMAN_THICKNESS, None);
@@ -2599,12 +2840,12 @@ pub fn render_sequence_svg(
             svg.set_stroke_color(Some(color_stroke));
             svg.set_stroke_width(stroke_width_head, None);
             svg.set_filter(skin.shadow_filter_id.as_deref());
-            svg.svg_rectangle(x, head_y, w, TEXT_BLOCK_HEIGHT, head_round, head_round, 0.0);
+            svg.svg_rectangle(x, hy, w, TEXT_BLOCK_HEIGHT, head_round, head_round, 0.0);
             svg.set_filter(None);
 
             let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
             let text_x = x + (w - text_w) / 2.0;
-            let text_y = head_y + PADDING_TOP + ASCENT_14;
+            let text_y = hy + PADDING_TOP + ASCENT_14;
 
             svg.set_fill_color(COLOR_TEXT);
             svg.set_stroke_color(None);
@@ -2647,7 +2888,7 @@ pub fn render_sequence_svg(
                 // Actor footbox: text above + stickman below (reversed from head)
                 let text_w = bounder.calculate_dimension(&font_p, p.display()).width();
                 let text_x = cx - text_w / 2.0 - ACTOR_PADDING_H;
-                let text_y = tail_y + ASCENT_14 - 2.0;
+                let text_y = tail_y + ACTOR_TEXT_BASELINE;
 
                 svg.set_fill_color(COLOR_TEXT);
                 svg.set_stroke_color(None);
@@ -2667,7 +2908,8 @@ pub fn render_sequence_svg(
                 );
 
                 // Stickman below text
-                let stickman_top = tail_y + (ACTOR_HEAD_LAYOUT_HEIGHT - STICKMAN_HEIGHT);
+                // Stickman drawn below the text block (ComponentRoseActor tail).
+                let stickman_top = tail_y + ACTOR_TEXT_HEIGHT;
                 let head_cy = stickman_top + STICKMAN_THICKNESS + STICKMAN_HEAD_DIAM / 2.0;
                 svg.set_fill_color(color_back);
                 svg.set_stroke_color(Some(color_stroke));
@@ -2735,6 +2977,9 @@ pub fn render_sequence_svg(
     svg.svg_rectangle(0.0, 0.0, total_width, total_height, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
+    // ── Draw explicit activation boxes (second pass, over heads/lifelines) ─
+    draw_activation_bars(&mut svg, &activations, participants, &pos_c_vals, x_offset);
+
     // ── Draw group headers + messages + notes (interleaved) ──────────────
     let mut msg_idx = 0;
     for event in diagram.events() {
@@ -2796,21 +3041,25 @@ pub fn render_sequence_svg(
                         } else {
                             group.group_type.clone()
                         };
-                        let label_w = max_line_width(&bounder, &font_m, &tab_label);
+                        let label_w = max_line_width(&bounder, &font_bold, &tab_label);
+                        // Tab width = bold title width + 45 (15 left pad + 30 right).
                         let tab_w = label_w + GROUP_TEXT_PADDING + 2.0 * GROUP_TEXT_PADDING;
 
-                        // Header tab path (folded corner)
+                        // Header tab path (folded corner). Fold drops
+                        // height - cornersize = 9.706, diagonal closes to
+                        // (tab_right - cornersize, tab bottom).
                         svg.set_fill_color(COLOR_GROUP_HEADER);
                         svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
                         svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
+                        let tab_right = fx_off + tab_w;
                         let path = format!(
                             "M{x},{y} L{x2},{y} L{x2},{y2} L{x3},{y3} L{x},{y3} L{x},{y}",
                             x = format_number_path(fx_off),
                             y = format_number_path(fy),
-                            x2 = format_number_path(fx_off + tab_w),
-                            y2 = format_number_path(fy + 5.0),
-                            x3 = format_number_path(fx_off + tab_w - GROUP_TAB_CORNER),
-                            y3 = format_number_path(fy + GROUP_HEADER_HEIGHT),
+                            x2 = format_number_path(tab_right),
+                            y2 = format_number_path(fy + GROUP_TAB_HEIGHT - GROUP_TAB_CORNER),
+                            x3 = format_number_path(tab_right - GROUP_TAB_CORNER),
+                            y3 = format_number_path(fy + GROUP_TAB_HEIGHT),
                         );
                         svg.svg_path(&path, 0.0);
 
@@ -2827,7 +3076,7 @@ pub fn render_sequence_svg(
                         svg.text(
                             &tab_label,
                             fx_off + GROUP_TEXT_PADDING,
-                            fy + GROUP_TEXT_Y_OFFSET,
+                            fy + GROUP_TAB_TITLE_BASELINE,
                             None,
                             FONT_SIZE_MESSAGE,
                             Some("700"),
@@ -2849,7 +3098,7 @@ pub fn render_sequence_svg(
                             svg.text(
                                 &cond_label,
                                 fx_off + tab_w + GROUP_TEXT_PADDING,
-                                fy + 10.556,
+                                fy + 13.759,
                                 None,
                                 11,
                                 Some("700"),
@@ -2870,11 +3119,12 @@ pub fn render_sequence_svg(
                 let (fx, fy, fw, _fh) = group_frames[gi];
                 let fx_off = fx + x_offset;
                 let group = &groups[gi];
+                let divider_y = arrow_ys[msg_idx.saturating_sub(1)] + 9.0;
                 // Dashed divider line across the parent frame
                 svg.set_fill_color("none");
                 svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
                 svg.set_stroke_width(1.0, Some([2.0, 2.0]));
-                svg.svg_line(fx_off, fy, fx_off + fw, fy, 0.0);
+                svg.svg_line(fx_off, divider_y, fx_off + fw, divider_y, 0.0);
                 // Else label text (11px bold, in brackets)
                 if !group.comment.is_empty() {
                     let else_label = format!("[{}]", group.comment);
@@ -2886,7 +3136,7 @@ pub fn render_sequence_svg(
                     svg.text(
                         &else_label,
                         fx_off + 5.0,
-                        fy + 10.556,
+                        divider_y + 11.759,
                         None,
                         11,
                         Some("700"),
@@ -2897,6 +3147,59 @@ pub fn render_sequence_svg(
                         None,
                     );
                 }
+            }
+            // Divider (`== label ==`) preceding this message: band + label.
+            if let Some(div) = dividers.iter().find(|d| d.before_msg == msg_idx) {
+                // Band spans the global head range ±5.
+                let mut hd_lo = f64::MAX;
+                let mut hd_hi = f64::MIN;
+                for pi in 0..participants.len() {
+                    hd_lo = hd_lo.min(pos_b_vals[pi] + x_offset);
+                    hd_hi = hd_hi.max(pos_b_vals[pi] + head_widths[pi] + x_offset);
+                }
+                let band_x = hd_lo - 5.0;
+                let band_w = hd_hi - hd_lo + 10.0;
+                let tile_top = arrow_ys[msg_idx - 1] + 8.0;
+                let band_y = tile_top + DIVIDER_BAND_Y;
+
+                // Band rect (fill + stroke same divider background).
+                svg.set_fill_color(COLOR_DIVIDER_BG);
+                svg.set_stroke_color(Some(COLOR_DIVIDER_BG));
+                svg.set_stroke_width(1.0, None);
+                svg.svg_rectangle(band_x, band_y, band_w, DIVIDER_BAND_H, 0.0, 0.0, 0.0);
+                // Two black border lines at top and bottom of the band.
+                svg.set_fill_color(COLOR_TEXT);
+                svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                svg.set_stroke_width(1.0, None);
+                svg.svg_line(band_x, band_y, band_x + band_w, band_y, 0.0);
+                svg.svg_line(band_x, band_y + DIVIDER_BAND_H, band_x + band_w, band_y + DIVIDER_BAND_H, 0.0);
+
+                // Bold13 label rect (centered on the band).
+                let text_w = max_line_width(&bounder, &font_bold, &div.text);
+                let label_w = text_w + DIVIDER_LABEL_PAD_X;
+                let label_x = band_x + (band_w - label_w) / 2.0;
+                let label_y = tile_top + DIVIDER_LABEL_Y;
+                svg.set_fill_color(COLOR_DIVIDER_BG);
+                svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
+                svg.set_stroke_width(2.0, None);
+                svg.svg_rectangle(label_x, label_y, label_w, DIVIDER_LABEL_H, 0.0, 0.0, 0.0);
+                // Label text.
+                svg.set_fill_color(COLOR_TEXT);
+                svg.set_stroke_color(None);
+                svg.set_stroke_width(0.0, None);
+                svg.text(
+                    &div.text,
+                    label_x + 6.0,
+                    tile_top + DIVIDER_TEXT_BASELINE,
+                    None,
+                    FONT_SIZE_MESSAGE,
+                    Some("700"),
+                    None,
+                    None,
+                    text_w,
+                    &indexmap::IndexMap::new(),
+                    None,
+                );
             }
 
             let p1_idx = pcode_to_idx.get(msg.p1().code()).copied().unwrap_or(0);
@@ -2944,12 +3247,16 @@ pub fn render_sequence_svg(
                         msg_p1_levels.get(msg_idx).copied().unwrap_or(0),
                         msg_p2_levels.get(msg_idx).copied().unwrap_or(0),
                         &skin,
+                        if autonumber { Some(auto_num_strings[msg_idx].as_str()) } else { None },
+                        auto_num_widths.get(msg_idx).copied().unwrap_or(0.0),
                     );
                 }
                 svg.close_group();
             }
+            // Attached notes ("note right:" / "note left:") share this message
+            // tile and are positioned relative to the arrow.
             for note in notes {
-                if note.msg_index != msg_idx {
+                if note.msg_index != msg_idx || note.participant.is_some() {
                     continue;
                 }
                 draw_note(
@@ -2962,6 +3269,20 @@ pub fn render_sequence_svg(
                     note_p2_levels.get(msg_idx).copied().unwrap_or(0),
                     &skin,
                 );
+            }
+            // Standalone notes ("note right of P:") are independent tiles drawn
+            // below this message's arrow; they stack cumulatively within the gap.
+            let mut stack_y = 0.0_f64;
+            for note in notes {
+                if note.msg_index != msg_idx || note.participant.is_none() {
+                    continue;
+                }
+                draw_standalone_note(
+                    &mut svg, note, &pos_c_vals, &pcode_to_idx, &head_widths, x_offset,
+                    y, stack_y, &bounder, &font_m, &skin,
+                );
+                let line_count = note.text.split("\\n").count().max(1) as f64;
+                stack_y += STANDALONE_NOTE_H + (line_count - 1.0) * STANDALONE_NOTE_LINE_H;
             }
             msg_idx += 1;
         }
@@ -3105,6 +3426,116 @@ struct SkinConfig {
     color_arrow: &'static str,
     color_note_back: &'static str,
     shadow_filter_id: Option<String>,
+}
+
+/// Draws a standalone note tile (`note right of P: t`).
+///
+/// Geometry (measured against the reference jar, ported from
+/// `sequencediagram/teoz/NoteTile.java` and
+/// `skin/rose/ComponentRoseNote.java`):
+/// - polygon x = round(posC + paddingX(5)),
+/// - polygon is 27px tall for one line (textBlock 17 + 2*old padding 5),
+/// - polygon width = trunc(textWidth + old padding 6 + old padding 15),
+/// - text starts 6px right, baseline 18.897 below the polygon top.
+fn draw_standalone_note(
+    svg: &mut SvgGraphics,
+    note: &NoteInfo,
+    pos_c_vals: &[f64],
+    pcode_to_idx: &std::collections::HashMap<String, usize>,
+    head_widths: &[f64],
+    x_offset: f64,
+    arrow_y: f64,
+    stack_y: f64,
+    bounder: &dyn StringBounder,
+    font_m: &UFont,
+    skin: &SkinConfig,
+) {
+    let target = note.participant.as_deref().unwrap_or("");
+    let (code, over_idx): (&str, Option<usize>) = match target.split_once(',') {
+        Some((a, b)) => (
+            a,
+            pcode_to_idx.get(b.trim()).copied(),
+        ),
+        None => (target, None),
+    };
+    let p_idx = pcode_to_idx.get(code).copied().unwrap_or(0);
+
+    let lines: Vec<&str> = note.text.split("\\n").collect();
+    let mut max_line_w = 0.0_f64;
+    for line in &lines {
+        let w = bounder.calculate_dimension(font_m, line).width();
+        if w > max_line_w {
+            max_line_w = w;
+        }
+    }
+
+    // Polygon top = this gap origin, which is arrow_y + 13 + cumulative stack.
+    let path_top = arrow_y + 13.0 + stack_y;
+
+    // Horizontal placement.
+    //
+    // "note over A, B" (OVER_SEVERAL, Puma2 `NoteBox`): the note spans from the
+    // first participant's box left edge to the second participant's box right
+    // edge, each `ParticipantBox` carrying an `outMargin` of 5 on both sides.
+    //
+    // - text_width  = pure_text + oldPadding 6 + oldPadding 15
+    // - compPrefW   = text_width + 2 * paddingX(5)
+    // - span        = (c2 + headW2/2) - (c1 - headW1/2)
+    // - prefW       = max(compPrefW, span)
+    // - x_start     = trunc((c1 + c2)/2 - prefW/2)
+    // - polygon_x   = x_start + paddingX, polygon_w = trunc(prefW - 2*paddingX)
+    // - text_x      = x_start + paddingX + 6 + (prefW - compPrefW)/2
+    //
+    // Ported from: `sequencediagram/graphic/NoteBox.java`,
+    // `skin/rose/ComponentRoseNote.java`.
+    let (polygon_x, polygon_w, text_x);
+    if let Some(p2_idx) = over_idx {
+        let c1 = pos_c_vals[p_idx] + x_offset;
+        let c2 = pos_c_vals[p2_idx] + x_offset;
+        let hw1 = head_widths[p_idx];
+        let hw2 = head_widths[p2_idx];
+        let text_width = max_line_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2;
+        let comp_pref_w = text_width + 2.0 * NOTE_PADDING_X;
+
+        // `ParticipantBox.getMaxX` includes one extra outMargin beyond
+        // center+hw/2 (it uses 2*outMargin while center uses one).
+        let span = (c2 + hw2 / 2.0 + NOTE_OUT_MARGIN) - (c1 - hw1 / 2.0);
+        let pref_w = comp_pref_w.max(span);
+        // Java `(int)` truncates toward zero.
+        let x_start = (c1 / 2.0 + c2 / 2.0 - pref_w / 2.0).trunc();
+        polygon_x = x_start + NOTE_PADDING_X;
+        polygon_w = (pref_w - 2.0 * NOTE_PADDING_X).trunc();
+        text_x = polygon_x + NOTE_OLD_PADDING_X1 + (pref_w - comp_pref_w) / 2.0;
+    } else {
+        polygon_w = (max_line_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2).trunc();
+        polygon_x = (pos_c_vals[p_idx] + x_offset + NOTE_PADDING_X).round();
+        text_x = polygon_x + NOTE_OLD_PADDING_X1;
+    }
+
+    // One line: 27 tall; each extra line adds 13.
+    let polygon_h = 27.0 + (lines.len().saturating_sub(1) as f64) * MSG_LINE_HEIGHT;
+
+    svg.set_fill_color(skin.color_note_back);
+    svg.set_stroke_color(Some(skin.color_stroke));
+    svg.set_stroke_width(0.5, None);
+    svg.set_filter(skin.shadow_filter_id.as_deref());
+    let path_d = format_note_path_abs(polygon_x, path_top, polygon_w, polygon_h, NOTE_CORNERSIZE);
+    svg.svg_path(&path_d, 0.0);
+    svg.set_filter(None);
+    let corner_d = format_note_corner_abs(polygon_x, path_top, polygon_w, NOTE_CORNERSIZE);
+    svg.svg_path(&corner_d, 0.0);
+
+    svg.set_fill_color(COLOR_TEXT);
+    svg.set_stroke_color(None);
+    svg.set_stroke_width(0.0, None);
+    for (_line_idx, line) in lines.iter().enumerate() {
+        let text_w = bounder.calculate_dimension(font_m, line).width();
+        let text_y = path_top + 5.0 + ASCENT_13 + (_line_idx as f64) * MSG_LINE_HEIGHT;
+        svg.text(
+            line, text_x, text_y, None, FONT_SIZE_MESSAGE, None, None, None,
+            text_w, &indexmap::IndexMap::new(), None,
+        );
+    }
 }
 
 fn draw_note(
@@ -3263,6 +3694,8 @@ fn draw_message(
     msg_p1_level: i32,
     msg_p2_level: i32,
     skin: &SkinConfig,
+    auto_number: Option<&str>,
+    auto_num_w: f64,
 ) {
     let x1_raw = pos_c[p1_idx] + x_offset;
     let x2_raw = pos_c[p2_idx] + x_offset;
@@ -3272,6 +3705,17 @@ fn draw_message(
     let is_dashed = msg.arrow_config().is_dotted();
     let ld = ACTIVATION_BAR_EXPLICIT_OFFSET; // LIVE_DELTA_SIZE = 5
     let max_level = level_ignore.max(level_considere) as f64;
+    // Per-message arrow color: a `-[#color]` bracket sets it on the
+    // ArrowConfiguration (CommandArrow.applyStyle); otherwise use the skin's
+    // default arrow color.
+    let arrow_color_string;
+    let arrow_color: &str = match msg.arrow_config().color() {
+        Some(c) => {
+            arrow_color_string = c.to_svg(&plantuml_klimt::color::ColorMapper::identity());
+            &arrow_color_string
+        }
+        None => skin.color_arrow,
+    };
 
     // Java CommunicationTile.drawU(): adjust x1/x2 based on activation levels
     // For non-reverse: x1 += ld * level1; x2 += ld * (level2 > 0 ? level2 - 2 : level2)
@@ -3407,7 +3851,7 @@ fn draw_message(
             let circle_ry = DIAM_CIRCLE / 2.0; // 4.0
             let circle_cx = if is_reverse { cx - circle_offset } else { cx + circle_offset };
             svg.set_fill_color("#000000");
-            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_stroke_color(Some(arrow_color));
             svg.set_stroke_width(THIN_CIRCLE, None);
             if has_circle1 {
                 // Circle at top (decoration1): cy = y - thinCircle/2
@@ -3419,7 +3863,7 @@ fn draw_message(
             }
         }
 
-        svg.set_stroke_color(Some(skin.color_arrow));
+        svg.set_stroke_color(Some(arrow_color));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         if is_reverse {
             svg.svg_line(loop_x, y, top_near, y, 0.0);
@@ -3447,7 +3891,7 @@ fn draw_message(
 
         if is_async_head {
             // Async arrowhead: draw lines (not polygon)
-            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_stroke_color(Some(arrow_color));
             svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
             if arrow_part != plantuml_skin::ArrowPart::BottomPart {
                 // Top half: ULine(-10, -4) for reverse, ULine(10, -4) for non-reverse
@@ -3469,8 +3913,8 @@ fn draw_message(
             // Normal arrowhead: draw filled polygon
             let base_x = tip_x + tip_dir * delta_x;
             let half = delta_y;
-            svg.set_fill_color(skin.color_arrow);
-            svg.set_stroke_color(Some(skin.color_arrow));
+            svg.set_fill_color(arrow_color);
+            svg.set_stroke_color(Some(arrow_color));
             svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
             if arrow_part == plantuml_skin::ArrowPart::TopPart {
                 // Top half only
@@ -3494,8 +3938,8 @@ fn draw_message(
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
         let is_async = msg.arrow_config().is_async2();
 
-        svg.set_fill_color(skin.color_arrow);
-        svg.set_stroke_color(Some(skin.color_arrow));
+        svg.set_fill_color(arrow_color);
+        svg.set_stroke_color(Some(arrow_color));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
         if is_async {
             // ASYNC (<<-): thin arrowhead as 2 lines, matching Java's drawDressing1
@@ -3510,9 +3954,13 @@ fn draw_message(
 
         // Line: ASYNC starts at x2 (start=0 in Java), NORMAL starts at x2+5 (start=arrowDeltaX/2)
         let line_start = if is_async { x2 } else { x2 + 5.0 };
-        svg.set_stroke_color(Some(skin.color_arrow));
+        // Tail at the source: when it is active at level 1, the arrow starts from
+        // its own lifeline (posC - 1), not from the offset x1 (which moved -5 to
+        // anchor the area). CommunicationTile reverse branch.
+        let line_end_x = if msg_p1_level == 1 { x1_raw - 1.0 } else { x1 - 1.0 };
+        svg.set_stroke_color(Some(arrow_color));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
-        svg.svg_line(line_start, y, x1 - 1.0, y, 0.0);
+        svg.svg_line(line_start, y, line_end_x, y, 0.0);
     } else {
         // Normal arrow: left-to-right, solid, right-pointing arrowhead
         let tip_x = x2 - ARROWHEAD_TIP_OFFSET;
@@ -3520,8 +3968,8 @@ fn draw_message(
         let half = ARROWHEAD_SIZE / 2.0 - 1.0;
         let is_async = msg.arrow_config().is_async2();
 
-        svg.set_fill_color(skin.color_arrow);
-        svg.set_stroke_color(Some(skin.color_arrow));
+        svg.set_fill_color(arrow_color);
+        svg.set_stroke_color(Some(arrow_color));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, None);
         if is_async {
             // ASYNC (->>): thin arrowhead as 2 lines, matching Java's drawDressing2
@@ -3536,11 +3984,34 @@ fn draw_message(
 
         // Solid line: from source to target. ASYNC extends to x2-1, NORMAL to x2-6.
         let line_end = if is_async { x2 - 1.0 } else { x2 - ARROW_LINE_END_OFFSET };
-        svg.set_stroke_color(Some(skin.color_arrow));
+        svg.set_stroke_color(Some(arrow_color));
         svg.set_stroke_width(STROKE_WIDTH_ARROW, if is_dashed { Some([2.0, 2.0]) } else { None });
         svg.svg_line(x1, y, line_end, y, 0.0);
     }
 
+    // Autonumber: bold number at the label slot, drawn even when the label
+    // is empty (but the prefix only joins the width reservation with a label).
+    if let Some(num) = auto_number {
+        let auto_slot_x = if is_self {
+            if is_reverse {
+                x1 - 50.0 + MESSAGE_TEXT_X_OFFSET
+            } else {
+                x1 + ld * max_level + MESSAGE_TEXT_X_OFFSET
+            }
+        } else if is_return {
+            x2 + MESSAGE_TEXT_X_OFFSET + ARROWHEAD_SIZE
+        } else {
+            x1 + MESSAGE_TEXT_X_OFFSET
+        };
+        let auto_num_y = y - MSG_LINE_HEIGHT - MSG_PADDING_TOP - MSG_PADDING_BOTTOM + ASCENT_13;
+        svg.set_fill_color(COLOR_TEXT);
+        svg.set_stroke_color(None);
+        svg.set_stroke_width(0.0, None);
+        svg.text(
+            num, auto_slot_x, auto_num_y, None, FONT_SIZE_MESSAGE, Some("700"),
+            None, None, auto_num_w, &indexmap::IndexMap::new(), None,
+        );
+    }
     // Message text (only if label is non-empty)
     let label = msg.label();
     if !label.is_empty() {
@@ -3572,6 +4043,12 @@ fn draw_message(
             x2 + MESSAGE_TEXT_X_OFFSET + ARROWHEAD_SIZE
         } else {
             x1 + MESSAGE_TEXT_X_OFFSET
+        };
+        // Shift the label right of the number only when autonumber is active.
+        let text_x = if auto_number.is_some() {
+            text_x + auto_num_w + 4.0
+        } else {
+            text_x
         };
         let text_y = y - (lines.len().max(1) as f64) * MSG_LINE_HEIGHT - MSG_PADDING_TOP - MSG_PADDING_BOTTOM + ASCENT_13;
 
@@ -3839,8 +4316,21 @@ pub struct NoteInfo {
     pub position: NotePosition,
     /// Note text (may contain `\n` for multi-line).
     pub text: String,
+    /// Participant the note is attached to (`note right of Alice`).
+    pub participant: Option<String>,
     /// Index of the message this note is attached to.
     pub msg_index: usize,
+}
+
+/// Parsed divider (`== label ==`).
+///
+/// Ported from: `net/sourceforge/plantuml/sequencediagram/Divider.java`.
+#[derive(Clone)]
+pub struct DividerInfo {
+    /// Divider label text.
+    pub text: String,
+    /// Index of the message immediately following the divider.
+    pub before_msg: usize,
 }
 
 /// Parsed group block (group/alt/opt/loop/par/else ... end).
@@ -3897,6 +4387,10 @@ pub struct ParsedSequence {
     pub notes: Vec<NoteInfo>,
     /// Group blocks (group ... end).
     pub groups: Vec<GroupInfo>,
+    /// Dividers (`== label ==`).
+    pub dividers: Vec<DividerInfo>,
+    /// Whether `autonumber` is active.
+    pub autonumber: bool,
     /// Participants activated per message (future activate attached to message).
     pub msg_activates: Vec<Vec<String>>,
     /// Participants deactivated/destroyed per message (future deactivate/destroyed per message).
@@ -3948,6 +4442,8 @@ impl ParsedSequence {
             self.hide_footbox,
             &self.notes,
             &self.groups,
+            &self.dividers,
+            self.autonumber,
             &self.msg_activates,
             &self.msg_deactivates,
             &self.msg_parallel,
@@ -3984,6 +4480,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
     let mut hide_footbox = false;
     let mut notes: Vec<NoteInfo> = Vec::new();
     let mut groups: Vec<GroupInfo> = Vec::new();
+    let mut dividers: Vec<DividerInfo> = Vec::new();
+    let mut autonumber = false;
     let mut msg_count = 0usize;
     // Group parsing state: stack of (msg_start, group_type, comment, nesting_level)
     let mut group_stack: Vec<(usize, String, String, usize, bool, Option<String>)> = Vec::new();
@@ -4108,6 +4606,21 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             continue;
         }
         // Handle !pragma, comments, skin, !theme (ignore — simplified renderer)
+        // autonumber (may carry start/inc/format args we currently ignore)
+        if trimmed == "autonumber" || trimmed.starts_with("autonumber ") {
+            autonumber = true;
+            continue;
+        }
+        // Divider: `== label ==` (CommandDivider regex `^==(.*)==$`)
+        if trimmed.starts_with("==") && trimmed.ends_with("==") && trimmed.len() >= 4 {
+            if let Some(inner) = trimmed.strip_prefix("==").and_then(|s| s.strip_suffix("==")) {
+                let label = inner.trim();
+                if !label.is_empty() {
+                    dividers.push(DividerInfo { text: label.to_string(), before_msg: msg_count });
+                }
+            }
+            continue;
+        }
         if trimmed.starts_with("!pragma ")
             || trimmed.starts_with('\'')
             || trimmed.starts_with("skin ")
@@ -4123,6 +4636,15 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             if let Some(rest) = trimmed.strip_prefix("skinparam Maxmessagesize ") {
                 if let Ok(val) = rest.trim().parse::<f64>() {
                     max_message_size = Some(val);
+                }
+            }
+            if let Some(rest) = trimmed.strip_prefix("skinparam backgroundColor ") {
+                if let Some(hex) = resolve_color(rest.trim()) {
+                    style_rules
+                        .entry("document".to_string())
+                        .or_default()
+                        .entry("BackGroundColor".to_string())
+                        .or_insert(hex);
                 }
             }
             if trimmed.ends_with('{') {
@@ -4428,6 +4950,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                         notes.push(NoteInfo {
                             position,
                             text: text_lines.join("\\n"),
+                            participant: None,
                             msg_index: msg_count - 1,
                         });
                     }
@@ -4437,15 +4960,23 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             }
             continue;
         }
-        if trimmed == "note right" || trimmed.starts_with("note right ") {
+        // A line containing a colon is a one-line (inline) note and must not
+        // open a multi-line "note ... end note" block; those are handled below.
+        if !trimmed.contains(':')
+            && (trimmed == "note right" || trimmed.starts_with("note right "))
+        {
             in_note_block = Some((NotePosition::Right, Vec::new()));
             continue;
         }
-        if trimmed == "note left" || trimmed.starts_with("note left ") {
+        if !trimmed.contains(':')
+            && (trimmed == "note left" || trimmed.starts_with("note left "))
+        {
             in_note_block = Some((NotePosition::Left, Vec::new()));
             continue;
         }
-        if trimmed == "note over" || trimmed.starts_with("note over ") {
+        if !trimmed.contains(':')
+            && (trimmed == "note over" || trimmed.starts_with("note over "))
+        {
             in_note_block = Some((NotePosition::Right, Vec::new()));
             continue;
         }
@@ -4456,6 +4987,7 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 notes.push(NoteInfo {
                     position: NotePosition::Right,
                     text: val.trim().to_string(),
+                    participant: None,
                     msg_index: msg_count - 1,
                 });
             }
@@ -4466,13 +4998,55 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 notes.push(NoteInfo {
                     position: NotePosition::Left,
                     text: val.trim().to_string(),
+                    participant: None,
                     msg_index: msg_count - 1,
                 });
             }
             continue;
         }
 
-        if let Some((p1_code, p2_code, label, arrow_config, inline_activate, inline_deactivate, inline_destroy)) = parse_arrow_line(trimmed) {
+        // Handle standalone notes: "note right of P: text", "note left of P: text",
+        // and "note over P1, P2: text".
+        // Ported from: command/note/sequence/FactorySequenceNoteCommand.java
+        if let Some(rest) = trimmed.strip_prefix("note ") {
+            let parse_note = |s: &str| -> Option<(NotePosition, String, Option<String>, String)> {
+                let (pos, rest) = if let Some(r) = s.strip_prefix("right") {
+                    (NotePosition::Right, r)
+                } else if let Some(r) = s.strip_prefix("left") {
+                    (NotePosition::Left, r)
+                } else if let Some(r) = s.strip_prefix("over") {
+                    (NotePosition::Right, r)
+                } else {
+                    return None;
+                };
+                let rest = rest.trim_start();
+                let rest = rest.strip_prefix("of").unwrap_or(rest);
+                let rest = rest.trim_start();
+                let colon = rest.find(':')?;
+                let target = rest[..colon].trim().to_string();
+                let text = rest[colon + 1..].trim();
+                let (p1, p2) = if let Some((a, b)) = target.split_once(',') {
+                    (a.trim().to_string(), Some(b.trim().to_string()))
+                } else {
+                    (target, None)
+                };
+                Some((pos, p1, p2, text.to_string()))
+            };
+            if let Some((position, p1, p2, text)) = parse_note(rest) {
+                notes.push(NoteInfo {
+                    position,
+                    text,
+                    participant: Some(if p2.is_some() {
+                        format!("{p1},{}", p2.as_deref().unwrap_or(""))
+                    } else {
+                        p1
+                    }),
+                    msg_index: msg_count.saturating_sub(1),
+                });
+                continue;
+            }
+        }
+        if let Some((p1_code, p2_code, label, mut arrow_config, inline_activate, inline_deactivate, inline_destroy, arrow_style)) = parse_arrow_line(trimmed) {
             let is_reverse_arrow = arrow_config.is_reverse_define();
             // Detect exo arrows: ?, [, or ] as message endpoint.
             let is_left_exo = p1_code == "?" || p1_code == "[" || p1_code == "]";
@@ -4520,6 +5094,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                 }
             };
             let msg_num = diagram.get_next_message_number();
+            if let Some(style) = &arrow_style {
+                arrow_config = apply_arrow_style(arrow_config, style);
+            }
             let is_dotted = arrow_config.is_dotted();
             let msg = Message::new(real_p1, real_p2, label, arrow_config, msg_num);
             diagram.add_message(msg);
@@ -4610,6 +5187,8 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
             hide_footbox,
             notes,
             groups,
+            dividers,
+            autonumber,
             msg_activates,
             msg_deactivates,
             msg_parallel,
@@ -4747,11 +5326,16 @@ fn parse_arrow_line(
     bool,
     bool,
     bool,
+    Option<String>,
 )> {
-    // Strip [hidden] and other [style] modifiers from arrow notation
-    // e.g., "B -[hidden]-> C" becomes "B -> C"
+    // Capture the [style] bracket content ("-[#red]->", "-[hidden]->"), then
+    // remove the bracket from the notation for arrow-body parsing. The tokens
+    // are returned and applied to the ArrowConfiguration by the caller,
+    // matching Java CommandArrow.applyStyle (CommandArrow.java:482-502).
+    let mut arrow_style: Option<String> = None;
     let line = if let Some(bracket_start) = line.find("-[") {
         if let Some(bracket_end) = line[bracket_start..].find(']') {
+            arrow_style = Some(line[bracket_start + 2..bracket_start + bracket_end].to_string());
             let before = &line[..=bracket_start]; // includes the first '-'
             let after = &line[bracket_start + bracket_end + 1..];
             format!("{before}{after}")
@@ -4883,9 +5467,54 @@ fn parse_arrow_line(
             inline_activate,
             inline_deactivate,
             inline_destroy,
+            arrow_style,
         ));
     }
     None
+}
+
+/// Returns whether a source line parses as a sequence arrow line.
+/// Used by the sequence factory's context-sensitive keyword veto.
+#[must_use]
+pub fn parse_arrow_line_public(line: &str) -> bool {
+    parse_arrow_line(line).is_some()
+}
+
+/// Applies the comma-separated tokens of an arrow bracket style (e.g. `[#red,dashed]`)
+/// to an `ArrowConfiguration`.
+///
+/// Ported from: `net.sourceforge.plantuml.sequencediagram.command.CommandArrow.applyStyle`
+/// (CommandArrow.java:482-502): `dashed`/`dotted` set a dotted body, `hidden`
+/// hides the arrow, `bold` is ignored, and any other token names a color
+/// (`#red`, `#FF0000`).
+fn apply_arrow_style(
+    mut config: plantuml_skin::ArrowConfiguration,
+    style: &str,
+) -> plantuml_skin::ArrowConfiguration {
+    use plantuml_skin::ArrowBody;
+    for token in style.split(',') {
+        let s = token.trim();
+        if s.is_empty() {
+            continue;
+        }
+        if s.eq_ignore_ascii_case("dashed") || s.eq_ignore_ascii_case("dotted") {
+            config = config.with_body(ArrowBody::Dotted);
+        } else if s.eq_ignore_ascii_case("hidden") {
+            config = config.with_body(ArrowBody::Hidden);
+        } else if s.eq_ignore_ascii_case("bold") {
+        } else {
+            // Java HColorSet.getColor accepts "#red" (name) as well as "#FF0000"
+            // (hex): strip the leading '#', look up a color name, else parse hex.
+            let without_hash = s.strip_prefix('#').unwrap_or(s);
+            let hex = color_name_to_hex(without_hash)
+                .or_else(|| resolve_color(s))
+                .unwrap_or_default();
+            if let Some((r, g, b)) = parse_hex_color(&hex) {
+                config = config.with_color(plantuml_klimt::color::HColor::rgb(r, g, b));
+            }
+        }
+    }
+    config
 }
 
 /// Computes the maximum line width for a (potentially multi-line) label.

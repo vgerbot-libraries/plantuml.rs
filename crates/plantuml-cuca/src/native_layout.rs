@@ -34,6 +34,19 @@ const MINW: f64 = 16.0;
 /// expanded outward by this much (`lib/common/shapes.c`, outline periphery).
 const PEN_HALF: f64 = 0.5;
 
+/// Reconstructs a node dimension exactly as graphviz receives it.
+///
+/// `DotStringFactory` emits node width/height in inches rounded to six
+/// decimals after the Svek pixel size was rounded to four decimals; dot
+/// parses that string back and multiplies by 72. The native solver must use
+/// the same round-tripped value (e.g. `78.4798 → 1.089997 in → 78.479784`)
+/// or boundary rounding flips (`102.995 → 103.00` vs `102.99499 → 102.99`).
+fn dot_roundtrip_px(px: f64) -> f64 {
+    let rounded4 = (px * 10000.0).round() / 10000.0;
+    let inches = (rounded4 / 72.0 * 1e6).round() / 1e6;
+    inches * 72.0
+}
+
 /// A node placed by the solver.
 struct Node {
     center: Point,
@@ -125,7 +138,10 @@ pub fn solve(
         // rect below, so it must be treated as a rectangle.
         let is_ellipse =
             (2.0 * ed.rx - ed.svek_w).abs() < 0.5 && (2.0 * ed.ry - ed.svek_h).abs() < 0.5;
-        let (half_w, half_h) = (ed.svek_w / 2.0, ed.svek_h / 2.0);
+        let (half_w, half_h) = (
+            dot_roundtrip_px(ed.svek_w) / 2.0,
+            dot_roundtrip_px(ed.svek_h) / 2.0,
+        );
         raw.insert(
             *name,
             Node {

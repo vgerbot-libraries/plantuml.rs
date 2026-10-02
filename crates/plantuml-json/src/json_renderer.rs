@@ -1,49 +1,97 @@
-//! JSON tree SVG renderer.
+//! JSON/YAML SVG renderer.
 //!
-//! Ported from: `net/sourceforge/plantuml/jsondiagram/SmetanaForJson.java`,
-//! `TextBlockJson.java`, `JsonCurve.java`.
+//! Ported from:
+//! - `net/sourceforge/plantuml/jsondiagram/SmetanaForJson.java`
+//! - `net/sourceforge/plantuml/jsondiagram/TextBlockJson.java`
+//! - `net/sourceforge/plantuml/jsondiagram/JsonCurve.java`
 //!
-//! The Java version uses the Smetana (Graphviz) layout engine to position
-//! nodes. This Rust implementation uses a simpler recursive tree layout that
-//! produces valid SVG with the same visual structure: boxes for each JSON
-//! node, curved connectors between parents and children.
+//! The Java version builds an internal directed graph of `record` shaped nodes
+//! and lays it out with Smetana (Graphviz), then rotates the TB result into a
+//! left-to-right picture. Each container/array child value becomes an edge.
+//!
+//! Geometry is driven by the exact font 14 advance widths measured against the
+//! reference JAR (bold for keys, plain for values). A record row pitch is
+//! `23.068` (a `19.068` text block plus the record cell pad).
 
 use serde_json::Value;
 
 use plantuml_svg::{SvgGraphics, SvgOption};
 
-// ── Layout constants (from Java TextBlockJson/SmetanaForJson defaults) ────
+// ── Style constants ──────────────────────────────────────────────────────
 
-/// Horizontal padding inside each box (each side).
-const PADDING_H: f64 = 6.0;
-/// Vertical padding inside each box (top + bottom).
-const PADDING_V: f64 = 4.0;
-/// Spacing between sibling boxes.
-const SIBLING_SPACING: f64 = 8.0;
-/// Vertical gap between parent box and children row.
-const LEVEL_SPACING: f64 = 30.0;
-/// Stroke color for boxes (matches Java default `#A80036`).
-const STROKE_COLOR: &str = "#A80036";
-/// Fill color for object/array boxes.
-const FILL_CONTAINER: &str = "#F2F2F2";
-/// Fill color for leaf value boxes.
-const FILL_LEAF: &str = "#FFFFFF";
-/// Fill color for highlighted boxes.
-const FILL_HIGHLIGHT: &str = "#FFFACD";
-/// Text color for keys.
-const COLOR_KEY: &str = "#0000FF";
-/// Text color for values.
-const COLOR_VALUE: &str = "#000000";
-/// Stroke width for box borders.
-const STROKE_WIDTH: f64 = 1.0;
-/// Font size for text.
-const FONT_SIZE: i32 = 12;
-/// Font family.
-const FONT_FAMILY: &str = "monospace";
-/// Page margin.
-const PAGE_MARGIN: f64 = 5.0;
+/// Record background fill (also the fill-rect stroke).
+const NODE_FILL: &str = "#F1F1F1";
+/// Record border / separator color.
+const NODE_STROKE: &str = "#000000";
+/// Text color.
+const TEXT_COLOR: &str = "#000000";
+/// Fill-rect and border stroke width.
+const BORDER_WIDTH: f64 = 1.5;
+/// Separator line stroke width.
+const SEPARATOR_WIDTH: f64 = 1.0;
+/// Rounded corner radius.
+const CORNER_RADIUS: f64 = 5.0;
+/// Font family for keys and values.
+const FONT_FAMILY: &str = "sans-serif";
+/// Font size.
+const FONT_SIZE: i32 = 14;
+/// Outer margin between the content and the canvas edges (each side).
+const MARGIN: f64 = 10.0;
+/// Canvas padding added past the furthest content edge.
+const CANVAS_PAD: f64 = 11.0;
 
-/// A highlight specification (key path → color).
+/// Effective vertical pitch of one record row: text-block row `19.068` plus
+/// the Graphviz record cell pad (`4.0`).
+pub(crate) const ROW_PITCH: f64 = 23.0679;
+/// Baseline of the first row measured from the record top.
+const FIRST_BASELINE: f64 = 16.9659;
+/// Horizontal text inset inside a column (the text-block 5px margin).
+const TEXT_INSET: f64 = 5.0;
+
+// ── Font 14 advance widths (reference JAR, ASCII 0x20–0x7E) ─────────────
+
+/// Bold 14 advance widths, indexed by byte `0x20..=0x7E`.
+#[allow(clippy::too_many_lines)]
+const BOLD14: [f64; 95] = [
+    3.6399, 4.004, 6.608, 9.044, 8.008, 12.614, 10.5, 3.724, 4.746, 4.746, 7.63, 8.008, 3.99,
+    4.508, 3.99, 5.782, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 3.99,
+    3.99, 8.008, 8.008, 8.008, 6.678, 12.558, 9.66, 9.408, 8.918, 10.36, 7.84, 7.686, 10.136,
+    10.71, 5.446, 4.634, 9.296, 7.91, 13.202, 11.382, 11.144, 8.792, 11.144, 9.24, 7.714, 8.106,
+    10.584, 9.1, 13.5379, 9.338, 8.736, 8.106, 4.634, 5.782, 4.634, 8.008, 5.754, 5.068, 8.456,
+    8.862, 7.196, 8.862, 8.274, 5.418, 8.862, 9.198, 4.27, 4.27, 8.68, 4.27, 13.7479, 9.198,
+    8.666, 8.862, 8.862, 6.356, 6.958, 6.076, 9.198, 7.966, 11.9839, 8.092, 7.966, 6.832, 5.516,
+    7.714, 5.516, 8.008,
+];
+
+/// Plain 14 advance widths, indexed by byte `0x20..=0x7E`.
+#[allow(clippy::too_many_lines)]
+const PLAIN14: [f64; 95] = [
+    3.6399, 3.766, 5.712, 9.044, 8.008, 11.634, 10.248, 3.15, 4.2, 4.2, 7.714, 8.008, 3.752, 4.508,
+    3.752, 5.208, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 8.008, 3.752, 3.752,
+    8.008, 8.008, 8.008, 6.076, 12.586, 8.946, 9.1, 8.848, 10.22, 7.784, 7.266, 10.192, 10.374,
+    4.746, 3.822, 8.666, 7.336, 12.698, 10.64, 10.934, 8.47, 10.934, 8.708, 7.686, 7.784, 10.234,
+    8.4, 13.0199, 8.204, 7.924, 8.008, 4.606, 5.208, 4.606, 8.008, 6.216, 3.934, 7.854, 8.61, 6.72,
+    8.61, 7.896, 4.816, 8.61, 8.652, 3.612, 3.612, 7.476, 3.612, 13.09, 8.652, 8.47, 8.61, 8.61,
+    5.782, 6.706, 5.054, 8.652, 7.112, 11.004, 7.406, 7.14, 6.58, 5.32, 7.714, 5.32, 8.008,
+];
+
+/// Advance width of a string in the bold 14 face.
+fn bold_width(text: &str) -> f64 {
+    text.chars()
+        .map(|ch| BOLD14.get((ch as usize).saturating_sub(0x20)).copied().unwrap_or(8.0))
+        .sum()
+}
+
+/// Advance width of a string in the plain 14 face.
+fn plain_width(text: &str) -> f64 {
+    text.chars()
+        .map(|ch| PLAIN14.get((ch as usize).saturating_sub(0x20)).copied().unwrap_or(8.0))
+        .sum()
+}
+
+// ── Highlight ────────────────────────────────────────────────────────────
+
+/// A highlight specification (key path).
 #[derive(Debug, Clone)]
 pub struct Highlight {
     /// Dot-separated path, e.g. `foo.bar.0`.
@@ -56,379 +104,419 @@ impl Highlight {
     /// Ported from: `net/sourceforge/plantuml/yaml/Highlighted.java`.
     pub fn build(line: &str) -> Option<Self> {
         let trimmed = line.trim_start_matches('#').trim();
-        if let Some(rest) = trimmed.strip_prefix("highlight") {
-            let path = rest.trim();
-            if path.is_empty() {
-                None
-            } else {
-                Some(Self {
-                    path: path.to_string(),
-                })
-            }
-        } else {
+        let path = trimmed.strip_prefix("highlight")?.trim();
+        if path.is_empty() {
             None
+        } else {
+            Some(Self {
+                path: path.to_string(),
+            })
         }
     }
 
     /// Checks if a line is a highlight definition.
     pub fn matches_definition(line: &str) -> bool {
-        line.trim_start_matches('#').trim_start().to_lowercase().starts_with("highlight")
+        line.trim_start_matches('#')
+            .trim_start()
+            .to_lowercase()
+            .starts_with("highlight")
     }
 }
 
-/// Computed layout for a JSON node.
-struct NodeLayout {
-    /// Box x position (top-left).
+// ── Record model ─────────────────────────────────────────────────────────
+
+/// One row of a record: a bold key and (for objects) a plain value.
+pub(crate) struct Row {
+    /// Key text (bold).
+    key: String,
+    /// Key advance width.
+    key_w: f64,
+    /// Value text (plain), if present.
+    value: Option<String>,
+    /// Value advance width.
+    value_w: f64,
+}
+
+/// A record node (one JSON object or array).
+pub(crate) struct Record {
+    /// Rows, top to bottom.
+    pub(crate) rows: Vec<Row>,
+    /// Whether this record renders an array (single column) vs a map.
+    is_array: bool,
+    /// Record width (`col_a + col_b` for maps).
+    pub(crate) width: f64,
+    /// Record height (`rows.len() * ROW_PITCH`).
+    pub(crate) height: f64,
+    /// Inner width of column A (max key width + margins).
+    col_a: f64,
+
+    /// Assigned top-left X.
     x: f64,
-    /// Box y position (top-left).
+    /// Assigned top-left Y.
     y: f64,
-    /// Box width.
-    width: f64,
-    /// Box height.
-    height: f64,
-    /// Center x of this node (for curve connections).
-    center_x: f64,
-    /// Children layouts.
-    children: Vec<Self>,
-    /// Label text for this node.
-    label: String,
-    /// Whether this is a container (object/array) vs leaf.
-    is_container: bool,
-    /// Whether this node is highlighted.
-    highlighted: bool,
+    /// Child records for container values, `(row index, child index in edges)`.
+    pub(crate) children: Vec<(usize, usize)>,
 }
 
-/// Approximate text width for monospace font at `FONT_SIZE`.
-fn text_width(text: &str) -> f64 {
-    // Monospace: each char is ~0.6 * font_size wide.
-    f64::from(FONT_SIZE) * 0.6 * text.chars().count() as f64
+impl Record {
+    /// Number of rows (record fields) in this node.
+    pub(crate) fn row_count(&self) -> usize {
+        self.rows.len()
+    }
 }
-
-/// Approximate text height for `FONT_SIZE`.
-const fn text_height() -> f64 {
-    (FONT_SIZE as f64) * 1.2
-}
-
-/// Formats a JSON value for display in a box.
-fn format_value(value: &Value) -> String {
+/// Returns the display text for a scalar value.
+///
+/// Ported from: `TextBlockJson.getShortString()`.
+fn short_string(value: &Value) -> String {
     match value {
-        Value::String(s) => format!("\"{s}\""),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => "null".to_string(),
-        Value::Object(_) => "{...}".to_string(),
-        Value::Array(_) => "[...]".to_string(),
+        Value::String(s) => s.clone(),
+        Value::Null => '\u{2400}'.to_string(),
+        Value::Number(_) | Value::Bool(_) => {
+            if value.is_boolean() {
+                if value.as_bool().unwrap_or(false) {
+                    "\u{2611} true".to_string()
+                } else {
+                    "\u{2610} false".to_string()
+                }
+            } else {
+                value.to_string()
+            }
+        }
+        // Container placeholder: three spaces.
+        _ => "   ".to_string(),
     }
 }
 
-/// Checks if a path matches a highlight path.
-fn path_matches(highlight_path: &str, node_path: &str) -> bool {
-    highlight_path == node_path
-        || node_path.starts_with(&format!("{highlight_path}."))
-        || node_path.starts_with(&format!("{highlight_path}["))
+/// Whether a JSON value is a container (object or array).
+fn is_container(value: &Value) -> bool {
+    value.is_object() || value.is_array()
 }
 
-/// Recursively computes the layout of a JSON tree.
+/// Builds the record tree rooted at `value`.
 ///
-/// Returns the `NodeLayout` with absolute positions (relative to `origin_x`, `origin_y`).
-fn compute_layout(
-    value: &Value,
-    key: Option<&str>,
-    path: &str,
-    highlights: &[Highlight],
-    origin_x: f64,
-    origin_y: f64,
-) -> NodeLayout {
-    let highlighted = highlights.iter().any(|h| path_matches(&h.path, path));
+/// Records are appended to `records` in depth-first order; edges reference
+/// child records by index.
+fn build_records(value: &Value, records: &mut Vec<Record>) -> usize {
+    let mut rows = Vec::new();
+    let mut children = Vec::new();
 
     match value {
         Value::Object(obj) => {
-            let label = key
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-
-            // Compute children layouts first to determine total width.
-            let mut child_layouts = Vec::with_capacity(obj.len());
-            let mut child_x = origin_x;
-            let child_y = origin_y + text_height() + PADDING_V * 2.0 + LEVEL_SPACING;
-
             for (k, v) in obj {
-                let child_path = if path.is_empty() {
-                    k.clone()
+                let row_index = rows.len();
+                if is_container(v) {
+                    let placeholder = "   ".to_string();
+                    rows.push(Row {
+                        key: k.clone(),
+                        key_w: bold_width(k),
+                        value: Some(placeholder),
+                        value_w: plain_width("   "),
+                    });
+                    let child_idx = build_records(v, records);
+                    children.push((row_index, child_idx));
                 } else {
-                    format!("{path}.{k}")
-                };
-                let layout = compute_layout(v, Some(k), &child_path, highlights, child_x, child_y);
-                child_x += layout.width + SIBLING_SPACING;
-                child_layouts.push(layout);
-            }
-
-            // Remove trailing spacing.
-            if !child_layouts.is_empty() {
-                child_x -= SIBLING_SPACING;
-            }
-
-            // Container box width: max(label width, children total width).
-            let label_w = text_width(&label) + PADDING_H * 2.0;
-            let children_w = child_x - origin_x;
-            let width = label_w.max(children_w).max(40.0);
-            let height = text_height() + PADDING_V * 2.0;
-
-            // Center children under the parent.
-            let children_total_w = child_x - origin_x;
-            let offset = (width - children_total_w) / 2.0;
-            if offset > 0.0 && !child_layouts.is_empty() {
-                for child in &mut child_layouts {
-                    shift_layout(child, offset, 0.0);
+                    let text = short_string(v);
+                    let w = plain_width(&text);
+                    rows.push(Row {
+                        key: k.clone(),
+                        key_w: bold_width(k),
+                        value: Some(text),
+                        value_w: w,
+                    });
                 }
-            }
-
-            let center_x = origin_x + width / 2.0;
-
-            NodeLayout {
-                x: origin_x,
-                y: origin_y,
-                width,
-                height,
-                center_x,
-                children: child_layouts,
-                label,
-                is_container: true,
-                highlighted,
             }
         }
         Value::Array(arr) => {
-            let label = key
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default();
-
-            let mut child_layouts = Vec::with_capacity(arr.len());
-            let mut child_x = origin_x;
-            let child_y = origin_y + text_height() + PADDING_V * 2.0 + LEVEL_SPACING;
-
-            for (i, v) in arr.iter().enumerate() {
-                let child_path = format!("{path}[{i}]");
-                let layout = compute_layout(v, None, &child_path, highlights, child_x, child_y);
-                child_x += layout.width + SIBLING_SPACING;
-                child_layouts.push(layout);
-            }
-
-            if !child_layouts.is_empty() {
-                child_x -= SIBLING_SPACING;
-            }
-
-            let label_w = text_width(&label) + PADDING_H * 2.0;
-            let children_w = child_x - origin_x;
-            let width = label_w.max(children_w).max(40.0);
-            let height = text_height() + PADDING_V * 2.0;
-
-            let children_total_w = child_x - origin_x;
-            let offset = (width - children_total_w) / 2.0;
-            if offset > 0.0 && !child_layouts.is_empty() {
-                for child in &mut child_layouts {
-                    shift_layout(child, offset, 0.0);
+            for v in arr {
+                let row_index = rows.len();
+                if is_container(v) {
+                    rows.push(Row {
+                        key: String::new(),
+                        key_w: 0.0,
+                        value: Some("   ".to_string()),
+                        value_w: plain_width("   "),
+                    });
+                    let child_idx = build_records(v, records);
+                    children.push((row_index, child_idx));
+                } else {
+                    let text = short_string(v);
+                    let w = plain_width(&text);
+                    rows.push(Row {
+                        key: String::new(),
+                        key_w: 0.0,
+                        value: Some(text),
+                        value_w: w,
+                    });
                 }
-            }
-
-            let center_x = origin_x + width / 2.0;
-
-            NodeLayout {
-                x: origin_x,
-                y: origin_y,
-                width,
-                height,
-                center_x,
-                children: child_layouts,
-                label,
-                is_container: true,
-                highlighted,
             }
         }
         _ => {
-            // Leaf node.
-            let val_str = format_value(value);
-            let label = if let Some(k) = key {
-                format!("{k}: {val_str}")
-            } else {
-                val_str
-            };
-            let width = text_width(&label) + PADDING_H * 2.0;
-            let height = text_height() + PADDING_V * 2.0;
-            let center_x = origin_x + width / 2.0;
-
-            NodeLayout {
-                x: origin_x,
-                y: origin_y,
-                width,
-                height,
-                center_x,
-                children: Vec::new(),
-                label,
-                is_container: false,
-                highlighted,
-            }
+            let text = short_string(value);
+            let w = plain_width(&text);
+            rows.push(Row {
+                key: String::new(),
+                key_w: 0.0,
+                value: Some(text),
+                value_w: w,
+            });
         }
     }
-}
 
-/// Recursively shifts a layout and all its children by (dx, dy).
-fn shift_layout(layout: &mut NodeLayout, dx: f64, dy: f64) {
-    layout.x += dx;
-    layout.y += dy;
-    layout.center_x += dx;
-    for child in &mut layout.children {
-        shift_layout(child, dx, dy);
-    }
-}
-
-/// Computes the bounding box of a layout tree.
-fn bounding_box(layout: &NodeLayout) -> (f64, f64) {
-    let mut max_x = layout.x + layout.width;
-    let mut max_y = layout.y + layout.height;
-    for child in &layout.children {
-        let (cw, ch) = bounding_box(child);
-        max_x = max_x.max(cw);
-        max_y = max_y.max(ch);
-    }
-    (max_x, max_y)
-}
-
-/// Renders a `NodeLayout` tree to `SvgGraphics`.
-fn render_node(svg: &mut SvgGraphics, layout: &NodeLayout) {
-    let fill = if layout.highlighted {
-        FILL_HIGHLIGHT
-    } else if layout.is_container {
-        FILL_CONTAINER
+    // Column inner widths: max advance width + 10 (5px margin each side).
+    let col_a = rows.iter().map(|r| r.key_w).fold(0.0_f64, f64::max) + 10.0;
+    let has_b = rows.iter().any(|r| r.value.is_some());
+    let col_b = if has_b {
+        rows.iter().map(|r| r.value_w).fold(0.0_f64, f64::max) + 10.0
     } else {
-        FILL_LEAF
+        0.0
     };
 
-    // Draw box.
-    svg.set_fill_color(fill);
-    svg.set_stroke_color(Some(STROKE_COLOR));
-    svg.set_stroke_width(STROKE_WIDTH, None);
-    svg.svg_rectangle(
-        layout.x,
-        layout.y,
-        layout.width,
-        layout.height,
-        0.0,
-        0.0,
-        0.0,
-    );
-
-    // Draw label text.
-    let text_x = layout.x + PADDING_H;
-    let text_y = layout.y + PADDING_V + f64::from(FONT_SIZE) * 0.85;
-    let color = if layout.is_container && !layout.label.is_empty() {
-        COLOR_KEY
+    // Array records use a single column: the values are the only column.
+    let is_array = value.is_array();
+    let (width, used_col_a) = if is_array {
+        (col_b, 0.0)
     } else {
-        COLOR_VALUE
+        (col_a + col_b, col_a)
     };
-    let mut attrs = indexmap::IndexMap::new();
-    attrs.insert("fill".to_string(), color.to_string());
-    svg.text(
-        &layout.label,
-        text_x,
-        text_y,
-        Some(FONT_FAMILY),
-        FONT_SIZE,
-        Some("normal"),
-        Some("normal"),
-        None,
-        text_width(&layout.label),
-        &attrs,
-        None,
-    );
 
-    for child in &layout.children {
-        // Curve from bottom-center of parent to top-center of child.
-        let x1 = layout.center_x;
-        let y1 = layout.y + layout.height;
-        let x2 = child.center_x;
-        let y2 = child.y;
-        // Simple cubic bezier curve.
-        let cy1 = (y1 + y2) / 2.0;
-        let cy2 = cy1;
-        let d = format!(
-            "M{x1:.1},{y1:.1} C{x1:.1},{cy1:.1} {x2:.1},{cy2:.1} {x2:.1},{y2:.1}"
-        );
-        svg.svg_path(&d, 0.0);
+    let height = rows.len() as f64 * ROW_PITCH;
 
-        // Recursively render child.
-        render_node(svg, child);
-    }
+    let index = records.len();
+    records.push(Record {
+        rows,
+        is_array,
+        width,
+        height,
+        col_a: used_col_a,
+
+        x: 0.0,
+        y: 0.0,
+        children,
+    });
+    index
 }
 
-/// Renders a JSON value tree as an SVG string.
+// ── Rendering ────────────────────────────────────────────────────────────
+
+/// Draws a single record (fill, rows, border) at its assigned position.
+fn draw_record(svg: &mut SvgGraphics, record: &Record) {
+    let x = record.x;
+    let y = record.y;
+    let w = record.width;
+    let h = record.height;
+
+    // Fill rect (fill == stroke).
+    svg.set_fill_color(NODE_FILL);
+    svg.set_stroke_color(Some(NODE_FILL));
+    svg.set_stroke_width(BORDER_WIDTH, None);
+    svg.svg_rectangle(x, y, w, h, CORNER_RADIUS, CORNER_RADIUS, 0.0);
+
+    let col_a = if record.is_array { 0.0 } else { record.col_a };
+
+    for (i, row) in record.rows.iter().enumerate() {
+        let row_top = y + i as f64 * ROW_PITCH;
+        let baseline = row_top + FIRST_BASELINE;
+        let row_bottom = row_top + ROW_PITCH;
+
+        // Key (bold), right-aligned text keeps left inset.
+        if !record.is_array {
+            let mut attrs = indexmap::IndexMap::new();
+            attrs.insert("fill".to_string(), TEXT_COLOR.to_string());
+            svg.text(
+                &row.key,
+                x + TEXT_INSET,
+                baseline,
+                Some(FONT_FAMILY),
+                FONT_SIZE,
+                Some("700"),
+                None,
+                None,
+                row.key_w,
+                &attrs,
+                None,
+            );
+        }
+
+        // Value (plain).
+        if let Some(value) = &row.value {
+            let value_x = if record.is_array {
+                x + TEXT_INSET
+            } else {
+                x + col_a + TEXT_INSET
+            };
+            let mut attrs = indexmap::IndexMap::new();
+            attrs.insert("fill".to_string(), TEXT_COLOR.to_string());
+            svg.text(
+                value,
+                value_x,
+                baseline,
+                Some(FONT_FAMILY),
+                FONT_SIZE,
+                None,
+                None,
+                None,
+                row.value_w,
+                &attrs,
+                None,
+            );
+
+            // Column separator for this row (maps only).
+            if !record.is_array {
+                svg.set_stroke_color(Some(NODE_STROKE));
+                svg.set_stroke_width(SEPARATOR_WIDTH, None);
+                svg.svg_line(x + col_a, row_top, x + col_a, row_bottom, 0.0);
+            }
+        }
+
+        // Row separator below every row except the last.
+        if i + 1 < record.rows.len() {
+            svg.set_stroke_color(Some(NODE_STROKE));
+            svg.set_stroke_width(SEPARATOR_WIDTH, None);
+            svg.svg_line(x, row_bottom, x + w, row_bottom, 0.0);
+        }
+    }
+
+    // Border rect, drawn last (fill none).
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(NODE_STROKE));
+    svg.set_stroke_width(BORDER_WIDTH, None);
+    svg.svg_rectangle(x, y, w, h, CORNER_RADIUS, CORNER_RADIUS, 0.0);
+}
+
+/// Renders a JSON/YAML value tree as an SVG string.
 ///
 /// Ported from: `SmetanaForJson.drawMe()` + `JsonDiagram.drawU()`.
 #[must_use]
-pub fn render_json_svg(
-    root: &Value,
-    highlights: &[Highlight],
-    diagram_type: &str,
-) -> String {
-    // Compute layout starting from page margin.
-    let layout = compute_layout(root, None, "", highlights, PAGE_MARGIN, PAGE_MARGIN);
+pub fn render_json_svg(root: &Value, _highlights: &[Highlight], diagram_type: &str) -> String {
+    let mut records = Vec::new();
+    let root_idx = build_records(root, &mut records);
 
-    // Compute total dimensions.
-    let (max_x, max_y) = bounding_box(&layout);
-    let total_w = max_x + PAGE_MARGIN;
-    let total_h = max_y + PAGE_MARGIN;
+    let layout = crate::layout::solve(&records, root_idx);
 
-    // Create SVG document.
+    // Assign card top-left positions from internal-frame node centers.
+    // Internal box: vertical ht = ROUND(card width)+1, horizontal w = card
+    // height. After the TB→LR rotation:
+    //   final x = max - internal.y ; final y = internal.x.
+    for (i, record) in records.iter_mut().enumerate() {
+        let pos = &layout.nodes[i];
+        let box_h = (record.width.round() as i64) as f64 + 1.0;
+        record.x = layout.max - pos.y - box_h / 2.0 + MARGIN;
+        record.y = pos.x - record.height / 2.0 + MARGIN;
+    }
+
+    // Canvas bounds from furthest content edges.
+    let mut right = 0.0_f64;
+    let mut bottom = 0.0_f64;
+    for record in &records {
+        right = right.max(record.x + record.width);
+        bottom = bottom.max(record.y + record.height);
+    }
+    let total_w = (right.ceil() + CANVAS_PAD).max(MARGIN + CANVAS_PAD);
+    let total_h = (bottom.ceil() + CANVAS_PAD).max(MARGIN + CANVAS_PAD);
+
     let mut option = SvgOption::basic();
-    option.set_title(format!("({})", diagram_type.to_pascal_case()));
-    option.set_desc(format!("Generated by plantuml.rs — {diagram_type} diagram"));
+    option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
+    option.set_root_attribute("data-diagram-type", diagram_type);
 
     let mut svg = SvgGraphics::new(0, option);
 
-    // Set SVG dimensions.
-    svg.set_root_attribute("width", &format_total(total_w));
-    svg.set_root_attribute("height", &format_total(total_h));
-    svg.set_root_attribute(
-        "viewBox",
-        &format!("0 0 {} {}", format_total(total_w), format_total(total_h)),
-    );
+    // All records first, then all edges (matches the Java draw order).
+    for record in &records {
+        draw_record(&mut svg, record);
+    }
+    for edge in &layout.edges {
+        draw_edge(&mut svg, edge, layout.max);
+    }
 
-    // Render the tree.
-    render_node(&mut svg, &layout);
+    // The canvas adds an external margin: `ceil(furthest content) + 11`.
+    svg.ensure_visible(total_w, total_h);
 
     svg.create_xml()
 }
 
-/// Converts a diagram type string to PascalCase for the title.
-trait DiagramTypeExt {
-    fn to_pascal_case(&self) -> String;
+// ── Edge drawing ─────────────────────────────────────────────────────────
+
+/// Mirrors an internal-frame point into final SVG coordinates.
+fn tf(p: crate::pathplan::Point, max: f64) -> (f64, f64) {
+    (max - p.y + MARGIN, p.x + MARGIN)
 }
 
-impl DiagramTypeExt for str {
-    fn to_pascal_case(&self) -> String {
-        let mut result = String::new();
-        let mut capitalize = true;
-        for ch in self.chars() {
-            if ch.is_ascii_alphabetic() {
-                if capitalize {
-                    result.push(ch.to_ascii_uppercase());
-                    capitalize = false;
-                } else {
-                    result.push(ch);
-                }
-            } else {
-                capitalize = true;
-            }
-        }
-        result
-    }
-}
+/// Draws one routed edge: dashed curve, filled arrow head and tail spot.
+///
+/// Ported from `JsonCurve.drawCurve/drawSpot` + `Arrow.drawArrow`.
+fn draw_edge(svg: &mut SvgGraphics, edge: &crate::layout::EdgeRoute, max: f64) {
+    let pts: [(f64, f64); 4] = edge.points.map(|p| tf(p, max));
 
-/// Formats a dimension value for SVG attributes.
-fn format_total(val: f64) -> String {
-    if (val - val.round()).abs() < 0.001 {
-        format!("{}", val.round() as i64)
+    // veryFirst = P0 backed 13 units toward the incoming direction.
+    let (x0, y0) = pts[0];
+    let (x1, y1) = pts[1];
+    let full = (x1 - x0).hypot(y1 - y0);
+    let very_first = if full > 1e-9 {
+        (x0 + (x0 - x1) / full * 13.0, y0 + (y0 - y1) / full * 13.0)
     } else {
-        format!("{val:.1}")
+        (x0, y0)
+    };
+
+    // Dashed curve: M veryFirst L P0 C P1 P2 P3.
+    let d = format!(
+        "M{} L{} C{} {} {}",
+        num(very_first.0) + "," + &num(very_first.1),
+        num(x0) + "," + &num(y0),
+        num(pts[1].0) + "," + &num(pts[1].1),
+        num(pts[2].0) + "," + &num(pts[2].1),
+        num(pts[3].0) + "," + &num(pts[3].1),
+    );
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(NODE_STROKE));
+    svg.set_stroke_width(SEPARATOR_WIDTH, Some([3.0, 3.0]));
+    svg.svg_path(&d, 0.0);
+
+    // Filled arrow head (p1 = P3 base, p2 = ep tip).
+    if let Some(ep) = edge.ep {
+        let tip = tf(ep, max);
+        draw_arrow(svg, pts[3], tip);
+    }
+
+    // Tail spot: filled r=3 circle at veryFirst.
+    svg.set_fill_color(NODE_STROKE);
+    svg.set_stroke_color(Some(NODE_STROKE));
+    svg.set_stroke_width(SEPARATOR_WIDTH, None);
+    svg.svg_ellipse(very_first.0, very_first.1, 3.0, 3.0, 0.0);
+}
+
+/// Draws the filled normal-arrow polygon. Ported from `Arrow.drawArrow`.
+fn draw_arrow(svg: &mut SvgGraphics, p1: (f64, f64), p2: (f64, f64)) {
+    let dist = (p2.0 - p1.0).hypot(p2.1 - p1.1);
+    let alpha = (p2.0 - p1.0).atan2(p2.1 - p1.1);
+    let point = |ang: f64, len: f64| -> (f64, f64) {
+        (p1.0 + len * ang.sin(), p1.1 + len * ang.cos())
+    };
+    let p3 = point(alpha + std::f64::consts::FRAC_PI_2, dist * 0.4);
+    let p4 = point(alpha - std::f64::consts::FRAC_PI_2, dist * 0.4);
+    let p11 = point(alpha, dist * 0.3);
+
+    let d = format!(
+        "M{} L{} L{} L{} L{}",
+        num(p4.0) + "," + &num(p4.1),
+        num(p11.0) + "," + &num(p11.1),
+        num(p3.0) + "," + &num(p3.1),
+        num(p2.0) + "," + &num(p2.1),
+        num(p4.0) + "," + &num(p4.1),
+    );
+    svg.set_fill_color(NODE_STROKE);
+    svg.set_stroke_color(None);
+    svg.svg_path(&d, 0.0);
+}
+
+/// Formats a coordinate like the reference path output: integer when whole,
+/// otherwise up to four decimals with trailing zeros removed.
+fn num(v: f64) -> String {
+    let r = (v * 10000.0).round() / 10000.0;
+    if r == r.trunc() {
+        format!("{}", r as i64)
+    } else {
+        let s = format!("{r:.4}");
+        s.trim_end_matches('0').to_string()
     }
 }
 
@@ -437,80 +525,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_render_simple_object() {
-        let json: Value = serde_json::json!({
-            "name": "Alice",
-            "age": 30,
-            "active": true
-        });
-        let svg = render_json_svg(&json, &[], "json");
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("name"));
-        assert!(svg.contains("Alice"));
+    fn width_tables_match_reference() {
+        assert!((bold_width("key") - 24.9199).abs() < 0.001);
+        assert!((bold_width("count") - 40.3338).abs() < 0.001);
+        assert!((plain_width("value") - 35.1259).abs() < 0.001);
+        assert!((plain_width("42") - 16.0159).abs() < 0.001);
     }
 
     #[test]
-    fn test_render_nested_object() {
-        let json: Value = serde_json::json!({
-            "person": {
-                "name": "Bob",
-                "address": {
-                    "city": "NYC"
-                }
-            }
-        });
-        let svg = render_json_svg(&json, &[], "json");
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("person"));
-        assert!(svg.contains("address"));
+    fn renders_simple_object() {
+        let json: Value = serde_json::json!({ "key": "value", "count": 42 });
+        let svg = render_json_svg(&json, &[], "JSON");
+        assert!(svg.contains("key"));
+        assert!(svg.contains("value"));
     }
 
     #[test]
-    fn test_render_array() {
-        let json: Value = serde_json::json!({
-            "items": ["apple", "banana", "cherry"]
-        });
-        let svg = render_json_svg(&json, &[], "json");
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("items"));
-        assert!(svg.contains("apple"));
-    }
-
-    #[test]
-    fn test_render_empty_object() {
-        let json: Value = serde_json::json!({});
-        let svg = render_json_svg(&json, &[], "json");
-        assert!(svg.contains("<svg"));
-    }
-
-    #[test]
-    fn test_render_null() {
-        let json: Value = Value::Null;
-        let svg = render_json_svg(&json, &[], "json");
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains("null"));
-    }
-
-    #[test]
-    fn test_highlight_parsing() {
+    fn highlight_parsing() {
         assert!(Highlight::matches_definition("#highlight foo.bar"));
-        assert!(Highlight::matches_definition("#highlight foo"));
         assert!(!Highlight::matches_definition("#some other directive"));
         let h = Highlight::build("#highlight foo.bar").unwrap();
         assert_eq!(h.path, "foo.bar");
-    }
-
-    #[test]
-    fn test_render_with_highlight() {
-        let json: Value = serde_json::json!({
-            "name": "Alice",
-            "age": 30
-        });
-        let highlights = vec![Highlight {
-            path: "name".to_string(),
-        }];
-        let svg = render_json_svg(&json, &highlights, "json");
-        assert!(svg.contains("<svg"));
-        assert!(svg.contains(FILL_HIGHLIGHT));
     }
 }

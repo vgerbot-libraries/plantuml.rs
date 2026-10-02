@@ -19,18 +19,26 @@ use indexmap::IndexMap;
 /// A parsed entity declaration.
 #[derive(Debug, Clone)]
 pub struct ParsedEntity {
-    /// Entity name (identifier).
+    /// Entity name / qualified key.
     pub name: String,
     /// Display label (may differ from name with `as` keyword).
     pub display: String,
-    /// Entity kind (class, interface, abstract, enum, annotation, object, etc.).
+    /// Entity kind (class, interface, state, component, start pseudo, etc.).
     pub kind: EntityKind,
     /// Optional stereotype (`<<stereotype>>`).
     pub stereotype: Option<String>,
-    /// Optional body lines (fields/methods between `{` and `}`).
+    /// Attribute/method body lines (class/object between `{` and `}`).
     pub body: Vec<String>,
     /// Source line number (1-based, matching Java's LineLocation).
     pub source_line: usize,
+    /// Key of the containing group or composite state, when nested.
+    pub parent: Option<String>,
+    /// True for a composite state (`state X { ... }`).
+    pub composite: bool,
+    /// Child entity keys of a composite state, in source order.
+    pub members: Vec<String>,
+    /// Indices into [`ParsedSource::links`] for inner composite transitions.
+    pub inner_links: Vec<usize>,
 }
 
 /// Kind of entity.
@@ -61,6 +69,10 @@ pub enum EntityKind {
     Actor,
     /// Database.
     Database,
+    /// Initial pseudo-state (`[*]` as link source), filled circle.
+    Start,
+    /// Final pseudo-state (`[*]` as link target), ring with inner circle.
+    End,
     /// Rectangle/box.
     Rectangle,
     /// Cloud.
@@ -314,24 +326,18 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         (rest, None)
     };
 
-    // Handle `as` alias: `Alice as "Display Name"` or `usecase (Login) as "Sign In"`
+    // Handle `as` alias: `Alice as "Display Name"` or `usecase (Login) as "Sign In"`.
+    // The declared entity is written with its shape delimiters (`(..)` for
+    // use cases, `[..]` for components); strip them to get the qualified name.
     let (name, display) = if let Some((n, d)) = name_part.split_once(" as ") {
-        let n = n.trim();
-        let d = d.trim().trim_matches('"');
-        // For usecase, strip parentheses from the name to get the qualified name,
-        // but keep the display as the content inside parens (or the alias).
-        let stripped = n.trim_start_matches('(').trim_end_matches(')');
-        (stripped.to_string(), d.to_string())
+        let stripped = unwrap_delimiters(n.trim());
+        (stripped.to_string(), d.trim().trim_matches('"').to_string())
     } else {
         let n = name_part.trim().trim_end_matches('{').trim();
-        // For usecase, the name includes parentheses: `(Login)`.
-        // Strip them for the qualified name, keep the inner text as display.
-        if n.starts_with('(') && n.ends_with(')') {
-            let inner = &n[1..n.len() - 1];
-            (inner.to_string(), inner.to_string())
-        } else {
-            (n.to_string(), n.to_string())
-        }
+        // Delimited entity: `(Login)` or `[Web Server]`. Strip the pair for
+        // the qualified name and use the inner text as the display label.
+        let stripped = unwrap_delimiters(n);
+        (stripped.to_string(), stripped.to_string())
     };
 
     if name.is_empty() {
@@ -345,7 +351,26 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         stereotype,
         body: Vec::new(),
         source_line: 0,
+        parent: None,
+        composite: false,
+        members: Vec::new(),
+        inner_links: Vec::new(),
     })
+}
+/// Strips one matched pair of surrounding delimiters (`( )` for use cases,
+/// `[ ]` for components), returning the inner text.
+///
+/// Returns the string unchanged when it is not wrapped in a matching pair.
+fn unwrap_delimiters(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 {
+        match (bytes[0], bytes[bytes.len() - 1]) {
+            (b'(', b')') | (b'[', b']') => &s[1..s.len() - 1],
+            _ => s,
+        }
+    } else {
+        s
+    }
 }
 
 /// Arrow pattern characters for detection.
@@ -423,17 +448,19 @@ fn parse_link_line(line: &str) -> Option<ParsedLink> {
         return None;
     }
 
-    // Strip parentheses from usecase references: `(Login)` → `Login`
-    let strip_parens = |s: &str| -> String {
+    // Strip shape delimiters from endpoint references:
+    // `(Login)` → `Login` (use case), `[Web Server]` → `Web Server` (component).
+    // The state pseudo-node `[*]` is a literal identifier and keeps its brackets.
+    let strip_endpoint = |s: &str| -> String {
         let s = s.trim();
-        if s.starts_with('(') && s.ends_with(')') {
-            s[1..s.len() - 1].to_string()
-        } else {
+        if s == "[*]" {
             s.to_string()
+        } else {
+            unwrap_delimiters(s).to_string()
         }
     };
-    let from = strip_parens(&from);
-    let to = strip_parens(&to);
+    let from = strip_endpoint(&from);
+    let to = strip_endpoint(&to);
 
     // Determine direction from arrow.
     let direction = if arrow.contains('>') && arrow.contains('<') {

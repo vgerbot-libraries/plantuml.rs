@@ -113,7 +113,7 @@ impl Idea {
 /// Returns `None` if no root is found.
 #[must_use]
 pub fn parse_mindmap_orgmode(lines: &[&str]) -> Option<Idea> {
-    parse_tree(lines, false)
+    parse_tree(lines)
 }
 
 /// Parses `+`/`-` prefix lines into an `Idea` tree.
@@ -123,7 +123,7 @@ pub fn parse_mindmap_orgmode(lines: &[&str]) -> Option<Idea> {
 /// Returns `None` if no root is found.
 #[must_use]
 pub fn parse_mindmap_plus(lines: &[&str]) -> Option<Idea> {
-    parse_tree(lines, true)
+    parse_tree(lines)
 }
 
 /// Shared tree parsing logic for both org-mode and plus/minus syntax.
@@ -132,7 +132,7 @@ pub fn parse_mindmap_plus(lines: &[&str]) -> Option<Idea> {
 /// collected at level L. When a node at level L appears, all levels > L
 /// are popped and their completed subtrees attached to the last node at
 /// level L-1.
-fn parse_tree(lines: &[&str], plus_syntax: bool) -> Option<Idea> {
+fn parse_tree(lines: &[&str]) -> Option<Idea> {
     // stack[L] = list of Ideas at level L that are children of the node at level L-1.
     let mut stack: Vec<Vec<Idea>> = Vec::new();
 
@@ -142,33 +142,29 @@ fn parse_tree(lines: &[&str], plus_syntax: bool) -> Option<Idea> {
             continue;
         }
 
-        // Parse the prefix markers.
-        let (level, rest, is_left) = if plus_syntax {
-            let end = trimmed
-                .chars()
-                .take_while(|&c| c == '+' || c == '-')
-                .count();
-            if end == 0 {
-                continue;
+        // Prefix markers are decided per line so a `*` root can mix with
+        // `++`/`--` children.
+        let (level, rest, is_left) = match trimmed.chars().next() {
+            Some('+') | Some('-') => {
+                let end = trimmed
+                    .chars()
+                    .take_while(|&c| c == '+' || c == '-')
+                    .count();
+                (end - 1, &trimmed[end..], trimmed.starts_with('-'))
             }
-            let left = trimmed.starts_with('-');
-            (end.saturating_sub(1), &trimmed[end..], left)
-        } else {
-            let no_space = trimmed.trim_start();
-            let start = trimmed.len() - no_space.len();
-            let end = no_space
-                .chars()
-                .take_while(|&c| c == '*' || c == '#')
-                .count();
-            if end == 0 {
-                continue;
+            Some('*') | Some('#') => {
+                let end = trimmed
+                    .chars()
+                    .take_while(|&c| c == '*' || c == '#')
+                    .count();
+                (end - 1, &trimmed[end..], false)
             }
-            (end.saturating_sub(1), &trimmed[start + end..], false)
+            _ => continue,
         };
 
         let (shape, back_color, label) = parse_label_suffix(rest.trim());
 
-        let direction = if plus_syntax && is_left {
+        let direction = if is_left {
             MindMapDirection::Left
         } else {
             MindMapDirection::Right

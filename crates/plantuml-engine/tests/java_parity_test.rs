@@ -9,13 +9,10 @@
 //! directly ported from `temp/plantuml/src/test/`. They verify that the Rust
 //! renderer matches Java PlantUML for the same diagrams shown on the site.
 //!
-//! All tests are currently `#[ignore]` because the Rust renderer was crafted
-//! to match an older Java PlantUML version whose SVG structure differs from
-//! the current Java 1.2026.6 (e.g. `participant-lifeline` data-attribute
-//! wrappers, `#000000` vs `#000` color format, different coordinates).
-//! The `parity_test!` macro is retained for future use when the Rust renderer
-//! is updated to match the current Java output. Ignored tests can be run with
-//! `cargo test --test java_parity_test -- --ignored`.
+//! Every case forces the pure-Rust layout solver (`PLANTUML_NO_DOT=1`),
+//! the exact path the site's WASM build uses, so native Graphviz cannot
+//! mask layout differences. The Java reference jar is mandatory: a case
+//! fails if the jar is absent rather than silently skipping.
 
 mod java_plantuml;
 mod svg_cleaner;
@@ -30,26 +27,20 @@ macro_rules! parity_test {
     };
 }
 
-/// Generates a parity test marked `#[ignore]` because Rust output does not
-/// yet match the Java reference.
-macro_rules! parity_test_ignored {
-    ($name:ident, $source:expr) => {
-        #[test]
-        #[ignore = "Rust output does not match Java reference"]
-        fn $name() {
-            run_parity_test(stringify!($name), $source);
-        }
-    };
-}
-
-/// Shared body for both macro variants.
+/// Shared body for every parity case.
 fn run_parity_test(name: &str, source: &str) {
+    // Exercise the pure-Rust layout solver — the exact path the site's WASM
+    // build uses — not the external Graphviz binary native runs would prefer.
+    unsafe {
+        std::env::set_var("PLANTUML_NO_DOT", "1");
+    }
+
     let java_svg = match java_plantuml::render_svg(source) {
         Some(svg) => svg,
-        None => {
-            eprintln!("Java PlantUML not available, skipping {name}");
-            return;
-        }
+        None => panic!(
+            "Java PlantUML reference unavailable for {name}; set PLANTUML_JAR or \
+             place the jar at tests/vendor/plantuml.jar (parity tests must not silently skip)"
+        ),
     };
     let rust_svg = plantuml_engine::render_svg(source)
         .unwrap_or_else(|e| panic!("Rust render should succeed for {name}: {e:?}"));
@@ -97,43 +88,43 @@ Alice -> Bob: Request
 Bob --> Alice: Response
 @enduml"#);
 
-parity_test_ignored!(sequence_actor_user, r#"@startuml
+parity_test!(sequence_actor_user, r#"@startuml
 actor User
 User -> System: login
 System --> User: welcome
 @enduml"#);
 
-parity_test_ignored!(sequence_self_messages, r#"@startuml
+parity_test!(sequence_self_messages, r#"@startuml
 Alice -> Alice: self message
 @enduml"#);
 
-parity_test_ignored!(sequence_notes_right, r#"@startuml
+parity_test!(sequence_notes_right, r#"@startuml
 Alice -> Bob: hello
 note right of Alice: says hello
 Bob --> Alice: hi
 note right of Bob: replies
 @enduml"#);
 
-parity_test_ignored!(sequence_note_over, r#"@startuml
+parity_test!(sequence_note_over, r#"@startuml
 Alice -> Bob: hello
 note over Alice, Bob: both
 @enduml"#);
 
-parity_test_ignored!(sequence_activate_deactivate, r#"@startuml
+parity_test!(sequence_activate_deactivate, r#"@startuml
 Alice -> Bob: request
 activate Bob
 Bob --> Alice: response
 deactivate Bob
 @enduml"#);
 
-parity_test_ignored!(sequence_group_auth, r#"@startuml
+parity_test!(sequence_group_auth, r#"@startuml
 group Authentication
 Alice -> Bob: credentials
 Bob --> Alice: token
 end
 @enduml"#);
 
-parity_test_ignored!(sequence_alt_else, r#"@startuml
+parity_test!(sequence_alt_else, r#"@startuml
 alt success
 Alice -> Bob: ok
 else failure
@@ -141,36 +132,36 @@ Alice -> Bob: fail
 end
 @enduml"#);
 
-parity_test_ignored!(sequence_loop_until, r#"@startuml
+parity_test!(sequence_loop_until, r#"@startuml
 loop until done
 Alice -> Bob: check
 Bob --> Alice: not yet
 end
 @enduml"#);
 
-parity_test_ignored!(sequence_dividers, r#"@startuml
+parity_test!(sequence_dividers, r#"@startuml
 Alice -> Bob: step 1
 == Phase 2 ==
 Bob -> Alice: step 2
 @enduml"#);
 
-parity_test_ignored!(sequence_autonumber, r#"@startuml
+parity_test!(sequence_autonumber, r#"@startuml
 autonumber
 Alice -> Bob: first
 Bob --> Alice: second
 @enduml"#);
 
-parity_test_ignored!(sequence_title, r#"@startuml
+parity_test!(sequence_title, r#"@startuml
 title My Sequence
 Alice -> Bob: hello
 @enduml"#);
 
-parity_test_ignored!(sequence_skinparam_bg, r#"@startuml
+parity_test!(sequence_skinparam_bg, r#"@startuml
 skinparam backgroundColor #EEF
 Alice -> Bob: styled message
 @enduml"#);
 
-parity_test_ignored!(sequence_colored_messages, r#"@startuml
+parity_test!(sequence_colored_messages, r#"@startuml
 Alice -[#red]-> Bob: red message
 @enduml"#);
 
@@ -262,9 +253,9 @@ Customer --> (Manage Orders)
 Admin --> (View Reports)
 @enduml"#);
 
-// ── Component diagram (expected to fail — simplified layout) ───────────
+// ── Component diagram ─────────────────────────────────────────────────
 
-parity_test_ignored!(component_declaring_components, r#"@startuml
+parity_test!(component_declaring_components, r#"@startuml
 component [Web Server]
 component [App Server]
 database DB
@@ -272,13 +263,13 @@ database DB
 [App Server] --> DB
 @enduml"#);
 
-parity_test_ignored!(component_interfaces, r#"@startuml
+parity_test!(component_interfaces, r#"@startuml
 interface "User API" as API
 [Client] ..> API : uses
 [Service] -- API : provides
 @enduml"#);
 
-parity_test_ignored!(component_packages, r#"@startuml
+parity_test!(component_packages, r#"@startuml
 package "Frontend" {
   component [UI]
 }
@@ -292,7 +283,7 @@ package "Backend" {
 
 // ── State diagram (expected to fail — simplified layout) ───────────────
 
-parity_test_ignored!(state_declaring_states, r#"@startuml
+parity_test!(state_declaring_states, r#"@startuml
 state Idle
 state Active
 [*] -> Idle
@@ -300,7 +291,7 @@ Idle --> Active : start
 Active --> [*] : stop
 @enduml"#);
 
-parity_test_ignored!(state_transitions_labels, r#"@startuml
+parity_test!(state_transitions_labels, r#"@startuml
 state Off
 state On
 state Dim
@@ -311,7 +302,7 @@ Dim --> On : brighter
 On --> Off : switch
 @enduml"#);
 
-parity_test_ignored!(state_composite_states, r#"@startuml
+parity_test!(state_composite_states, r#"@startuml
 state Active {
   state Running
   state Paused
@@ -326,22 +317,22 @@ Active --> [*] : done
 
 parity_test!(object_declaring_objects, r#"@startuml
 object alice
-object bob : User
+object bob <<User>>
 object carol
 @enduml"#);
 
-parity_test_ignored!(object_links, r#"@startuml
+parity_test!(object_links, r#"@startuml
 object alice
 object bob
 alice --> bob : knows
 @enduml"#);
 
 parity_test!(object_attributes, r#"@startuml
-object alice : User {
+object alice <<User>> {
   name = "Alice"
   age = 30
 }
-object bob : User {
+object bob <<User>> {
   name = "Bob"
   age = 25
 }
@@ -350,7 +341,7 @@ alice --> bob : friend
 
 // ── Deployment diagram (expected to fail — simplified layout) ──────────
 
-parity_test_ignored!(deployment_declaring_nodes, r#"@startuml
+parity_test!(deployment_declaring_nodes, r#"@startuml
 node Server
 node Client
 database DB
@@ -358,7 +349,7 @@ Server --> DB
 Client --> Server
 @enduml"#);
 
-parity_test_ignored!(deployment_nested_nodes, r#"@startuml
+parity_test!(deployment_nested_nodes, r#"@startuml
 node "Application Server" {
   component [Web App]
   database "Cache"
@@ -370,7 +361,7 @@ node "Database Server" {
 [Web App] --> "Primary DB"
 @enduml"#);
 
-parity_test_ignored!(deployment_labeled_links, r#"@startuml
+parity_test!(deployment_labeled_links, r#"@startuml
 node Client
 node LoadBalancer
 node Server1
@@ -382,7 +373,7 @@ LoadBalancer --> Server2 : HTTP
 
 // ── Timing diagram (expected to fail — simplified layout) ──────────────
 
-parity_test!(timing_binary_signals, r#"@starttiming
+parity_test!(timing_binary_signals, r#"@startuml
 binary "Signal A" as A
 @0
 A is low
@@ -390,13 +381,13 @@ A is low
 A is high
 @10
 A is low
-@endtiming"#);
+@enduml"#);
 
-parity_test!(timing_clock_signal, r#"@starttiming
+parity_test!(timing_clock_signal, r#"@startuml
 clock "clk" as C with period 10
-@endtiming"#);
+@enduml"#);
 
-parity_test!(timing_multiple_signals, r#"@starttiming
+parity_test!(timing_multiple_signals, r#"@startuml
 clock "clk" as C with period 10
 binary "Data" as D
 @0
@@ -405,11 +396,11 @@ D is low
 D is high
 @15
 D is low
-@endtiming"#);
+@enduml"#);
 
 // ── Gantt (expected to fail — simplified layout) ───────────────────────
 
-parity_test_ignored!(gantt_tasks, r#"@startgantt
+parity_test!(gantt_tasks, r#"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
 [Task B] lasts 3 days
@@ -419,18 +410,18 @@ parity_test!(gantt_dependencies, r#"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
 [Task B] lasts 3 days
-[Task B] depends on [Task A]
+[Task B] starts at [Task A]'s end
 @endgantt"#);
 
 parity_test!(gantt_milestones, r#"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
-milestone [M1] happens at 10 days
+[M1] happens 2020-01-11
 @endgantt"#);
 
 // ── Mindmap (expected to fail — simplified layout) ──────────────────────
 
-parity_test_ignored!(mindmap_basic_tree, r#"@startmindmap
+parity_test!(mindmap_basic_tree, r#"@startmindmap
 * Root idea
 ** First branch
 *** Sub idea
@@ -439,14 +430,14 @@ parity_test_ignored!(mindmap_basic_tree, r#"@startmindmap
 *** Detail
 @endmindmap"#);
 
-parity_test_ignored!(mindmap_plus_syntax, r#"@startmindmap
+parity_test!(mindmap_plus_syntax, r#"@startmindmap
 + Root
 ++ Child A
 ++ Child B
 +++ Grandchild
 @endmindmap"#);
 
-parity_test_ignored!(mindmap_left_right_branches, r#"@startmindmap
+parity_test!(mindmap_left_right_branches, r#"@startmindmap
 * Central topic
 -- Left idea
 --- Deeper left
@@ -456,7 +447,7 @@ parity_test_ignored!(mindmap_left_right_branches, r#"@startmindmap
 
 // ── WBS (expected to fail — simplified layout) ─────────────────────────
 
-parity_test_ignored!(wbs_basic_tree, r#"@startwbs
+parity_test!(wbs_basic_tree, r#"@startwbs
 * Project
 ** Phase 1
 *** Task A
@@ -465,7 +456,7 @@ parity_test_ignored!(wbs_basic_tree, r#"@startwbs
 *** Task C
 @endwbs"#);
 
-parity_test_ignored!(wbs_deeper_nesting, r#"@startwbs
+parity_test!(wbs_deeper_nesting, r#"@startwbs
 * Product Launch
 ** Planning
 *** Market research
@@ -477,7 +468,7 @@ parity_test_ignored!(wbs_deeper_nesting, r#"@startwbs
 *** Marketing
 @endwbs"#);
 
-parity_test_ignored!(wbs_styled_nodes, r#"@startwbs
+parity_test!(wbs_styled_nodes, r#"@startwbs
 * Project
 ** Phase 1 [#LightBlue]
 *** Task A
@@ -488,14 +479,14 @@ parity_test_ignored!(wbs_styled_nodes, r#"@startwbs
 
 // ── JSON (expected to fail — simplified layout) ────────────────────────
 
-parity_test_ignored!(json_simple_object, r#"@startjson
+parity_test!(json_simple_object, r#"@startjson
 {
   "key": "value",
   "count": 42
 }
 @endjson"#);
 
-parity_test_ignored!(json_nested_object, r#"@startjson
+parity_test!(json_nested_object, r#"@startjson
 {
   "name": "Alice",
   "address": {
@@ -505,7 +496,7 @@ parity_test_ignored!(json_nested_object, r#"@startjson
 }
 @endjson"#);
 
-parity_test_ignored!(json_array_values, r#"@startjson
+parity_test!(json_array_values, r#"@startjson
 {
   "users": [
     {"name": "Alice", "role": "admin"},
@@ -517,19 +508,19 @@ parity_test_ignored!(json_array_values, r#"@startjson
 
 // ── YAML (expected to fail — simplified layout) ────────────────────────
 
-parity_test_ignored!(yaml_simple_keyvalue, r#"@startyaml
+parity_test!(yaml_simple_keyvalue, r#"@startyaml
 key: value
 count: 42
 @endyaml"#);
 
-parity_test_ignored!(yaml_nested_mapping, r#"@startyaml
+parity_test!(yaml_nested_mapping, r#"@startyaml
 name: Alice
 address:
   city: NYC
   zip: "10001"
 @endyaml"#);
 
-parity_test_ignored!(yaml_lists, r#"@startyaml
+parity_test!(yaml_lists, r#"@startyaml
 users:
   - name: Alice
     role: admin

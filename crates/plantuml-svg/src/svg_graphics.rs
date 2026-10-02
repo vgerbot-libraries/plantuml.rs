@@ -98,8 +98,9 @@ impl SvgGraphics {
 
         // Java constructor calls ensureVisible(minDim.getWidth(), minDim.getHeight())
         let (min_w, min_h) = option.min_dim();
-        let max_x = if min_w > 10.0 { (min_w as i32) + 1 } else { 10 };
-        let max_y = if min_h > 10.0 { (min_h as i32) + 1 } else { 10 };
+        // Java constructor calls ensureVisible(minDim): maxX = ceil(min_w).
+        let max_x = if min_w > 10.0 { min_w.ceil() as i32 } else { 10 };
+        let max_y = if min_h > 10.0 { min_h.ceil() as i32 } else { 10 };
 
         Self {
             document,
@@ -1125,11 +1126,9 @@ fn style_me(
     let mut style = String::new();
     style.push_str(&format!("stroke:{};", shorten_color(stroke)));
 
-    if stroke != "none" {
-        style.push_str(&format!("stroke-width:{stroke_width};"));
-        if let Some(dash) = stroke_dasharray {
-            style.push_str(&format!("stroke-dasharray:{dash};"));
-        }
+    style.push_str(&format!("stroke-width:{stroke_width};"));
+    if let Some(dash) = stroke_dasharray {
+        style.push_str(&format!("stroke-dasharray:{dash};"));
     }
 
     if let Some(supp) = supp_style {

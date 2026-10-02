@@ -4,6 +4,7 @@
 //!
 //! Gantt diagrams render project tasks as horizontal bars on a timeline.
 
+pub mod font_metrics;
 pub mod gantt_diagram;
 pub mod gantt_parser;
 pub mod gantt_renderer;

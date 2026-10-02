@@ -65,12 +65,12 @@ impl JsonDiagram {
         }
     }
 
-    /// Returns the diagram type label for SVG title.
+    /// Returns the diagram type label for `data-diagram-type`.
     fn type_label(&self) -> &'static str {
         match self.diagram_type {
-            DiagramType::Yaml => "yaml",
-            DiagramType::Hcl => "hcl",
-            _ => "json",
+            DiagramType::Yaml => "YAML",
+            DiagramType::Hcl => "HCL",
+            _ => "JSON",
         }
     }
 }

@@ -33,6 +33,10 @@ const CLASS_KEYWORDS: &[&str] = &[
     "abstractclass ",
     "enum ",
     "annotation ",
+    // PlantUML renders object diagrams with the class diagram engine
+    // (ClassDiagramFactory registers CommandCreateEntityObject); the final
+    // SVG carries data-diagram-type="CLASS".
+    "object ",
 ];
 
 /// Keywords that indicate an object diagram source.

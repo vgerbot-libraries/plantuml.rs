@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  PLANTUML_REF_VERSION: 1.2026.6
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Fetch Java PlantUML reference jar
+        run: |
+          mkdir -p "$HOME/plantuml-ref"
+          curl -fL --retry 3 \
+            "https://repo1.maven.org/maven2/net/sourceforge/plantuml/plantuml/${PLANTUML_REF_VERSION}/plantuml-${PLANTUML_REF_VERSION}.jar" \
+            -o "$HOME/plantuml-ref/plantuml.jar"
+          echo "PLANTUML_JAR=$HOME/plantuml-ref/plantuml.jar" >> "$GITHUB_ENV"
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace --no-fail-fast

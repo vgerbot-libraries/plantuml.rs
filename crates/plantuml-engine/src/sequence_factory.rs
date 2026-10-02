@@ -52,27 +52,50 @@ impl PSystemFactory for SequenceDiagramFactory {
             ));
         }
 
-        // Reject sources that contain description diagram keywords
-        // (usecase, actor, component, node, etc.) — the description
-        // factory should handle those instead. In Java, the command-based
-        // SequenceDiagramFactory simply fails to parse these lines, but our
-        // permissive `parse_simple_sequence` accepts `A -> B` arrows even
-        // when the source is a use case / component / deployment diagram.
-        let has_desc_keyword = source_text.lines().any(|line| {
-            let lower = line.to_lowercase();
-            let t = lower.trim();
+        // Description-diagram keyword veto, context-sensitive.
+        //
+        // Some keywords are valid in BOTH diagrams: `actor`, `boundary`,
+        // `control`, `entity`, `collections`, `database`, `queue` are sequence
+        // participant declarations (Java CommandParticipant*) yet also
+        // description elements. In Java the command-based factory decides by
+        // attempting the parse: `actor User` plus sequence arrows parses as a
+        // sequence diagram; only description-ONLY declarations (usecase,
+        // component, node, ...) make the sequence factory fail. Mirror that:
+        // veto shared keywords only when no sequence-event syntax is present.
+        let has_sequence_event = source_text.lines().any(|line| {
+            let t = line.trim();
+            if crate::sequence_renderer::parse_arrow_line_public(t) {
+                return true;
+            }
+            if t.starts_with("note ")
+                || (t.starts_with("== ") && t.ends_with(" =="))
+                || t.starts_with("autonumber")
+                || t.starts_with("activate ")
+                || t.starts_with("deactivate ")
+                || t.starts_with("destroy ")
+                || t.starts_with("participant ")
+            {
+                return true;
+            }
+            let kw_end = t.find(char::is_whitespace).unwrap_or(t.len());
+            matches!(
+                &t[..kw_end],
+                "group" | "alt" | "opt" | "loop" | "par" | "break" | "critical" | "partition" | "ref"
+            )
+        });
+
+        let has_description_only_keyword = source_text.lines().any(|line| {
+            let t = line.to_lowercase();
+            let t = t.trim();
             t.starts_with("usecase ")
                 || t.starts_with("use case ")
-                || t.starts_with("actor ")
                 || t.starts_with("component ")
                 || t.starts_with("node ")
-                || t.starts_with("database ")
                 || t.starts_with("cloud ")
                 || t.starts_with("rectangle ")
                 || t.starts_with("frame ")
                 || t.starts_with("folder ")
                 || t.starts_with("artifact ")
-                || t.starts_with("queue ")
                 || t.starts_with("stack ")
                 || t.starts_with("storage ")
                 || t.starts_with("card ")
@@ -80,12 +103,22 @@ impl PSystemFactory for SequenceDiagramFactory {
                 || t.starts_with("interface ")
                 || t.starts_with("port ")
                 || t.starts_with("hexagon ")
-                || t.starts_with("collections ")
-                || t.starts_with("boundary ")
-                || t.starts_with("control ")
-                || t.starts_with("entity ")
         });
-        if has_desc_keyword {
+
+        let has_shared_keyword_without_events = !has_sequence_event
+            && source_text.lines().any(|line| {
+                let t = line.to_lowercase();
+                let t = t.trim();
+                t.starts_with("actor ")
+                    || t.starts_with("database ")
+                    || t.starts_with("queue ")
+                    || t.starts_with("boundary ")
+                    || t.starts_with("control ")
+                    || t.starts_with("collections ")
+                    || t.starts_with("entity ")
+            });
+
+        if has_description_only_keyword || has_shared_keyword_without_events {
             return Err(PSystemError::syntax(
                 "Source contains description diagram keywords",
                 DiagramType::Sequence,

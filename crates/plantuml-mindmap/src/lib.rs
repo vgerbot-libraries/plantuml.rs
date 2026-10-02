@@ -9,10 +9,12 @@
 //! WBS uses top-down layout with orthogonal connectors.
 
 pub mod idea;
+pub mod layout;
 pub mod mindmap_diagram;
 pub mod mindmap_renderer;
 pub mod wbs_diagram;
 pub mod wbs_element;
+pub mod text_metrics;
 pub mod wbs_renderer;
 
 pub use mindmap_diagram::MindMapDiagram;

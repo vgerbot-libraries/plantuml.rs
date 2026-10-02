@@ -267,6 +267,12 @@ fn generate_dot_string(
 
 /// Runs the `dot -Tsvg` binary with the given dot string, returns SVG output.
 fn run_dot(dot_string: &str) -> Option<String> {
+    // Allow callers (and parity tests) to force the pure-Rust layout solver,
+    // which is the path WASM actually uses. Without this gate, native test
+    // runs silently take Graphviz while the site takes `native_layout`.
+    if std::env::var_os("PLANTUML_NO_DOT").is_some() {
+        return None;
+    }
     let mut child = Command::new("dot")
         .arg("-Tsvg")
         .stdin(Stdio::piped())
@@ -502,6 +508,10 @@ pub fn compute_layout(
                     stereotype: None,
                     body: Vec::new(),
                     source_line: 0,
+                    parent: None,
+                    composite: false,
+                    members: Vec::new(),
+                    inner_links: Vec::new(),
                 },
             );
         }
@@ -515,6 +525,10 @@ pub fn compute_layout(
                     stereotype: None,
                     body: Vec::new(),
                     source_line: 0,
+                    parent: None,
+                    composite: false,
+                    members: Vec::new(),
+                    inner_links: Vec::new(),
                 },
             );
         }
@@ -548,6 +562,16 @@ pub fn compute_layout(
             EntityKind::Usecase => {
                 let (rx, ry) = usecase_ellipse(text_w);
                 (2.0 * rx, 2.0 * ry, rx, ry)
+            }
+            EntityKind::Component => {
+                // USymbolComponent2 (UML 2 notation), Margin(15, 25, 20, 10):
+                // box wraps the label plus 40 horizontal / 30 vertical.
+                (text_w + 40.0, TEXT_HEIGHT + 30.0, 0.0, 0.0)
+            }
+            EntityKind::Database => {
+                // USymbolDatabase, Margin(10, 10, 24, 5):
+                // cylinder wraps the label plus 20 horizontal / 29 vertical.
+                (text_w + 20.0, TEXT_HEIGHT + 29.0, 0.0, 0.0)
             }
             _ => {
                 // Class/interface/abstract: width = max(name_text + 32, body_text + 26)
@@ -660,6 +684,46 @@ pub fn compute_layout(
     )
 }
 
+/// LimitFinder border added to a node's placed bounding-box minimum, by shape.
+///
+/// A component's outer symbol is a `URectangle`, whose `drawRectangle`
+/// records `(x-1, y-1)`, so its effective min is one pixel beyond the placed
+/// box. The actor head ellipse starts at thickness()=0.5 on the y axis.
+/// Other symbols (class `UPath`, use case ellipse, database `UPath`) start
+/// exactly at the placed origin.
+fn min_border_x(kind: EntityKind) -> f64 {
+    match kind {
+        EntityKind::Component => -1.0,
+        _ => 0.0,
+    }
+}
+fn min_border_y(kind: EntityKind) -> f64 {
+    match kind {
+        EntityKind::Component => -1.0,
+        EntityKind::Actor => 0.5,
+        _ => 0.0,
+    }
+}
+
+/// LimitFinder extension beyond a node's placed bounding-box maximum, by shape.
+///
+/// `USymbolDatabase.drawDatabase` finishes by drawing an `UEmpty(10,10)`
+/// translated to `(width,height)`; its `drawEmpty` records the far corner
+/// `origin+(width+10,height+10)`, adding 10 to both maxima. Component
+/// rectangles and other symbols end exactly at their placed box.
+fn max_extent_x(kind: EntityKind) -> f64 {
+    match kind {
+        EntityKind::Database => 10.0,
+        _ => 0.0,
+    }
+}
+fn max_extent_y(kind: EntityKind) -> f64 {
+    match kind {
+        EntityKind::Database => 10.0,
+        _ => 0.0,
+    }
+}
+
 #[allow(clippy::similar_names)]
 fn build_layout_from_dot(
     sorted_entities: &[(&String, &ParsedEntity)],
@@ -677,26 +741,22 @@ fn build_layout_from_dot(
     };
 
 
-    // Compute moveDelta: (6 - min_min_x, 6 - min_min_y) over all nodes
-    let min_min_x = dot_result
-        .nodes
-        .values()
-        .map(|n| n.min_x)
+    // Compute moveDelta: `margin - min` over all nodes, including each
+    // shape's LimitFinder border.
+    let min_min_x = sorted_entities
+        .iter()
+        .filter_map(|(name, entity)| {
+            let color = node_colors.get(*name).copied()?;
+            let pos = dot_result.nodes.get(&color)?;
+            Some(pos.min_x + min_border_x(entity.kind))
+        })
         .fold(f64::INFINITY, f64::min);
-    // For actor (rect) nodes, the LimitFinder's drawEllipse adds the head
-    // at y=thickness()=0.5 within the SvekNode, so the effective minY is
-    // node.min_y + 0.5. For usecase (ellipse) nodes, minY is as-is.
     let min_min_y = sorted_entities
         .iter()
         .filter_map(|(name, entity)| {
             let color = node_colors.get(*name).copied()?;
             let pos = dot_result.nodes.get(&color)?;
-            let y = if entity.kind == EntityKind::Actor {
-                pos.min_y + 0.5
-            } else {
-                pos.min_y
-            };
-            Some(y)
+            Some(pos.min_y + min_border_y(entity.kind))
         })
         .fold(f64::INFINITY, f64::min);
 
@@ -732,6 +792,22 @@ fn build_layout_from_dot(
                     let cy = corner_y + ed.ry;
                     let text_x = corner_x + (2.0 * ed.rx - ed.text_w) / 2.0;
                     let text_y = cy + 6.0339;
+                    (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
+                EntityKind::Component => {
+                    // USymbolComponent2 Margin(15, 25, 20, 10): label at (15, 34.9659).
+                    let cx = corner_x + ed.svek_w / 2.0;
+                    let cy = corner_y + ed.svek_h / 2.0;
+                    let text_x = corner_x + 15.0;
+                    let text_y = corner_y + 34.9659;
+                    (corner_x, corner_y, cx, cy, text_x, text_y)
+                }
+                EntityKind::Database => {
+                    // USymbolDatabase Margin(10, 10, 24, 5): label at (10, 38.9659).
+                    let cx = corner_x + ed.svek_w / 2.0;
+                    let cy = corner_y + ed.svek_h / 2.0;
+                    let text_x = corner_x + 10.0;
+                    let text_y = corner_y + 38.9659;
                     (corner_x, corner_y, cx, cy, text_x, text_y)
                 }
                 _ => {
@@ -924,10 +1000,29 @@ fn build_layout_from_dot(
     // adjustments; for class diagrams margin=7 → 15/13, for others margin=6 →
     // 14/12).
     let total_margin = if nodes.len() > 1 { margin + 8.0 } else { margin + 6.0 };
-    let max_right = nodes.iter().map(|n| n.x + n.width).fold(0.0_f64, f64::max);
-    let max_bottom = nodes.iter().map(|n| n.y + n.height).fold(0.0_f64, f64::max);
+    let max_right = nodes
+        .iter()
+        .map(|n| n.x + n.width + max_extent_x(n.kind))
+        .fold(0.0_f64, f64::max);
+    let max_bottom = nodes
+        .iter()
+        .map(|n| n.y + n.height + max_extent_y(n.kind))
+        .fold(0.0_f64, f64::max);
+    // Width and, for every established shape, height use the empirical
+    // placed-coordinate margins verified against the Java jar. A database is
+    // new: its trailing `UEmpty(10,10)` extends the drawn bounding box by 10,
+    // and Smetana sizes the canvas from the resulting structural span plus
+    // `margin + 16` (rather than the anchored placed-edge formula). Use that
+    // span only when a database participates, so existing diagrams are
+    // untouched.
     let total_width = total_margin + max_right.floor();
-    let total_height = total_margin + max_bottom.floor();
+    let has_database = nodes.iter().any(|n| n.kind == EntityKind::Database);
+    let total_height = if has_database {
+        let min_draw_y = nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
+        (max_bottom - min_draw_y + margin + 16.0).floor()
+    } else {
+        total_margin + max_bottom.floor()
+    };
 
     CucaLayout {
         nodes,
@@ -1010,4 +1105,5 @@ pub(crate) struct EntityData {
     pub(crate) rx: f64,
     pub(crate) ry: f64,
 }
+
 

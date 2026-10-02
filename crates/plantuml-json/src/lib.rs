@@ -13,6 +13,8 @@
 
 pub mod json_diagram;
 pub mod json_renderer;
+pub mod layout;
+pub mod pathplan;
 pub mod yaml_support;
 pub use yaml_support::{parse_yaml_to_json, parse_json};
 pub use json_diagram::JsonDiagram;

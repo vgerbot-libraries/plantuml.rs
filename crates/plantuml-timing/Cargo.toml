@@ -6,6 +6,7 @@ description = "Timing diagram for plantuml.rs"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }
+plantuml-klimt = { path = "../plantuml-klimt" }
 plantuml-svg = { path = "../plantuml-svg" }
 indexmap = "2"
 thiserror = "1"
