@@ -46,6 +46,9 @@ const LABEL_FONT_SIZE: i32 = 13;
 /// The 19px label table sits in the gap center; the 13px baseline lands
 /// 5.397 (≈ half the 19.0679 line height − cap adjustment) below center.
 const LABEL_BASELINE_OFFSET: f64 = 5.397;
+/// Inset of the cluster label bbox above the folder origin: Smetana lays the
+/// label out as an inset node reaching 0.602px above the drawn origin.
+const LABEL_INSET: f64 = 0.602;
 
 // ── Structs ─────────────────────────────────────────────────────────────
 
@@ -54,6 +57,9 @@ const LABEL_BASELINE_OFFSET: f64 = 5.397;
 pub struct LayoutNode {
     /// Entity name.
     pub name: String,
+    /// Fully qualified name (parent chain joined with `.`), for
+    /// `data-qualified-name`.
+    pub qualified_name: String,
     /// Display label.
     pub display: String,
     /// Entity kind (actor, usecase, etc.).
@@ -128,11 +134,41 @@ pub struct LayoutLink {
     pub arrow: String,
 }
 
+/// A positioned package/group cluster drawn as a folder around its members.
+#[derive(Debug, Clone)]
+pub struct LayoutCluster {
+    /// Group entity name.
+    pub name: String,
+    /// Group display label (may contain `\n` for a multi-line title).
+    pub display: String,
+    /// Source line number.
+    pub source_line: usize,
+    /// Entity ID (ent0001, ...), shared with the leaf uid sequence.
+    pub entity_id: String,
+    /// Folder bounding-box top-left X (rounded).
+    pub x: f64,
+    /// Folder bounding-box top-left Y.
+    pub y: f64,
+    /// Folder bounding-box width.
+    pub width: f64,
+    /// Folder bounding-box height.
+    pub height: f64,
+    /// Title rendered width (textLength of the widest title line).
+    pub title_width: f64,
+    /// Number of title lines.
+    pub title_lines: usize,
+}
+/// Raw folder geometry in the solver frame before moveDelta and title
+/// measurement: `(source_line, name, left, top, width, height, bottom, lines)`.
+type RawCluster<'a> = (usize, &'a String, f64, f64, f64, f64, f64, usize);
+
 /// Computed layout for a CucaDiagram.
 #[derive(Debug, Clone)]
 pub struct CucaLayout {
-    /// Positioned entity nodes.
+    /// Positioned entity nodes (leaves only).
     pub nodes: Vec<LayoutNode>,
+    /// Positioned package/group clusters.
+    pub clusters: Vec<LayoutCluster>,
     /// Positioned links.
     pub links: Vec<LayoutLink>,
     /// Total SVG width.
@@ -160,6 +196,14 @@ fn measure_text(text: &str) -> f64 {
 fn measure_text_italic(text: &str) -> f64 {
     let sb = StringBounderSvg::new(FileFormat::Svg);
     let font = UFont::sans_serif(FONT_SIZE).with_style(FontStyle::italic());
+    let dim = sb.calculate_dimension(&font, text);
+    dim.width()
+}
+
+/// Measures text width with bold font (for cluster/package titles).
+fn measure_text_bold(text: &str) -> f64 {
+    let sb = StringBounderSvg::new(FileFormat::Svg);
+    let font = UFont::sans_serif(FONT_SIZE).with_style(FontStyle::bold());
     let dim = sb.calculate_dimension(&font, text);
     dim.width()
 }
@@ -327,11 +371,16 @@ pub(crate) struct DotNodePos {
 pub(crate) struct DotEdgePath {
     pub(crate) points: [(f64, f64); 4],
 }
-
 /// Result of parsing the dot SVG output.
 pub(crate) struct DotSvgResult {
     pub(crate) nodes: HashMap<i32, DotNodePos>,
     pub(crate) edges: HashMap<i32, DotEdgePath>,
+    /// Raw y-up `(center y, half height)` of each leaf before 2-decimal
+    /// quantization, from the native solver. Cluster bbox edges are derived
+    /// from these unquantized values (graphviz `dot_compute_bb`); using the
+    /// placed leaf would fold in a sub-pixel quantization error. Empty on the
+    /// external-dot path.
+    pub(crate) raw_yup: HashMap<String, (f64, f64)>,
 }
 
 /// Parses the dot SVG output to extract node positions and edge paths.
@@ -404,7 +453,7 @@ fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvg
         }
     }
 
-    Some(DotSvgResult { nodes, edges })
+    Some(DotSvgResult { nodes, edges, raw_yup: HashMap::new() })
 }
 
 /// Extracts a float attribute value from an XML element string.
@@ -507,6 +556,7 @@ pub fn compute_layout(
     if entities.is_empty() {
         return CucaLayout {
             nodes: Vec::new(),
+            clusters: Vec::new(),
             links: Vec::new(),
             total_width: CANVAS_MARGIN * 2.0,
             total_height: CANVAS_MARGIN * 2.0,
@@ -647,8 +697,22 @@ pub fn compute_layout(
         );
     }
 
+    // Leaves (non-group entities) are the only nodes dot/Smetana places; a
+    // group is a cluster subgraph drawn around its members, not a box node.
+    let leaf_sorted: Vec<(&String, &ParsedEntity)> = sorted_entities
+        .iter()
+        .copied()
+        .filter(|(_, e)| !e.group)
+        .collect();
+
+    // Each leaf's immediate containing group, and each group's title line count.
+    let leaf_group: HashMap<&String, &String> = leaf_sorted
+        .iter()
+        .filter_map(|(_, e)| e.parent.as_ref().map(|p| (&e.name, p)))
+        .collect();
+
     // Build adjacency for rank assignment (needed for LayoutNode.rank field).
-    let entity_names: HashSet<&String> = entities.keys().collect();
+    let entity_names: HashSet<&String> = leaf_sorted.iter().map(|(n, _)| *n).collect();
     let mut incoming: HashMap<&String, HashSet<&String>> = HashMap::new();
     let mut outgoing: HashMap<&String, HashSet<&String>> = HashMap::new();
 
@@ -690,23 +754,27 @@ pub fn compute_layout(
 
 
     // Pure-Rust layout solver; no external `dot` required (works under WASM).
-    let sorted_data: Vec<(&String, &EntityData)> = sorted_entities
+    // Only leaves are placed; groups are drawn as clusters around members.
+    let sorted_data: Vec<(&String, &EntityData)> = leaf_sorted
         .iter()
         .map(|(name, _)| (*name, &entity_data[name]))
         .collect();
+
+    // Map each leaf to its immediate containing group so the solver can choose
+    // the 60px within-cluster gap or the 78px cross-cluster gap.
 
     // Prefer the external `dot` engine when it is on PATH (native builds;
     // bit-exact with Java/Smetana). Under WASM, or wherever `dot` is missing,
     // fall back to the pure-Rust solver instead of the old vertical stack.
     let (dot_string, node_colors) =
-        generate_dot_string(&sorted_entities, &entity_data, &links);
+        generate_dot_string(&leaf_sorted, &entity_data, &links);
     let dot_result = if let Some(svg) = run_dot(&dot_string) {
         match parse_dot_svg(&svg, &node_colors) {
             Some(parsed) => parsed,
-            None => crate::native_layout::solve(&sorted_data, &links),
+            None => crate::native_layout::solve(&sorted_data, &links, &leaf_group),
         }
     } else {
-        crate::native_layout::solve(&sorted_data, &links)
+        crate::native_layout::solve(&sorted_data, &links, &leaf_group)
     };
     build_layout_from_dot(
         &sorted_entities,
@@ -763,11 +831,49 @@ fn max_extent_y(kind: EntityKind) -> f64 {
     }
 }
 
+/// Collects every leaf key nested under group `root`, descending through
+/// nested groups, in depth-first source order.
+fn collect_member_leaves<'a>(
+    root: &String,
+    sorted_entities: &'a [(&String, &ParsedEntity)],
+    out: &mut Vec<&'a String>,
+) {
+    let entity_of = |key: &String| -> Option<&'a ParsedEntity> {
+        sorted_entities
+            .iter()
+            .find(|(n, _)| *n == key)
+            .map(|(_, e)| *e)
+    };
+    let Some(root_ent) = entity_of(root) else {
+        return;
+    };
+    if !root_ent.group {
+        out.push(&root_ent.name);
+        return;
+    }
+    let mut stack: Vec<&String> = root_ent.members.iter().collect();
+    while let Some(cur) = stack.pop() {
+        let Some(ent) = entity_of(cur) else {
+            continue;
+        };
+        if ent.group {
+            // Push so the first member is processed first (reverse to preserve
+            // order).
+            for m in ent.members.iter().rev() {
+                stack.push(m);
+            }
+        } else {
+            out.push(&ent.name);
+        }
+    }
+}
+
 #[allow(clippy::similar_names)]
 fn build_layout_from_dot(
     sorted_entities: &[(&String, &ParsedEntity)],
     entity_data: &HashMap<&String, EntityData>,
     links: &[ParsedLink],
+
     node_colors: &HashMap<String, i32>,
     dot_result: &DotSvgResult,
     rank_of: &HashMap<&String, usize>,
@@ -780,8 +886,132 @@ fn build_layout_from_dot(
     };
 
 
+    // Groups in source order: these become folder clusters, never box nodes.
+    let group_sorted: Vec<(&String, &ParsedEntity)> = sorted_entities
+        .iter()
+        .copied()
+        .filter(|(_, e)| e.group)
+        .collect();
+
+    // ── Raw-frame leaf boxes ─────────────────────────────────────────────
+    // Placed (un-shifted) box of each leaf: top-left from the solver, size
+    // after the same points round-trip the solver applied to its half extents.
+    let leaf_box_raw: HashMap<&String, (f64, f64, f64, f64)> = sorted_entities
+        .iter()
+        .filter(|(_, e)| !e.group)
+        .filter_map(|(name, _)| {
+            let ed = entity_data.get(*name)?;
+            let color = node_colors.get(*name).copied()?;
+            let pos = dot_result.nodes.get(&color)?;
+            Some((
+                *name,
+                (
+                    pos.min_x,
+                    pos.min_y,
+                    crate::native_layout::dot_roundtrip_px(ed.svek_w),
+                    crate::native_layout::dot_roundtrip_px(ed.svek_h),
+                ),
+            ))
+        })
+        .collect();
+
+    // (member-leaf collection is a free helper: see `collect_member_leaves`.)
+
+    // ── Clusters (folder decoration) in the raw frame ────────────────────
+    // Above its top leaf a folder reserves 16px margin plus the title block
+    // (19px per line + 3px): 38 for one line, 57 for two. Below the bottom
+    // leaf it reserves the 16px cluster margin. Horizontally the folder is the
+    // member extent ± 16, rounded.
+    let mut clusters_raw: Vec<RawCluster<'_>> = Vec::new();
+    // A stacked column has ONE centre shared by every leaf and cluster. The
+    // native normalization pins the outer frame edge to zero so that centre is
+    // the rounded outer extent — an integer. Compute it once from all leaves
+    // (corner reconstruction perturbs per-leaf centres by ≤0.005) and round.
+    let global_center = {
+        let (sum, n) = leaf_box_raw
+            .values()
+            .map(|(x, _, w, _)| (x + w / 2.0, 1u32))
+            .fold((0.0_f64, 0u32), |(s, n), (c, k)| (s + c, n + k));
+        if n == 0 {
+            None
+        } else {
+            Some((sum / f64::from(n)).round())
+        }
+    };
+
+    let mut member_leaves: Vec<&String> = Vec::new();
+    for (gname, gent) in &group_sorted {
+        member_leaves.clear();
+        collect_member_leaves(gname, sorted_entities, &mut member_leaves);
+        // Member leaves' placed centre and the content half-extent reaching
+        // left/right of it. The cluster box is symmetric about that centre:
+        // edges are `centre ± round(inner + 16)` — rounding the half-extent,
+        // not the absolute edge (Frontend width 86, Backend width 94).
+        let mut inner_left = 0.0f64;
+        let mut inner_right = 0.0f64;
+        let mut min_y = f64::INFINITY;
+        let mut max_b = f64::NEG_INFINITY;
+        for ln in &member_leaves {
+            if let Some((x, y, w, h)) = leaf_box_raw.get(*ln) {
+                let c = x + w / 2.0;
+                inner_left = inner_left.max(c - x);
+                inner_right = inner_right.max(x + w - c);
+                min_y = min_y.min(*y);
+                max_b = max_b.max(y + h);
+            }
+        }
+        if min_y.is_infinite() {
+            continue;
+        }
+        let ccx = global_center.expect("at least one leaf");
+        let left_extent = (inner_left + 16.0).round();
+        let right_extent = (inner_right + 16.0).round();
+        let left = ccx - left_extent;
+        let right = ccx + right_extent;
+        let lines = 1 + gent.display.matches('\n').count();
+        let top_extent = 16.0 + (19.0 * lines as f64 + 3.0);
+        let top = ((min_y - top_extent) * 100.0).round() / 100.0;
+        // graphviz sets the cluster bbox from the RAW (un-quantized) node
+        // coordinate: yup bottom = center − (half_h + cluster margin). Using
+        // the q2-placed leaf edge folds in a sub-pixel quantization error.
+        let bottom_raw = if dot_result.raw_yup.is_empty() {
+            max_b + 16.0
+        } else {
+            member_leaves
+                .iter()
+                .filter_map(|ln| {
+                    dot_result
+                        .raw_yup
+                        .get(*ln)
+                        .map(|&(cy, hh)| -cy + hh + 16.0)
+                })
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        // Graphviz serializes the cluster polygon rounded to 2 decimals, and
+        // PlantUML parses those rounded points (`DotStringFactory.solve`). The
+        // rounding is total-graph dependent via the rank `ht1` feedback, so
+        // replicate it here rather than carrying the unrounded leaf value.
+        let bottom = (bottom_raw * 100.0).round() / 100.0;
+        clusters_raw.push((
+            gent.source_line,
+            gname,
+            left,
+            top,
+            right - left,
+            bottom - top,
+            bottom,
+            lines,
+        ));
+    }
+
     // Compute moveDelta: `margin - min` over all nodes, including each
     // shape's LimitFinder border.
+    // moveDelta is driven by the placed LEAF boxes only. The folder tab
+    // extends a fixed 38px (one-line title) above its top leaf, but the
+    // cluster label is laid out as an inset node, so the tab top lands 0.602px
+    // below the cluster origin — folding the raw tab into the minimum would
+    // pin it to the margin and shift every leaf up by that 0.602. Keeping the
+    // leaf-relative geometry intact reproduces the tab at `margin + 0.602`.
     let min_min_x = sorted_entities
         .iter()
         .filter_map(|(name, entity)| {
@@ -789,7 +1019,18 @@ fn build_layout_from_dot(
             let pos = dot_result.nodes.get(&color)?;
             Some(pos.min_x + min_border_x(entity.kind))
         })
-        .fold(f64::INFINITY, f64::min);
+        .fold(f64::INFINITY, f64::min)
+        .min(
+            clusters_raw
+                .iter()
+                .map(|(_, _, left, _, _, _, _, _)| *left)
+                .fold(f64::INFINITY, f64::min),
+        );
+    // The folder tab sets the vertical minimum: the top leaf sits 38px (or
+    // 57px) below it. Smetana lays out the cluster label as an inset node,
+    // whose bounding box reaches 0.602px above the drawn folder origin, so the
+    // global LimitFinder minimum is `tab_top − 0.602`. That extra 0.602 leaves
+    // the rendered tab at `margin + 0.602` instead of pinning it to margin.
     let min_min_y = sorted_entities
         .iter()
         .filter_map(|(name, entity)| {
@@ -797,8 +1038,16 @@ fn build_layout_from_dot(
             let pos = dot_result.nodes.get(&color)?;
             Some(pos.min_y + min_border_y(entity.kind))
         })
-        .fold(f64::INFINITY, f64::min);
+        .fold(f64::INFINITY, f64::min)
+        .min(
+            clusters_raw
+                .iter()
+                .map(|(_, _, _, top, _, _, _, _)| top - LABEL_INSET)
+                .fold(f64::INFINITY, f64::min),
+        );
 
+    let mut entity_uid: HashMap<&String, u32> = HashMap::new();
+    let mut link_uid: Vec<u32> = vec![0; links.len()];
     let dx = margin - min_min_x;
     let dy = margin - min_min_y;
 
@@ -814,8 +1063,6 @@ fn build_layout_from_dot(
         events.push((link.source_line, 1, None, Some(i)));
     }
     events.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    let mut entity_uid: HashMap<&String, u32> = HashMap::new();
-    let mut link_uid: Vec<u32> = vec![0; links.len()];
     let mut uid_counter = 0u32;
     for (_, _, name, link_idx) in events {
         uid_counter += 1;
@@ -831,6 +1078,9 @@ fn build_layout_from_dot(
     let mut nodes = Vec::new();
 
     for (name, entity) in sorted_entities {
+        if entity.group {
+            continue;
+        }
         let entity_id = format!("ent{:04}", entity_uid.get(name).copied().unwrap_or(0));
 
         let ed = entity_data.get(*name).unwrap();
@@ -923,7 +1173,9 @@ fn build_layout_from_dot(
         };
 
         let rank = rank_of.get(*name).copied().unwrap_or(0);
-
+        // The leaf key is already the fully qualified name (e.g.
+        // `Frontend.UI`); only its `display` label is bare (`UI`).
+        let qualified_name = (*name).clone();
         nodes.push(LayoutNode {
             name: (*name).clone(),
             display: entity.display.clone(),
@@ -932,6 +1184,7 @@ fn build_layout_from_dot(
             entity_id,
             x: node_x_corner,
             y: node_y_corner,
+            qualified_name: qualified_name.clone(),
             width: ed.svek_w,
             height: ed.svek_h,
             center_x: cx,
@@ -944,6 +1197,37 @@ fn build_layout_from_dot(
             rank,
         });
     }
+
+    // Shift clusters by the same moveDelta as the nodes and resolve their
+    // entity id and bold title width.
+    let entity_by_name: HashMap<&String, &ParsedEntity> =
+        sorted_entities.iter().map(|(n, e)| (*n, *e)).collect();
+    let clusters: Vec<LayoutCluster> = clusters_raw
+        .iter()
+        .map(|(source_line, gname, left, top, w, h, _, lines)| {
+            let gent = entity_by_name[gname];
+            let title_width = gent
+                .display
+                .split('\n')
+                .map(measure_text_bold)
+                .fold(0.0_f64, f64::max);
+            LayoutCluster {
+                name: (*gname).clone(),
+                display: gent.display.clone(),
+                source_line: *source_line,
+                entity_id: format!(
+                    "ent{:04}",
+                    entity_uid.get(*gname).copied().unwrap_or(0)
+                ),
+                x: left + dx,
+                y: top + dy,
+                width: *w,
+                height: *h,
+                title_width,
+                title_lines: *lines,
+            }
+        })
+        .collect();
 
     // Create layout links
     let node_map: HashMap<&String, &LayoutNode> = nodes.iter().map(|n| (&n.name, n)).collect();
@@ -972,7 +1256,7 @@ fn build_layout_from_dot(
             let path_name = |node: &LayoutNode| match node.kind {
                 EntityKind::Start => "*start*".to_string(),
                 EntityKind::End => "*end*".to_string(),
-                _ => node.name.clone(),
+                _ => node.display.clone(),
             };
             let pn_from = path_name(from_node);
             let pn_to = path_name(to_node);
@@ -1139,7 +1423,7 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
                     let label_x = cubic_x_at_y(pts, box_center_y) + 4.5;
                     (
                         Some((label_x, baseline_y)),
-                        Some(label_x + lw),
+                        Some(label_x + lw + 1.0),
                     )
                 }
                 (Some(text), _) => {
@@ -1149,7 +1433,7 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
                     let label_x = from_node.center_x + 1.0;
                     (
                         Some((label_x, gap_center + LABEL_BASELINE_OFFSET)),
-                        Some(label_x + lw),
+                        Some(label_x + lw + 1.0),
                     )
                 }
                 _ => (None, None),
@@ -1217,9 +1501,17 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
         .iter()
         .filter_map(|l| l.label_spacer_right)
         .fold(0.0_f64, f64::max);
-    let total_width = (node_width).max(15.0 + max_spacer.floor());
+    // A folder cluster sizes the canvas from its own drawn extent: across
+    // every jar-rendered variant the edge is 15 past the floor of the far
+    // edge (graphviz `bb` + the LimitFinder delta). Take the maximum so the
+    let (clust_right, clust_bottom) = clusters.iter().fold((0.0_f64, 0.0_f64), |(r, b), c| {
+        (r.max(c.x + c.width), b.max(c.y + c.height))
+    });
+    let total_width = node_width
+        .max(15.0 + max_spacer.floor())
+        .max(if clusters.is_empty() { 0.0 } else { 15.0 + clust_right.floor() });
     let has_database = nodes.iter().any(|n| n.kind == EntityKind::Database);
-    let total_height = if has_database {
+    let node_height = if has_database {
         let min_draw_y = nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
         // Structural span plus the top origin (margin) and a 15px bottom delta.
         let span = max_bottom - min_draw_y;
@@ -1227,9 +1519,12 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
     } else {
         total_margin + max_bottom.floor()
     };
+    let total_height =
+        node_height.max(if clusters.is_empty() { 0.0 } else { 15.0 + clust_bottom.floor() });
 
     CucaLayout {
         nodes,
+        clusters,
         links: layout_links,
         total_width,
         total_height,

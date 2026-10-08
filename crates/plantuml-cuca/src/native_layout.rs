@@ -23,8 +23,6 @@ use crate::pathplan::{
 const NODESEP: f64 = 35.0;
 /// Vertical rank separation (matches dot `ranksep`).
 const RANKSEP: f64 = 60.0;
-/// Cluster box margin (lib/common/const.h `CL_OFFSET`).
-const CL_OFFSET: f64 = 8.0;
 /// Extra bounding-box slack (dotsplines.c `FUDGE`).
 const FUDGE: f64 = 4.0;
 /// Minimum corridor width added on each side (dotsplines.c `MINW`).
@@ -41,7 +39,7 @@ const PEN_HALF: f64 = 0.5;
 /// parses that string back and multiplies by 72. The native solver must use
 /// the same round-tripped value (e.g. `78.4798 → 1.089997 in → 78.479784`)
 /// or boundary rounding flips (`102.995 → 103.00` vs `102.99499 → 102.99`).
-fn dot_roundtrip_px(px: f64) -> f64 {
+pub fn dot_roundtrip_px(px: f64) -> f64 {
     let rounded4 = (px * 10000.0).round() / 10000.0;
     let inches = (rounded4 / 72.0 * 1e6).round() / 1e6;
     inches * 72.0
@@ -169,11 +167,15 @@ fn dfs(
 
 /// Run the native solver.
 ///
-/// `sorted` is source-line ordered `(name, svek half extents)`. Only links
-/// whose both endpoints are entities are routed; all edges use minlen 1.
+/// `sorted` is source-line ordered `(name, svek half extents)` of leaves only.
+/// `leaf_group` maps a leaf to its immediate containing group key; a leaf absent
+/// from the map is unpackaged. Only links whose both endpoints are entities are
+/// routed. Within a cluster ranks keep the 60px `ranksep`; at a cluster boundary
+/// the cluster-inflated rank half-heights plus the 16px cluster margin apply.
 pub fn solve(
     sorted: &[(&String, &EntityData)],
     links: &[ParsedLink],
+    leaf_group: &HashMap<&String, &String>,
 ) -> DotSvgResult {
     let names: Vec<&String> = sorted.iter().map(|(n, _)| *n).collect();
 
@@ -333,13 +335,42 @@ pub fn solve(
     }
 
     // ── y coordinates (set_ycoords) ──────────────────────────────────────
+    // Per-rank set of immediate-group keys (absent for unpackaged leaves).
+    let rank_groups: Vec<HashSet<&String>> = members
+        .iter()
+        .map(|r| {
+            r.iter()
+                .filter_map(|n| leaf_group.get(n).copied())
+                .collect()
+        })
+        .collect();
+
+    // Box-to-box gap between an upper rank `r` and the rank below. It is 78
+    // only when a grouped member above and a grouped member below belong to
+    // DIFFERENT clusters (two stacked clusters): the upper cluster's 16px
+    // bottom margin, the 24px boundary, and the lower cluster's 38px tab all
+    // occupy the gap (16 + 24 + 38 = 78). Otherwise — same cluster, two loose
+    // nodes, or a loose node above a cluster — the primitive 60px ranksep
+    // dominates and any lower tab fits inside it.
+    let gap_below = |r: usize| -> f64 {
+        let above = &rank_groups[r];
+        let below = &rank_groups[r + 1];
+        let cross = above
+            .iter()
+            .any(|a| below.iter().any(|b| a != b));
+        if cross {
+            78.0
+        } else {
+            RANKSEP
+        }
+    };
+
     let mut rank_y = vec![0.0f64; max_rank + 1];
     rank_y[max_rank] = rank_ht[max_rank];
     if max_rank > 0 {
         for r in (0..max_rank).rev() {
-            let d0 = rank_ht[r + 1] + rank_ht[r] + RANKSEP + label_gap[r];
-            let d1 = rank_ht[r + 1] + rank_ht[r] + CL_OFFSET;
-            rank_y[r] = rank_y[r + 1] + d0.max(d1);
+            let gap = gap_below(r) + label_gap[r];
+            rank_y[r] = rank_y[r + 1] + rank_ht[r + 1] + rank_ht[r] + gap;
         }
     }
     for name in &names {
@@ -411,12 +442,41 @@ pub fn solve(
             }
         }
     }
-    let min_left = names
-        .iter()
-        .map(|n| center_x[n] - raw[n].half_w)
-        .fold(f64::INFINITY, f64::min);
+    // ── Frame normalization ──────────────────────────────────────────────
+    // Each cluster box stays symmetric about its member leaves' centre: the
+    // box half-width is the ROUNDED content half-extent plus the 16px cluster
+    // margin (`round(maxhalf + 16)`), so the left edge is `centre − extent`,
+    // not a rounded absolute edge. The frame origin is the outer-most cluster
+    // edge (or a loose leaf's edge); normalizing it to zero makes a stacked
+    // column land on an integer centre after the diagram margin is applied.
+    let mut group_members: HashMap<&String, Vec<&String>> = HashMap::new();
+    for (leaf, grp) in leaf_group {
+        group_members.entry(*grp).or_default().push(*leaf);
+    }
+
+    let mut origin = 0.0f64;
+    for leaves in group_members.values() {
+        // Member leaves' centre (they coincide for a single stacked column).
+        let cc = {
+            let s: f64 = leaves.iter().map(|l| center_x[l]).sum();
+            s / leaves.len() as f64
+        };
+        // Content reaches this far left of `cc`.
+        let inner = leaves
+            .iter()
+            .map(|l| cc - (center_x[l] - raw[l].half_w))
+            .fold(0.0_f64, f64::max);
+        let extent = (inner + 16.0).round();
+        origin = origin.min(cc - extent);
+    }
+    // Unpackaged leaves anchor the frame on their box edge.
     for name in &names {
-        let cx = center_x[name] - min_left;
+        if !leaf_group.contains_key(name) {
+            origin = origin.min(center_x[name] - raw[name].half_w);
+        }
+    }
+    for name in &names {
+        let cx = center_x[name] - origin;
         raw.get_mut(name).expect("node present").center.x = cx;
     }
 
@@ -433,17 +493,18 @@ pub fn solve(
         right_bound += MINW;
     }
 
-    // Quantize to dot SVG text precision (2 decimals). Dot prints node
-    // centers and radii independently, and the old parser reconstructed the
-    // box from those rounded values, so mirror that exactly.
+    // Quantize to dot SVG text precision (2 decimals), used when emitting the
+    // edge spline coordinates that graphviz would print as text.
     let q2 = |v: f64| (v * 100.0).round() / 100.0;
+    // Emit each placed node box quantized to the precision graphviz prints:
+    // the external-dot path (and the Smetana output these tests pin) carries
+    // 2-decimal coordinates. Cluster boxes are derived from the placed leaf
+    // centres but their rounding absorbs this quantization.
     let mut out_nodes = HashMap::new();
     for (idx, name) in names.iter().enumerate() {
         let node = &raw[name];
         let color = (idx + 6) as i32;
         if node.is_ellipse {
-            // Ellipse: dot prints center and radii independently; the parser
-            // reconstructs the box from those rounded values.
             let cx = q2(node.center.x);
             let cy = q2(node.center.y);
             let hw = q2(node.half_w);
@@ -456,11 +517,8 @@ pub fn solve(
                 },
             );
         } else {
-            // Rect: dot prints the polygon vertices (the actual corners),
-            // rounded to 2 decimals, and the parser takes them verbatim.
             let min_x = q2(node.center.x - node.half_w);
             let max_y = q2(node.center.y + node.half_h);
-            // SVG frame y = -y_up.
             out_nodes.insert(
                 color,
                 DotNodePos {
@@ -644,6 +702,15 @@ fn node_endpoint(node: &Node) -> Endpoint {
         out_edges.insert(first_color + i as i32, DotEdgePath { points: pts });
     }
 
-    DotSvgResult { nodes: out_nodes, edges: out_edges }
+    let raw_yup: HashMap<String, (f64, f64)> = names
+        .iter()
+        .map(|name| ((**name).clone(), (raw[name].center.y, raw[name].half_h)))
+        .collect();
+
+    DotSvgResult {
+        nodes: out_nodes,
+        edges: out_edges,
+        raw_yup,
+    }
 }
 

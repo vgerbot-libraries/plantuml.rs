@@ -15,7 +15,7 @@ use plantuml_core::u_font::{FontStyle, UFont};
 use plantuml_klimt::string_bounder_svg::StringBounderSvg;
 use plantuml_svg::{SvgGraphics, SvgOption};
 
-use crate::cuca_layout::{CucaLayout, LayoutLink, LayoutNode};
+use crate::cuca_layout::{CucaLayout, LayoutCluster, LayoutLink, LayoutNode};
 use crate::entity_link_parser::{EntityKind, ParsedEntity, ParsedNote};
 
 // ── Rendering constants ──────────────────────────────────────────────────
@@ -133,7 +133,15 @@ pub fn render_cuca_svg(
     svg.svg_rectangle(0.0, 0.0, layout.total_width, layout.total_height, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
-    // Render entities first (Java renders entities before links).
+    // Render clusters first (folders sit behind their member entities),
+    // then entities, then links.
+    for cluster in &layout.clusters {
+        if let Some(entity) = entities.get(&cluster.name) {
+            render_cluster(&mut svg, cluster, entity);
+        }
+    }
+
+    // Render entities (Java renders entities before links).
     for node in &layout.nodes {
         if let Some(entity) = entities.get(&node.name) {
             render_entity(&mut svg, node, entity, diagram_type);
@@ -151,6 +159,88 @@ pub fn render_cuca_svg(
     }
 
     svg.create_xml()
+}
+
+/// Folder outline corner radius.
+const RAD: f64 = 2.5;
+/// Folder tab sloped-corner radius (1.5 × `RAD`).
+const TAB_RAD: f64 = 3.75;
+
+/// Renders a package/group cluster as a folder: the tabbed outline, the
+/// separator under the title, and the bold title.
+///
+/// Ported from: `decoration/symbol/USymbolFolder.drawFolder()` and
+/// `svek/Cluster.drawU()`.
+fn render_cluster(svg: &mut SvgGraphics, cluster: &LayoutCluster, entity: &ParsedEntity) {
+    let left = cluster.x;
+    let top = cluster.y;
+    let wid = cluster.width;
+    let hei = cluster.height;
+    let right = left + wid;
+    let bot = top + hei;
+
+    // Title block: `textH + 6` tall, `boldTitleW + 6` wide.
+    let text_h = 14.0 * 1.361_994;
+    let htitle = text_h + 6.0;
+    let wtitle = cluster.title_width + 6.0;
+
+    let source_line = cluster.source_line.to_string();
+    let attrs: Vec<(&str, &str)> = vec![
+        ("class", "cluster"),
+        ("data-qualified-name", &entity.name),
+        ("data-source-line", &source_line),
+        ("id", &cluster.entity_id),
+    ];
+    svg.open_group_with_attrs(&attrs);
+
+    let d = format!(
+        "M{lin},{t0} L{tab_end},{t0} A{TAB_RAD},{TAB_RAD} 0 0 1 {tab_x},{arc_y} \
+         L{slope_x},{sep_y} L{hr},{sep_y} A{RAD},{RAD} 0 0 1 {r},{edge_top} \
+         L{r},{bb} A{RAD},{RAD} 0 0 1 {hr},{b} \
+         L{lin},{b} A{RAD},{RAD} 0 0 1 {l},{bb} \
+         L{l},{arc_y} A{RAD},{RAD} 0 0 1 {lin},{t0}",
+        l = fmt_coord(left),
+        lin = fmt_coord(left + RAD),
+        t0 = fmt_coord(top),
+        tab_end = fmt_coord(left + wtitle - RAD),
+        tab_x = fmt_coord(left + wtitle),
+        arc_y = fmt_coord(top + RAD),
+        slope_x = fmt_coord(left + wtitle + 7.0),
+        sep_y = fmt_coord(top + htitle),
+        hr = fmt_coord(right - RAD),
+        edge_top = fmt_coord(top + htitle + RAD),
+        r = fmt_coord(right),
+        bb = fmt_coord(bot - RAD),
+        b = fmt_coord(bot),
+    );
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some("#000000"));
+    svg.set_stroke_width(1.5, None);
+    svg.svg_path(&d, 0.0);
+
+    // Separator under the title tab.
+    svg.svg_line(left, top + htitle, left + wtitle + 7.0, top + htitle, 0.0);
+
+    // Bold title lines.
+    for (i, line) in entity.display.split('\n').enumerate() {
+        let mut text_attrs = indexmap::IndexMap::new();
+        text_attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+        svg.text(
+            line,
+            left + 4.0,
+            top + 16.9659 + i as f64 * text_h,
+            Some(FONT_FAMILY),
+            FONT_SIZE_NAME,
+            Some("700"),
+            None,
+            None,
+            cluster.title_width,
+            &text_attrs,
+            None,
+        );
+    }
+
+    svg.close_group();
 }
 
 /// Formats a coordinate like Java's `%.4f` with trailing zeros and decimal point stripped.
@@ -182,7 +272,7 @@ fn render_entity(
     let source_line = node.source_line.to_string();
     let attrs: Vec<(&str, &str)> = vec![
         ("class", group_class),
-        ("data-qualified-name", &entity.display),
+        ("data-qualified-name", &node.qualified_name),
         ("data-source-line", &source_line),
         ("id", &node.entity_id),
     ];
@@ -1029,6 +1119,7 @@ mod tests {
     fn render_empty_layout() {
         let layout = CucaLayout {
             nodes: vec![],
+            clusters: vec![],
             links: vec![],
             total_width: 20.0,
             total_height: 20.0,
