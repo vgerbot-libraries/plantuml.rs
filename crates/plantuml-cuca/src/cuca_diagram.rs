@@ -17,7 +17,7 @@ use plantuml_core::{
 };
 
 use crate::cuca_layout::compute_layout;
-use crate::cuca_renderer::render_cuca_svg;
+use crate::cuca_renderer::{render_cuca_svg, render_cuca_svg_folded};
 use crate::entity_link_parser::{parse_entity_link_source, ParsedEntity};
 
 /// A CucaDiagram — base for class, state, and description diagrams.
@@ -97,6 +97,10 @@ impl Diagram for CucaDiagram {
                     .unwrap_or("Empty diagram"),
                 self.diagram_label(),
             )
+        } else if let Some((layout, fragments)) =
+            crate::fold::layout_with_fold(&self.entities, &self.links)
+        {
+            render_cuca_svg_folded(&layout, &self.entities, &self.notes, &fragments)
         } else {
             let layout = compute_layout(&self.entities, &self.links, self.diagram_type);
             render_cuca_svg(&layout, &self.entities, &self.notes, self.diagram_type)

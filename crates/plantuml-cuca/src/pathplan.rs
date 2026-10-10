@@ -27,13 +27,13 @@ impl Point {
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
-    fn add(self, o: Self) -> Self {
+    pub(crate) fn add(self, o: Self) -> Self {
         Self::new(self.x + o.x, self.y + o.y)
     }
-    fn sub(self, o: Self) -> Self {
+    pub(crate) fn sub(self, o: Self) -> Self {
         Self::new(self.x - o.x, self.y - o.y)
     }
-    fn scale(self, c: f64) -> Self {
+    pub(crate) fn scale(self, c: f64) -> Self {
         Self::new(self.x * c, self.y * c)
     }
 }
@@ -430,6 +430,7 @@ pub fn shortest_path(polygon: &[Point], start: Point, end: Point) -> Vec<Point> 
     if !mark_tripath(&mut tris, first, last) {
         return vec![start, end];
     }
+
     if first == last {
         return vec![start, end];
     }
@@ -477,14 +478,14 @@ pub fn shortest_path(polygon: &[Point], start: Point, end: Point) -> Vec<Point> 
             fq.add(DQ_FRONT, rptr);
         } else if fq.dq[fq.f] != rptr && fq.dq[fq.l] != rptr {
             let split = fq.find_split(rptr);
-            fq.l = split;
+            fq.f = split;
             fq.add(DQ_FRONT, rptr);
             if split > fq.apex {
                 fq.apex = split;
             }
         } else {
             let split = fq.find_split(lptr);
-            fq.f = split;
+            fq.l = split;
             fq.add(DQ_BACK, lptr);
             if split < fq.apex {
                 fq.apex = split;

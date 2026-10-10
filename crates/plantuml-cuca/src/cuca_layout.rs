@@ -92,6 +92,9 @@ pub struct LayoutNode {
     pub text_width: f64,
     /// Rank in the layout.
     pub rank: usize,
+    /// Whether the node's size is a forced embedded inner image (folded
+    /// composite), whose far corner sizes the canvas with a full 15 delta.
+    pub forced_size: bool,
 }
 
 /// A positioned link in the layout.
@@ -185,6 +188,11 @@ fn measure_text_size(text: &str, size: i32) -> f64 {
     let font = UFont::sans_serif(size);
     let dim = sb.calculate_dimension(&font, text);
     dim.width()
+}
+
+/// Crate-visible wrapper for [`measure_text_size`] used by the labeled solver.
+pub(crate) fn measure_text_size_pub(text: &str, size: i32) -> f64 {
+    measure_text_size(text, size)
 }
 
 /// Measures text width using StringBounderSvg (matches Java AWT).
@@ -366,10 +374,14 @@ pub(crate) struct DotNodePos {
     pub(crate) min_y: f64,
 }
 
-/// Parsed edge path from dot SVG (after Y-flip). Single cubic bezier: start, ctrl1, ctrl2, end.
+/// Parsed edge path from dot SVG (after Y-flip).
+///
+/// A sequence of cubic Bézier control points. Four points (start, two
+/// controls, end) is a single cubic; `4 + 3k` points is `1 + k` chained
+/// cubic segments, each segment's start being the previous end.
 #[derive(Debug, Clone)]
 pub(crate) struct DotEdgePath {
-    pub(crate) points: [(f64, f64); 4],
+    pub(crate) points: Vec<(f64, f64)>,
 }
 /// Result of parsing the dot SVG output.
 pub(crate) struct DotSvgResult {
@@ -381,6 +393,19 @@ pub(crate) struct DotSvgResult {
     /// placed leaf would fold in a sub-pixel quantization error. Empty on the
     /// external-dot path.
     pub(crate) raw_yup: HashMap<String, (f64, f64)>,
+    /// Internal-frame left x of each routed edge's recovered label box, keyed
+    /// by edge color, for diagrams routed through the labeled solver. The
+    /// edge-label text starts one pixel right of it after the move delta.
+    /// y-up internal-frame center y of each labeled edge's virtual node, keyed
+    /// by edge color. Graphviz positions the edge label at this rank
+    /// coordinate; reconstructing it from placed node corners folds in a
+    /// sub-pixel move-delta error for a folded leaf. Empty on other paths.
+    pub(crate) label_vnode_y: HashMap<i32, f64>,
+    pub(crate) label_box_left: HashMap<i32, f64>,
+    /// Edge colors in graphviz's forward-converted draw order (upper rank
+    /// ascending, forward edge before its back twin). Empty on paths that do
+    /// not compute it; the consumer then uses source order.
+    pub(crate) draw_order: Vec<i32>,
 }
 
 /// Parses the dot SVG output to extract node positions and edge paths.
@@ -453,7 +478,14 @@ fn parse_dot_svg(svg: &str, node_colors: &HashMap<String, i32>) -> Option<DotSvg
         }
     }
 
-    Some(DotSvgResult { nodes, edges, raw_yup: HashMap::new() })
+    Some(DotSvgResult {
+        nodes,
+        edges,
+        raw_yup: HashMap::new(),
+        label_vnode_y: HashMap::new(),
+        label_box_left: HashMap::new(),
+        draw_order: Vec::new(),
+    })
 }
 
 /// Extracts a float attribute value from an XML element string.
@@ -515,7 +547,9 @@ fn parse_bezier_path(d: &str, full_height: f64) -> Option<DotEdgePath> {
     let (mx, my) = parse_point(m_str)?;
     let start = (mx, my + full_height);
 
-    // Parse C points (3 points: ctrl1, ctrl2, end)
+    // Parse every cubic control triplet after the C. One C may carry
+    // multiple triplets (chained cubic segments): 3 points for a single
+    // cubic, 3(1+k) for k+1 segments.
     let c_points: Vec<(f64, f64)> = c_part
         .split_whitespace()
         .filter_map(|pair| {
@@ -530,9 +564,10 @@ fn parse_bezier_path(d: &str, full_height: f64) -> Option<DotEdgePath> {
         return None;
     }
 
-    Some(DotEdgePath {
-        points: [start, c_points[0], c_points[1], c_points[2]],
-    })
+    let mut points = Vec::with_capacity(1 + c_points.len());
+    points.push(start);
+    points.extend(c_points);
+    Some(DotEdgePath { points })
 }
 
 /// Parses "x,y" into (x, y).
@@ -553,50 +588,29 @@ pub fn compute_layout(
     links: &[ParsedLink],
     diagram_type: plantuml_core::DiagramType,
 ) -> CucaLayout {
-    if entities.is_empty() {
-        return CucaLayout {
-            nodes: Vec::new(),
-            clusters: Vec::new(),
-            links: Vec::new(),
-            total_width: CANVAS_MARGIN * 2.0,
-            total_height: CANVAS_MARGIN * 2.0,
-        };
-    }
+    // Top-level Svek layout: graphviz is fed nodesep=35 and ranksep=60.
+    compute_layout_ranked(entities, links, diagram_type, 35.0, 60.0, false)
+}
 
-    // Sort entities by source_line for correct entity ID assignment
-    let mut sorted_entities: Vec<(&String, &ParsedEntity)> = entities.iter().collect();
-    sorted_entities.sort_by_key(|(_, e)| e.source_line);
-
-    // Resolve written bracket-form endpoints (`[Web Server]`, `[*]`) to the
-    // qualified entity keys layout/routing use. Build a source-ordered
-    // IndexMap so `resolve_endpoint` sees a stable lookup order.
-    let ordered: IndexMap<String, ParsedEntity> = sorted_entities
-        .iter()
-        .map(|(name, entity)| ((**name).clone(), (**entity).clone()))
-        .collect();
-    let links: Vec<ParsedLink> = links
-        .iter()
-        .map(|link| ParsedLink {
-            from: crate::entity_link_parser::resolve_endpoint(&link.from, true, &ordered),
-            to: crate::entity_link_parser::resolve_endpoint(&link.to, false, &ordered),
-            arrow: link.arrow.clone(),
-            label: link.label.clone(),
-            source_line: link.source_line,
-        })
-        .collect();
+/// Computes each entity's rendered and SvekNode dimensions for the given
+/// diagram type.
+#[must_use]
+pub(crate) fn build_entity_data(
+    entities: &HashMap<String, ParsedEntity>,
+    diagram_type: plantuml_core::DiagramType,
+) -> HashMap<&String, EntityData> {
 
     // Compute entity dimensions and SvekNode dimensions.
     let mut entity_data: HashMap<&String, EntityData> = HashMap::new();
     for (name, entity) in entities {
         let text_w = match entity.kind {
-            EntityKind::Abstract => measure_text_italic(&entity.display),
             EntityKind::Interface
                 if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
             {
                 // Lollipop label below the circle is drawn upright.
                 measure_text(&entity.display)
             }
-            EntityKind::Interface => measure_text_italic(&entity.display),
+            EntityKind::Abstract | EntityKind::Interface => measure_text_italic(&entity.display),
             _ => measure_text(&entity.display),
         };
         let (svek_w, svek_h, rx, ry) = match entity.kind {
@@ -676,6 +690,10 @@ pub fn compute_layout(
                 (w, h, 0.0, 0.0)
             }
         };
+        let (svek_w, svek_h) = match entity.forced_size {
+            Some((w, h)) => (w, h),
+            None => (svek_w, svek_h),
+        };
         let port_circle = if matches!(entity.kind, EntityKind::Interface)
             && matches!(diagram_type, plantuml_core::DiagramType::Description)
         {
@@ -696,6 +714,55 @@ pub fn compute_layout(
             },
         );
     }
+    entity_data
+}
+/// Core layout with an explicit base `ranksep`.
+///
+/// A folded composite state's independent inner sublayout
+/// (`GroupMakerState`) passes no `ranksep`, so graphviz uses its 0.5in
+/// (36px) default; the outer/top-level layout passes 60px.
+#[must_use]
+pub(crate) fn compute_layout_ranked(
+    entities: &HashMap<String, ParsedEntity>,
+    links: &[ParsedLink],
+    diagram_type: plantuml_core::DiagramType,
+    nodesep: f64,
+    base_ranksep: f64,
+    force_labeled: bool,
+) -> CucaLayout {
+    if entities.is_empty() {
+        return CucaLayout {
+            nodes: Vec::new(),
+            clusters: Vec::new(),
+            links: Vec::new(),
+            total_width: CANVAS_MARGIN * 2.0,
+            total_height: CANVAS_MARGIN * 2.0,
+        };
+    }
+
+    // Sort entities by source_line for correct entity ID assignment
+    let mut sorted_entities: Vec<(&String, &ParsedEntity)> = entities.iter().collect();
+    sorted_entities.sort_by_key(|(_, e)| e.source_line);
+
+    // Resolve written bracket-form endpoints (`[Web Server]`, `[*]`) to the
+    // qualified entity keys layout/routing use. Build a source-ordered
+    // IndexMap so `resolve_endpoint` sees a stable lookup order.
+    let ordered: IndexMap<String, ParsedEntity> = sorted_entities
+        .iter()
+        .map(|(name, entity)| ((**name).clone(), (**entity).clone()))
+        .collect();
+    let links: Vec<ParsedLink> = links
+        .iter()
+        .map(|link| ParsedLink {
+            from: crate::entity_link_parser::resolve_endpoint(&link.from, true, &ordered),
+            to: crate::entity_link_parser::resolve_endpoint(&link.to, false, &ordered),
+            arrow: link.arrow.clone(),
+            label: link.label.clone(),
+            source_line: link.source_line,
+        })
+        .collect();
+
+    let entity_data: HashMap<&String, EntityData> = build_entity_data(entities, diagram_type);
 
     // Leaves (non-group entities) are the only nodes dot/Smetana places; a
     // group is a cluster subgraph drawn around its members, not a box node.
@@ -768,13 +835,27 @@ pub fn compute_layout(
     // fall back to the pure-Rust solver instead of the old vertical stack.
     let (dot_string, node_colors) =
         generate_dot_string(&leaf_sorted, &entity_data, &links);
+    // Select the pure-Rust solver. Graphviz switches to rank doubling for the
+    // whole graph whenever any edge carries a label (`lib/dotgen/rank.c
+    // ::edgelabel_ranks`). The default `native_layout` reproduces flat
+    // diagrams; the doubled-rank `solve_labeled` is required only by the
+    // autarkic-fold outer frame, which requests it explicitly through
+    // `force_labeled`. Keeping ordinary graphs on the native solver preserves
+    // the clean-baseline flat-diagram output.
+    let native_solve = || {
+        if force_labeled {
+            crate::labeled_layout::solve_labeled(&sorted_data, &links, nodesep, base_ranksep)
+        } else {
+            crate::native_layout::solve(&sorted_data, &links, &leaf_group)
+        }
+    };
     let dot_result = if let Some(svg) = run_dot(&dot_string) {
         match parse_dot_svg(&svg, &node_colors) {
             Some(parsed) => parsed,
-            None => crate::native_layout::solve(&sorted_data, &links, &leaf_group),
+            None => native_solve(),
         }
     } else {
-        crate::native_layout::solve(&sorted_data, &links, &leaf_group)
+        native_solve()
     };
     build_layout_from_dot(
         &sorted_entities,
@@ -794,7 +875,7 @@ pub fn compute_layout(
 /// box. The actor head ellipse starts at thickness()=0.5 on the y axis.
 /// Other symbols (class `UPath`, use case ellipse, database `UPath`) start
 /// exactly at the placed origin.
-fn min_border_x(kind: EntityKind) -> f64 {
+pub(crate) fn min_border_x(kind: EntityKind) -> f64 {
     match kind {
         // URectangle-backed symbols record (x-1).
         EntityKind::Component | EntityKind::State => -1.0,
@@ -803,7 +884,7 @@ fn min_border_x(kind: EntityKind) -> f64 {
         _ => 0.0,
     }
 }
-fn min_border_y(kind: EntityKind) -> f64 {
+pub(crate) fn min_border_y(kind: EntityKind) -> f64 {
     match kind {
         // URectangle-backed symbols record (y-1).
         EntityKind::Component | EntityKind::State => -1.0,
@@ -866,6 +947,80 @@ fn collect_member_leaves<'a>(
             out.push(&ent.name);
         }
     }
+}
+
+/// Applies a move-delta to every edge point.
+pub(crate) fn shift_points(points: &[(f64, f64)], dx: f64, dy: f64) -> Vec<(f64, f64)> {
+    points.iter().map(|&(x, y)| (x + dx, y + dy)).collect()
+}
+
+/// Formats a chained-cubic edge path from its control points, optionally
+/// shortening the start (extension) or end (dependency) by the arrow length,
+/// and returns `(path d, arrow polygon)`. Association shortens neither end.
+pub(crate) fn emit_edge_path(
+    pts: &[(f64, f64)],
+    is_extension: bool,
+    is_association: bool,
+) -> (String, String) {
+    let n = pts.len();
+    // Local mutable copy so the arrow shortening moves only this edge's
+    // terminal point and its adjacent control, as graphviz redraws the segment.
+    let mut p = pts.to_vec();
+
+    // Tangent at the start points along the first segment (into the path).
+    let start_angle = (p[1].1 - p[0].1).atan2(p[1].0 - p[0].0);
+    // Tangent at the end points along the last segment, out of the path.
+    let end_angle = (p[n - 1].1 - p[n - 2].1).atan2(p[n - 1].0 - p[n - 2].0);
+
+    if is_extension {
+        // Hollow triangle (decLen 18) sits at the start; pull the start and its
+        // first control 18px into the path.
+        let len = 18.0;
+        let (sx, sy) = (len * start_angle.cos(), len * start_angle.sin());
+        p[0].0 += sx;
+        p[0].1 += sy;
+        p[1].0 += sx;
+        p[1].1 += sy;
+    } else if !is_association {
+        // Filled arrow (decLen 5) sits at the end; pull the end and its last
+        // control 5px back along the reverse tangent.
+        let len = 5.0;
+        let (sx, sy) = (len * end_angle.cos(), len * end_angle.sin());
+        p[n - 1].0 -= sx;
+        p[n - 1].1 -= sy;
+        p[n - 2].0 -= sx;
+        p[n - 2].1 -= sy;
+    }
+
+    let mut d = format!("M{},{}", fmt_coord(p[0].0), fmt_coord(p[0].1));
+    // Points advance three at a time: each cubic covers p[s..=s+3].
+    let mut s = 0usize;
+    while s + 3 < n {
+        write!(
+            d,
+            " C{},{} {},{} {},{}",
+            fmt_coord(p[s + 1].0),
+            fmt_coord(p[s + 1].1),
+            fmt_coord(p[s + 2].0),
+            fmt_coord(p[s + 2].1),
+            fmt_coord(p[s + 3].0),
+            fmt_coord(p[s + 3].1),
+        )
+        .unwrap_or_default();
+        s += 3;
+    }
+
+    let arrow = if is_extension {
+        // Tip at the (original, unshortened) start pointing back out.
+        let tip = pts[0];
+        compute_triangle_polygon(tip.0, tip.1, start_angle + std::f64::consts::PI, 18.0, 6.0)
+    } else if is_association {
+        String::new()
+    } else {
+        let tip = pts[n - 1];
+        compute_arrow_polygon(tip.0, tip.1, end_angle)
+    };
+    (d, arrow)
 }
 
 #[allow(clippy::similar_names)]
@@ -1012,6 +1167,15 @@ fn build_layout_from_dot(
     // below the cluster origin — folding the raw tab into the minimum would
     // pin it to the margin and shift every leaf up by that 0.602. Keeping the
     // leaf-relative geometry intact reproduces the tab at `margin + 0.602`.
+    // A labeled edge's control points reach beyond every node box: graphviz
+    // sizes the graph bbox from the routed spline points, not the node edges.
+    // Fold the minimum edge control-point x into the move-delta minimum or the
+    // node column stays pinned to the margin and the canvas comes up narrow.
+    let edge_min_x = dot_result
+        .edges
+        .values()
+        .flat_map(|e| e.points.iter().map(|p| p.0))
+        .fold(f64::INFINITY, f64::min);
     let min_min_x = sorted_entities
         .iter()
         .filter_map(|(name, entity)| {
@@ -1026,6 +1190,11 @@ fn build_layout_from_dot(
                 .map(|(_, _, left, _, _, _, _, _)| *left)
                 .fold(f64::INFINITY, f64::min),
         );
+    let min_min_x = if dot_result.label_box_left.is_empty() {
+        min_min_x
+    } else {
+        min_min_x.min(edge_min_x)
+    };
     // The folder tab sets the vertical minimum: the top leaf sits 38px (or
     // 57px) below it. Smetana lays out the cluster label as an inset node,
     // whose bounding box reaches 0.602px above the drawn folder origin, so the
@@ -1195,6 +1364,7 @@ fn build_layout_from_dot(
             text_y,
             text_width: ed.text_w,
             rank,
+            forced_size: entity.forced_size.is_some(),
         });
     }
 
@@ -1235,9 +1405,32 @@ fn build_layout_from_dot(
 
     // Edge colors are sequential after node colors
     let max_node_color = node_colors.values().copied().max().unwrap_or(5);
-    let mut edge_color = max_node_color + 1;
-
+    let mut edge_color_run = max_node_color + 1;
+    // Draw order defaults to source order; the labeled solver supplies
+    // graphviz's forward-converted order via `dot_result.draw_order`.
+    let mut draw_order: Vec<usize> = (0..links.len()).collect();
+    // Each source-order link's edge color, independent of draw order, so the
+    // spline lookup matches the solver's source-order keying.
+    let mut color_by_li: HashMap<usize, i32> = HashMap::new();
     for (li, link) in links.iter().enumerate() {
+        if node_map.contains_key(&link.from) && node_map.contains_key(&link.to) {
+            color_by_li.insert(li, edge_color_run);
+            edge_color_run += 1;
+        }
+    }
+    if !dot_result.draw_order.is_empty() {
+        let li_by_color: HashMap<i32, usize> =
+            color_by_li.iter().map(|(&li, &c)| (c, li)).collect();
+        draw_order = dot_result
+            .draw_order
+            .iter()
+            .filter_map(|c| li_by_color.get(c).copied())
+            .collect();
+    }
+
+    for &li in &draw_order {
+        let link = &links[li];
+        let edge_color = color_by_li[&li];
         if let (Some(from_node), Some(to_node)) =
             (node_map.get(&link.from), node_map.get(&link.to))
         {
@@ -1268,175 +1461,71 @@ fn build_layout_from_dot(
                 format!("{pn_from}-to-{pn_to}")
             };
 
-/// x coordinate of a cubic Bezier at the given y via binary search, assuming
-/// y is monotonic over the span (inter-rank edge curves).
-fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
-    let at = |t: f64| -> (f64, f64) {
-        let mt = 1.0 - t;
-        let w = [mt * mt * mt, 3.0 * mt * mt * t, 3.0 * mt * t * t, t * t * t];
-        let mut x = 0.0;
-        let mut y = 0.0;
-        for (i, (px, py)) in pts.iter().enumerate() {
-            x += w[i] * px;
-            y += w[i] * py;
-        }
-        (x, y)
-    };
-    let mut lo = 0.0;
-    let mut hi = 1.0;
-    for _ in 0..60 {
-        let m = (lo + hi) / 2.0;
-        if at(m).1 < target_y {
-            lo = m;
-        } else {
-            hi = m;
-        }
-    }
-    at((lo + hi) / 2.0).0
-}
 
-            // Final tail->head cubic points, captured for label placement.
-            let mut curve_pts: Option<[(f64, f64); 4]> = None;
-
-            // Get the edge path from dot SVG
-            let (path_d, arrow_points) = if let Some(edge_path) = dot_result.edges.get(&edge_color)
+            let (path_d, arrow_points) = if let Some(edge_path) =
+                dot_result.edges.get(&edge_color)
             {
-                // Apply moveDelta to all points
-                let pts: [(f64, f64); 4] = [
-                    (edge_path.points[0].0 + dx, edge_path.points[0].1 + dy),
-                    (edge_path.points[1].0 + dx, edge_path.points[1].1 + dy),
-                    (edge_path.points[2].0 + dx, edge_path.points[2].1 + dy),
-                    (edge_path.points[3].0 + dx, edge_path.points[3].1 + dy),
-                ];
+                // Apply moveDelta to every point.
+                let mut pts = shift_points(&edge_path.points, dx, dy);
+                let n = pts.len();
 
-                // Check if path needs to be reversed (compare start/end with source/target centers)
+                // Orient tail->head: compare start/end against the source and
+                // target centres and reverse when the solver stored it upside.
                 let dist_normal = (pts[0].0 - from_node.center_x).hypot(pts[0].1 - from_node.center_y)
-                    + (pts[3].0 - to_node.center_x).hypot(pts[3].1 - to_node.center_y);
-                let dist_reversed = (pts[3].0 - from_node.center_x).hypot(pts[3].1 - from_node.center_y)
+                    + (pts[n - 1].0 - to_node.center_x).hypot(pts[n - 1].1 - to_node.center_y);
+                let dist_reversed = (pts[n - 1].0 - from_node.center_x)
+                    .hypot(pts[n - 1].1 - from_node.center_y)
                     + (pts[0].0 - to_node.center_x).hypot(pts[0].1 - to_node.center_y);
-
-                let pts = if dist_reversed < dist_normal {
-                    // Reverse: swap start/end and box
-                    [pts[3], pts[2], pts[1], pts[0]]
-                } else {
-                    pts
-                };
-                curve_pts = Some(pts);
-                // For extension links (inheritance/realization), the arrow is at
-                // the START (parent end). For dependency links, the arrow is at
-                // the END (child end).
-                // Extension uses a hollow triangle (xWing=18, yAperture=6, decLen=18).
-                // Dependency uses a filled arrow (decLen=5).
-                if is_extension {
-                    let dec_len = 18.0;
-                    // Angle from start towards control1 (into the path)
-                    let path_angle = (pts[1].1 - pts[0].1).atan2(pts[1].0 - pts[0].0);
-                    // Shorten start by dec_len in path direction
-                    let sdx = dec_len * path_angle.cos();
-                    let sdy = dec_len * path_angle.sin();
-                    let shortened_start = (pts[0].0 + sdx, pts[0].1 + sdy);
-                    let shortened_ctrl1 = (pts[1].0 + sdx, pts[1].1 + sdy);
-
-                    let path_d = format!(
-                        "M{},{} C{},{} {},{} {},{}",
-                        fmt_coord(shortened_start.0),
-                        fmt_coord(shortened_start.1),
-                        fmt_coord(shortened_ctrl1.0),
-                        fmt_coord(shortened_ctrl1.1),
-                        fmt_coord(pts[2].0),
-                        fmt_coord(pts[2].1),
-                        fmt_coord(pts[3].0),
-                        fmt_coord(pts[3].1),
-                    );
-                    // Triangle arrow: tip at start, pointing away from path
-                    let arrow_angle = path_angle + std::f64::consts::PI;
-                    let arrow_points = compute_triangle_polygon(pts[0].0, pts[0].1, arrow_angle, 18.0, 6.0);
-                    (path_d, arrow_points)
-                } else if is_association {
-                    // Plain association: the cubic is drawn unshortened and
-                    // carries no arrowhead.
-                    let path_d = format!(
-                        "M{},{} C{},{} {},{} {},{}",
-                        fmt_coord(pts[0].0),
-                        fmt_coord(pts[0].1),
-                        fmt_coord(pts[1].0),
-                        fmt_coord(pts[1].1),
-                        fmt_coord(pts[2].0),
-                        fmt_coord(pts[2].1),
-                        fmt_coord(pts[3].0),
-                        fmt_coord(pts[3].1),
-                    );
-                    (path_d, String::new())
-                } else {
-                    let dec_len = 5.0;
-                    let end_angle = (pts[3].1 - pts[2].1).atan2(pts[3].0 - pts[2].0);
-                    let sdx = dec_len * end_angle.cos();
-                    let sdy = dec_len * end_angle.sin();
-                    let shortened_end = (pts[3].0 - sdx, pts[3].1 - sdy);
-                    let shortened_ctrl2 = (pts[2].0 - sdx, pts[2].1 - sdy);
-
-                    let path_d = format!(
-                        "M{},{} C{},{} {},{} {},{}",
-                        fmt_coord(pts[0].0),
-                        fmt_coord(pts[0].1),
-                        fmt_coord(pts[1].0),
-                        fmt_coord(pts[1].1),
-                        fmt_coord(shortened_ctrl2.0),
-                        fmt_coord(shortened_ctrl2.1),
-                        fmt_coord(shortened_end.0),
-                        fmt_coord(shortened_end.1),
-                    );
-                    let arrow_points = compute_arrow_polygon(pts[3].0, pts[3].1, end_angle);
-                    (path_d, arrow_points)
+                if dist_reversed < dist_normal {
+                    pts.reverse();
                 }
+
+                let (d, arrow) = emit_edge_path(&pts, is_extension, is_association);
+                (d, arrow)
             } else {
-                // Fallback: simple straight line
-                let path_d = format!(
-                    "M{},{} C{},{} {},{} {},{}",
-                    fmt_coord(from_node.center_x),
-                    fmt_coord(from_node.center_y + from_node.ry),
-                    fmt_coord(from_node.center_x),
-                    fmt_coord(from_node.center_y + from_node.ry),
-                    fmt_coord(to_node.center_x),
-                    fmt_coord(to_node.center_y - to_node.ry),
-                    fmt_coord(to_node.center_x),
-                    fmt_coord(to_node.center_y - to_node.ry),
+                // Fallback: a straight cubic from the source bottom to the
+                // target top.
+                let pts = [
+                    (from_node.center_x, from_node.center_y + from_node.ry),
+                    (from_node.center_x, from_node.center_y + from_node.ry),
+                    (to_node.center_x, to_node.center_y - to_node.ry),
+                    (to_node.center_x, to_node.center_y - to_node.ry),
+                ];
+                let (d, _) = emit_edge_path(&pts, is_extension, is_association);
+                let arrow = compute_arrow_polygon(
+                    to_node.center_x,
+                    to_node.center_y - to_node.ry,
+                    std::f64::consts::FRAC_PI_2,
                 );
-                let arrow_points =
-                    compute_arrow_polygon(to_node.center_x, to_node.center_y - to_node.ry, std::f64::consts::FRAC_PI_2);
-                (path_d, arrow_points)
+                (d, arrow)
             };
 
-            // Edge label: a 13px label with a 1px pad each side, laid in a
-            // `UEmpty(30.275, 19.706)` spacer whose far corner has no −1.
-            // Baseline sits 5.397 below the midpoint of the rank gap.
-            let (label_anchor, label_spacer_right) = match (&link.label, curve_pts) {
-                (Some(text), Some(pts)) if (pts[0].0 - pts[3].0).abs() > 1.0 => {
-                    let lw = measure_text_size(text, LABEL_FONT_SIZE);
-                    let gap_center =
-                        (from_node.y + from_node.height + to_node.y) / 2.0;
-                    let baseline_y = gap_center + LABEL_BASELINE_OFFSET;
-                    // Box vertical-centre y (baseline minus ascent/2 offset).
-                    let box_center_y = baseline_y - (14.9659 - 9.5);
-                    // The label rides on the curve: its left edge sits 4.5px
-                    // right of the spline at the box's vertical centre.
-                    let label_x = cubic_x_at_y(pts, box_center_y) + 4.5;
-                    (
-                        Some((label_x, baseline_y)),
-                        Some(label_x + lw + 1.0),
-                    )
-                }
-                (Some(text), _) => {
-                    let lw = measure_text_size(text, LABEL_FONT_SIZE);
-                    let gap_center =
-                        (from_node.y + from_node.height + to_node.y) / 2.0;
-                    let label_x = from_node.center_x + 1.0;
-                    (
-                        Some((label_x, gap_center + LABEL_BASELINE_OFFSET)),
-                        Some(label_x + lw + 1.0),
-                    )
-                }
-                _ => (None, None),
+            // Edge label: a 13px label with a 1px pad, laid in a
+            // `UEmpty` spacer whose far corner has no −1. The text starts one
+            // pixel right of the recovered label box; the baseline sits
+            // 5.397 below the midpoint of the rank gap.
+            let (label_anchor, label_spacer_right) = if let Some(text) = &link.label {
+                let text_w = measure_text_size(text, LABEL_FONT_SIZE);
+                // Graphviz positions the label at its virtual node's rank
+                // coordinate; map that y to the final frame. Reconstructing
+                // the gap midpoint from the placed node corners folds in a
+                // sub-pixel move-delta error for a folded leaf.
+                let gap_center =
+                    (from_node.y + from_node.height + to_node.y) / 2.0;
+                let baseline_y = match dot_result.label_vnode_y.get(&edge_color) {
+                    Some(&y) => -y + dy + LABEL_BASELINE_OFFSET,
+                    None => gap_center + LABEL_BASELINE_OFFSET,
+                };
+                let label_x = match dot_result.label_box_left.get(&edge_color) {
+                    Some(left) => q2_halfup(via_g5(left + dx)) + 1.0,
+                    None => from_node.center_x + 1.0,
+                };
+                (
+                    Some((label_x, baseline_y)),
+                    Some(label_x + text_w + 1.0),
+                )
+            } else {
+                (None, None)
             };
 
             layout_links.push(LayoutLink {
@@ -1459,7 +1548,6 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
                 arrow: link.arrow.clone(),
             });
 
-            edge_color += 1;
         }
     }
 
@@ -1507,8 +1595,18 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
     let (clust_right, clust_bottom) = clusters.iter().fold((0.0_f64, 0.0_f64), |(r, b), c| {
         (r.max(c.x + c.width), b.max(c.y + c.height))
     });
+    // A folded composite node carries an embedded inner `SvekResult` whose
+    // far corner is recorded without −1, exactly like an edge-label spacer,
+    // so its extent sizes the canvas from the full 15px delta rather than
+    // the 14px placed-node margin.
+    let max_forced_right = nodes
+        .iter()
+        .filter(|n| n.forced_size)
+        .map(|n| n.x + n.width)
+        .fold(0.0_f64, f64::max);
     let total_width = node_width
         .max(15.0 + max_spacer.floor())
+        .max(15.0 + max_forced_right.floor())
         .max(if clusters.is_empty() { 0.0 } else { 15.0 + clust_right.floor() });
     let has_database = nodes.iter().any(|n| n.kind == EntityKind::Database);
     let node_height = if has_database {
@@ -1533,6 +1631,21 @@ fn cubic_x_at_y(pts: [(f64, f64); 4], target_y: f64) -> f64 {
 
 
 // ── Arrow polygon ───────────────────────────────────────────────────────
+
+/// Round-trips a coordinate through graphviz's `%.5g` token serialization:
+/// format to five significant digits then parse back, as Smetana does when it
+/// re-reads emitted label positions.
+fn via_g5(v: f64) -> f64 {
+    format!("{v:.4e}").parse().unwrap_or(v)
+}
+
+fn q2_halfup(v: f64) -> f64 {
+    let s = v * 100.0;
+    // Half-up to an integer: floor(s + 0.5). The epsilon lifts a value that
+    // is exactly x.5 but represented just under it.
+    let r = if s >= 0.0 { s + 0.5 + 1e-9 } else { s + 0.5 - 1e-9 };
+    r.floor() / 100.0
+}
 
 /// Formats a coordinate like Java's `%.4f` with trailing zeros and decimal point stripped.
 fn fmt_coord(v: f64) -> String {
@@ -1607,5 +1720,10 @@ pub(crate) struct EntityData {
     /// (component-diagram lollipop); edges clip to this circle, not the box.
     pub(crate) port_circle: Option<f64>,
 }
+
+
+
+
+
 
 

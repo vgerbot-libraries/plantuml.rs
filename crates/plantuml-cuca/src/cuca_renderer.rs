@@ -116,6 +116,39 @@ pub fn render_cuca_svg(
     notes: &[ParsedNote],
     diagram_type: plantuml_core::DiagramType,
 ) -> String {
+    render_core(layout, entities, notes, diagram_type, None)
+}
+
+/// Renders a folded STATE diagram, drawing each folded leaf's title band and
+/// nested inner fragment instead of the ordinary state box.
+///
+/// Ported from `InnerStateAutonom.drawU` nested inside `SvekResult`.
+#[must_use]
+pub fn render_cuca_svg_folded(
+    layout: &CucaLayout,
+    entities: &HashMap<String, ParsedEntity>,
+    notes: &[ParsedNote],
+    fragments: &HashMap<String, crate::fold::FoldFragment>,
+) -> String {
+    render_core(
+        layout,
+        entities,
+        notes,
+        plantuml_core::DiagramType::State,
+        Some(fragments),
+    )
+}
+
+/// Renders a CucaDiagram layout as an SVG string.
+///
+/// Shared renderer body; `fragments` drives nested composite-state drawing.
+fn render_core(
+    layout: &CucaLayout,
+    entities: &HashMap<String, ParsedEntity>,
+    notes: &[ParsedNote],
+    diagram_type: plantuml_core::DiagramType,
+    fragments: Option<&HashMap<String, crate::fold::FoldFragment>>,
+) -> String {
     let mut option = SvgOption::basic();
     option.set_backcolor(plantuml_klimt::color::HColor::rgb(0xFF, 0xFF, 0xFF));
     let type_name = match diagram_type {
@@ -133,6 +166,10 @@ pub fn render_cuca_svg(
     svg.svg_rectangle(0.0, 0.0, layout.total_width, layout.total_height, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
+    if fragments.is_some() {
+        render_folded(&mut svg, layout, entities, fragments.expect("checked"), notes);
+        return svg.create_xml();
+    }
     // Render clusters first (folders sit behind their member entities),
     // then entities, then links.
     for cluster in &layout.clusters {
@@ -159,6 +196,207 @@ pub fn render_cuca_svg(
     }
 
     svg.create_xml()
+}
+
+/// Vertical offset of the inner image inside the composite leaf
+/// (`InnerStateAutonom.getSpaceYforURL`): title band + `MARGIN_LINE`.
+const FOLD_INNER_DY: f64 = 34.0679;
+/// Radius of a state's rounded corners.
+const FOLD_RADIUS: f64 = 12.5;
+
+/// Renders a folded STATE diagram: the composite leaf with its nested inner
+/// fragment, then the outer start/end pseudo-states and their links.
+fn render_folded(
+    svg: &mut SvgGraphics,
+    layout: &CucaLayout,
+    entities: &HashMap<String, ParsedEntity>,
+    fragments: &HashMap<String, crate::fold::FoldFragment>,
+    _notes: &[ParsedNote],
+) {
+    let Some(active) = layout.nodes.iter().find(|n| fragments.contains_key(&n.name)) else {
+        return;
+    };
+    let fragment = &fragments[&active.name];
+    let (ax, ay, aw, ah) = (active.x, active.y, active.width, active.height);
+
+    // ── Composite leaf group ──────────────────────────────────────────────
+    let source_line = active.source_line.to_string();
+    let leaf_attrs: [(&str, &str); 4] = [
+        ("class", "entity"),
+        ("data-qualified-name", &active.qualified_name),
+        ("data-source-line", &source_line),
+        ("id", &active.entity_id),
+    ];
+    svg.open_group_with_attrs(&leaf_attrs);
+
+    // Title band: a faithful port of `RoundedNorth` (fill #F1F1F1, no stroke),
+    // drawn before the body rect. Its rounded-corner diameter is twice the
+    // rect radius (`rounded = 2 * rx`).
+    let band_d = rounded_north_path(ax, ay, aw, fragment.name_height, 2.0 * FOLD_RADIUS);
+    svg.set_fill_color(FILL_STATE);
+    svg.set_stroke_width(0.0, None);
+    svg.svg_path(&band_d, 0.0);
+
+    // Outer rounded rectangle (white body), separator, title.
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_rectangle(ax, ay, aw, ah, FOLD_RADIUS, FOLD_RADIUS, 0.0);
+    svg.svg_line(
+        ax,
+        ay + FOLD_INNER_DY - MARGIN_LINE_CONST,
+        ax + aw,
+        ay + FOLD_INNER_DY - MARGIN_LINE_CONST,
+        0.0,
+    );
+    let title_w = text_width(&fragment.name, FONT_SIZE_NAME);
+    let mut title_attrs = indexmap::IndexMap::new();
+    title_attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        &fragment.name,
+        ax + (aw - title_w) / 2.0,
+        ay + 19.9659,
+        Some(FONT_FAMILY),
+        FONT_SIZE_NAME,
+        None,
+        None,
+        None,
+        title_w,
+        &title_attrs,
+        None,
+    );
+
+    // Nested inner nodes and edges.
+    draw_inner(svg, fragment, ax + MARGIN_LINE_CONST, ay + FOLD_INNER_DY);
+
+    svg.close_group();
+
+    // ── Outer start/end pseudo-states ─────────────────────────────────────
+    for node in layout.nodes.iter().filter(|n| !fragments.contains_key(&n.name)) {
+        if let Some(entity) = entities.get(&node.name) {
+            render_entity(svg, node, entity, plantuml_core::DiagramType::State);
+        }
+    }
+    // ── Outer links ───────────────────────────────────────────────────────
+    for link in &layout.links {
+        render_link(svg, link, plantuml_core::DiagramType::State);
+    }
+}
+
+/// `IEntityImage.MARGIN` / `MARGIN_LINE` (both 5).
+const MARGIN_LINE_CONST: f64 = 5.0;
+
+/// Draws the inner nodes and edges of a fragment translated to the composite
+/// content origin.
+fn draw_inner(
+    svg: &mut SvgGraphics,
+    fragment: &crate::fold::FoldFragment,
+    dx: f64,
+    dy: f64,
+) {
+    for node in &fragment.nodes {
+        let source_line = node.source_line.to_string();
+        let attrs: [(&str, &str); 4] = [
+            ("class", "entity"),
+            ("data-qualified-name", &format!("{}.{}", fragment.name, node.display)),
+            ("data-source-line", &source_line),
+            ("id", &node.entity_id),
+        ];
+        svg.open_group_with_attrs(&attrs);
+        let (x, y) = (node.x + dx, node.y + dy);
+        svg.set_fill_color(FILL_STATE);
+        svg.set_stroke_color(Some(STROKE_COLOR));
+        svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+        svg.svg_rectangle(x, y, node.width, node.height, FOLD_RADIUS, FOLD_RADIUS, 0.0);
+        svg.svg_line(
+            x,
+            y + 29.0679,
+            x + node.width,
+            y + 29.0679,
+            0.0,
+        );
+        let mut attrs = indexmap::IndexMap::new();
+        attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+        svg.text(
+            &node.display,
+            node.text_x + dx,
+            node.text_y + dy,
+            Some(FONT_FAMILY),
+            FONT_SIZE_NAME,
+            None,
+            None,
+            None,
+            node.text_width,
+            &attrs,
+            None,
+        );
+        svg.close_group();
+    }
+
+    for edge in &fragment.edges {
+        draw_inner_edge(svg, edge, fragment, dx, dy);
+    }
+}
+
+/// Draws one inner transition at the composite content origin.
+fn draw_inner_edge(
+    svg: &mut SvgGraphics,
+    edge: &crate::fold::FoldEdge,
+    fragment: &crate::fold::FoldFragment,
+    dx: f64,
+    dy: f64,
+) {
+    let source_line = edge.source_line.to_string();
+    svg.add_comment(&edge.comment);
+    let attrs: [(&str, &str); 6] = [
+        ("class", "link"),
+        ("data-entity-1", &edge.from_entity),
+        ("data-entity-2", &edge.to_entity),
+        ("data-link-type", "dependency"),
+        ("data-source-line", &source_line),
+        ("id", &edge.link_id),
+    ];
+    svg.open_group_with_attrs(&attrs);
+
+    let pts: Vec<(f64, f64)> = edge
+        .points
+        .iter()
+        .map(|&(x, y)| (x + dx, y + dy))
+        .collect();
+    let (d, arrow) = crate::cuca_layout::emit_edge_path(&pts, false, false);
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(STROKE_LINK));
+    svg.set_stroke_width(STROKE_WIDTH_LINK, None);
+    svg.svg_path_with_id(&d, &edge.path_id, 0.0);
+    let arrow_pts: Vec<f64> = arrow
+        .split(',')
+        .filter_map(|s| s.trim().parse::<f64>().ok())
+        .collect();
+    if !arrow_pts.is_empty() {
+        svg.set_fill_color(STROKE_LINK);
+        svg.set_stroke_color(Some(STROKE_LINK));
+        svg.svg_polygon(0.0, &arrow_pts);
+    }
+    if let (Some(label), Some(anchor)) = (&edge.label, edge.label_anchor) {
+        let lw = text_width(label, FONT_SIZE_LABEL);
+        let mut attrs = indexmap::IndexMap::new();
+        attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+        svg.text(
+            label,
+            anchor.0 + dx,
+            anchor.1 + dy,
+            Some(FONT_FAMILY),
+            FONT_SIZE_LABEL,
+            None,
+            None,
+            None,
+            lw,
+            &attrs,
+            None,
+        );
+    }
+    let _ = fragment;
+    svg.close_group();
 }
 
 /// Folder outline corner radius.
@@ -251,6 +489,28 @@ fn fmt_coord(v: f64) -> String {
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');
     s.to_string()
+}
+
+/// Builds the SVG path of a state's rounded title band, ported from
+/// `RoundedNorth.drawU`. The band spans `width` by `height`, translated to
+/// `(x, y)`; `rounded` is the corner diameter (twice the arc radius).
+#[must_use]
+fn rounded_north_path(x: f64, y: f64, width: f64, height: f64, rounded: f64) -> String {
+    let half = rounded / 2.0;
+    // Local geometry follows RoundedNorth: moveTo(r/2,0), line across the top,
+    // arc to (width,r/2), down both sides, arc back; then translated to (x,y).
+    let p = |lx: f64, ly: f64| format!("{},{}", fmt_coord(x + lx), fmt_coord(y + ly));
+    format!(
+        "M{p0} L{p1} A{r},{r} 0 0 1 {p2} L{p3} L{p4} L{p5} A{r},{r} 0 0 1 {p6}",
+        p0 = p(half, 0.0),
+        p1 = p(width - half, 0.0),
+        p2 = p(width, half),
+        p3 = p(width, height),
+        p4 = p(0.0, height),
+        p5 = p(0.0, half),
+        p6 = p(half, 0.0),
+        r = fmt_coord(half),
+    )
 }
 
 // ── Entity rendering ─────────────────────────────────────────────────────
@@ -1149,6 +1409,7 @@ mod tests {
                 parent: None,
                 group: false,
                 members: Vec::new(),
+                forced_size: None,
             },
         );
         let layout = compute_layout(&entities, &[], plantuml_core::DiagramType::Description);
@@ -1173,6 +1434,7 @@ mod tests {
             parent: None,
             group: false,
             members: Vec::new(),
+            forced_size: None,
         }
     }
 
@@ -1237,6 +1499,7 @@ mod tests {
                 parent: None,
                 group: false,
                 members: Vec::new(),
+                forced_size: None,
             },
         );
         let layout = compute_layout(&entities, &[], plantuml_core::DiagramType::Class);

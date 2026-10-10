@@ -39,6 +39,10 @@ pub struct ParsedEntity {
     pub group: bool,
     /// Child entity keys of a group, in source order.
     pub members: Vec<String>,
+    /// Explicit Svek image size declared for a leaf produced by composite
+    /// folding (`InnerStateAutonom` dimensions), overriding the kind-based
+    /// default sizing.
+    pub forced_size: Option<(f64, f64)>,
 }
 
 /// Kind of entity.
@@ -446,6 +450,7 @@ fn empty_entity() -> ParsedEntity {
         parent: None,
         group: false,
         members: Vec::new(),
+        forced_size: None,
     }
 }
 
@@ -513,6 +518,7 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         parent: None,
         group: false,
         members: Vec::new(),
+        forced_size: None,
     })
 }
 

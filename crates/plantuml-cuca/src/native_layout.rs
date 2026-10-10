@@ -20,7 +20,7 @@ use crate::pathplan::{
 };
 
 /// Horizontal node separation (matches dot `nodesep`).
-const NODESEP: f64 = 35.0;
+pub const NODESEP: f64 = 35.0;
 /// Vertical rank separation (matches dot `ranksep`).
 const RANKSEP: f64 = 60.0;
 /// Extra bounding-box slack (dotsplines.c `FUDGE`).
@@ -88,7 +88,7 @@ struct Node {
 /// `lib/dotgen/acyclic.c`, which removes a feedback edge set before the
 /// network-simplex ranking — the longest-path ranking in [`solve`] only
 /// converges on a DAG. Dropped edges are still routed by the caller.
-fn acyclic_edges<'a>(
+pub fn acyclic_edges<'a>(
     names: &[&'a String],
     edges: &[(&'a String, &'a String)],
 ) -> Vec<(&'a String, &'a String)> {
@@ -529,20 +529,6 @@ pub fn solve(
         }
     }
 
-    // A bidirectional pair (u->v and v->u both present) splits its ports:
-    // the rank-increasing forward edge routes on the LEFT, the feedback edge
-    // stays centered. Build the set of forward edges that have a reverse.
-    let edge_pairs: std::collections::HashSet<(&String, &String)> = real_redges
-        .iter()
-        .map(|e| (e.a, e.b))
-        .collect();
-    let forward_pairs: std::collections::HashSet<(&String, &String)> = real_redges
-        .iter()
-        .filter(|e| edge_pairs.contains(&(e.b, e.a)))
-        .filter(|e| rank[e.a] < rank[e.b])
-        .map(|e| (e.a, e.b))
-        .collect();
-
     // ── Route edges ──────────────────────────────────────────────────────
     let mut out_edges = HashMap::new();
     let first_color = (names.len() + 6) as i32;
@@ -631,38 +617,27 @@ fn node_endpoint(node: &Node) -> Endpoint {
             bezier_clip(&mut curve, tail_ep, true);
             bezier_clip(&mut curve, head_ep, false);
             let pts = curve.map(|p| (q2(p.x), q2(-p.y)));
-            out_edges.insert(first_color + i as i32, DotEdgePath { points: pts });
+            out_edges.insert(first_color + i as i32, DotEdgePath { points: pts.to_vec() });
             continue;
         }
 
-        let is_forward_pair = forward_pairs.contains(&(tail_name, head_name));
-        // Forward edge of a bidirectional pair exits/enters the node's LEFT
-        // edge; other edges use the node center.
-        let port_x = |node: &Node| {
-            if is_forward_pair {
-                node.center.x - node.half_w
-            } else {
-                node.center.x
-            }
-        };
+        // beginpath/endpath: the edge leaves the tail and enters the head at
+        // their centers. Tail box spans the lower half of the tail rank, the
+        // inter-rank corridor is full width, the head box the upper half.
         let tail_box = GvBox {
             ll: Point::new(t_ll, tail.center.y - rank_ht[rt]),
             ur: Point::new(t_ur, tail.center.y),
         };
-        let start = Point::new(port_x(tail), tail.center.y - 1.0);
-
-        // rank_box: full-width inter-rank corridor.
+        let start = Point::new(tail.center.x, tail.center.y - 1.0);
         let inter_box = GvBox {
             ll: Point::new(left_bound, head.center.y + rank_ht[rh]),
             ur: Point::new(right_bound, tail.center.y - rank_ht[rt]),
         };
-
-        // endpath generic REGULAREDGE: top half of the head corridor.
         let head_box = GvBox {
             ll: Point::new(h_ll, head.center.y),
             ur: Point::new(h_ur, head.center.y + rank_ht[rh]),
         };
-        let end = Point::new(port_x(head), head.center.y + 1.0);
+        let end = Point::new(head.center.x, head.center.y + 1.0);
 
         let boxes: Vec<GvBox> = [tail_box, inter_box, head_box]
             .into_iter()
@@ -699,7 +674,7 @@ fn node_endpoint(node: &Node) -> Endpoint {
             let take = [0, 1, n.saturating_sub(2), n - 1];
             take.map(|k| (q2(fitted[k].x), q2(-fitted[k].y)))
         };
-        out_edges.insert(first_color + i as i32, DotEdgePath { points: pts });
+        out_edges.insert(first_color + i as i32, DotEdgePath { points: pts.to_vec() });
     }
 
     let raw_yup: HashMap<String, (f64, f64)> = names
@@ -711,6 +686,9 @@ fn node_endpoint(node: &Node) -> Endpoint {
         nodes: out_nodes,
         edges: out_edges,
         raw_yup,
+        label_vnode_y: HashMap::new(),
+        label_box_left: HashMap::new(),
+        draw_order: Vec::new(),
     }
 }
 

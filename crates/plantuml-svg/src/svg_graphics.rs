@@ -686,6 +686,13 @@ impl SvgGraphics {
         self.pending_elements.push(g);
     }
 
+    /// Appends an XML comment to the currently open group.
+    ///
+    /// Ported from: `SvgGraphics.appendComment(String)`.
+    pub fn add_comment(&mut self, text: &str) {
+        self.get_g_mut().append_comment(text);
+    }
+
     /// Adds a `<title>` element to the current group.
     pub fn title(&mut self, text: &str) {
         let mut title_node = XmlNode::new("title");
