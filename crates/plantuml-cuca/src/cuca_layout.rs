@@ -208,6 +208,28 @@ fn measure_text_italic(text: &str) -> f64 {
     dim.width()
 }
 
+/// Measures text width with italic font at the given size (e.g. the 12pt
+/// object stereotype).
+fn measure_text_size_italic(text: &str, size: i32) -> f64 {
+    let sb = StringBounderSvg::new(FileFormat::Svg);
+    let font = UFont::sans_serif(size).with_style(FontStyle::italic());
+    sb.calculate_dimension(&font, text).width()
+}
+
+/// Exact AWT advance of `«`/`»` at 12pt italic SansSerif (measured from
+/// PlantUML 1.2026.6): `«A»` − `A` = 2 × 5.7241. The Latin-1 fallback
+/// table overstates them, so [`measure_object_stereotype`] corrects them.
+const OBJECT_STEREO_GUILLEMET_W: f64 = 5.7241;
+
+/// Width of an object's 12pt italic stereotype label (`«name»`), matching
+/// Java AWT advances for the guillemets.
+pub(crate) fn measure_object_stereotype(label: &str) -> f64 {
+    let text = format!("\u{00ab}{label}\u{00bb}");
+    let raw = measure_text_size_italic(&text, 12);
+    let guillemet = measure_text_size_italic("\u{00ab}", 12);
+    raw - 2.0 * guillemet + 2.0 * OBJECT_STEREO_GUILLEMET_W
+}
+
 /// Measures text width with bold font (for cluster/package titles).
 fn measure_text_bold(text: &str) -> f64 {
     let sb = StringBounderSvg::new(FileFormat::Svg);
@@ -215,6 +237,22 @@ fn measure_text_bold(text: &str) -> f64 {
     let dim = sb.calculate_dimension(&font, text);
     dim.width()
 }
+
+// ── Object entity geometry ──────────────────────────────────────────────
+// Ported from: `svek/image/EntityImageObject.java` (all values measured
+// against Java PlantUML 1.2026.6 SVG output).
+
+/// Header height (rect top → separator) for an object without stereotype.
+pub(crate) const OBJECT_HEADER_H: f64 = 23.0679;
+/// Height added by the 12pt italic stereotype line in the header.
+pub(crate) const OBJECT_STEREO_H: f64 = 16.3441;
+/// Reserved strip below the separator for an object with no fields
+/// (`TextBlockEmpty(10, 16)` wrapped by `TextBlockLineBefore`).
+pub(crate) const OBJECT_EMPTY_BODY_H: f64 = 16.0;
+/// Top padding below the separator before the first field baseline block.
+pub(crate) const OBJECT_BODY_TOP: f64 = 8.0;
+/// Object field row pitch (14pt SansSerif AWT line height).
+pub(crate) const OBJECT_ROW_H: f64 = 19.0679;
 
 // ── Entity sizing ───────────────────────────────────────────────────────
 
@@ -663,6 +701,36 @@ pub(crate) fn build_entity_data(
                 // Final pseudo-state: outer r=11 ring (drives the box).
                 (22.0, 22.0, 11.0, 11.0)
             }
+            EntityKind::Object => {
+                // `EntityImageObject`: width = max(name + 14, stereo + 10,
+                // field + 12); height = header (23.0679, +16.3441 with a
+                // stereotype) followed by an empty 16px strip or
+                // 8 + n_fields * 19.0679 of attribute rows.
+                let mut w = text_w + 14.0;
+                if let Some(st) = &entity.stereotype {
+                    w = w.max(measure_object_stereotype(st) + 10.0);
+                }
+                for line in &entity.body {
+                    let trimmed = line.trim();
+                    let rest = match trimmed.chars().next() {
+                        Some('+' | '-' | '#') => &trimmed[1..],
+                        _ => trimmed,
+                    };
+                    w = w.max(measure_text(rest) + 12.0);
+                }
+                let header_h = OBJECT_HEADER_H
+                    + if entity.stereotype.is_some() {
+                        OBJECT_STEREO_H
+                    } else {
+                        0.0
+                    };
+                let body_h = if entity.body.is_empty() {
+                    OBJECT_EMPTY_BODY_H
+                } else {
+                    OBJECT_BODY_TOP + entity.body.len() as f64 * OBJECT_ROW_H
+                };
+                (w, header_h + body_h, 0.0, 0.0)
+            }
             _ => {
                 // Class/interface/abstract: width = max(name_text + 32, body_text + 26)
                 // Height = 32 + num_fields * LINE_HEIGHT + 8 + num_methods * LINE_HEIGHT + 8
@@ -878,6 +946,7 @@ pub(crate) fn compute_layout_ranked(
 pub(crate) fn min_border_x(kind: EntityKind) -> f64 {
     match kind {
         // URectangle-backed symbols record (x-1).
+
         EntityKind::Component | EntityKind::State => -1.0,
         // The 3D node's fold flap starts 10px left of the placed box.
         EntityKind::Node => -10.0,
@@ -891,6 +960,38 @@ pub(crate) fn min_border_y(kind: EntityKind) -> f64 {
         EntityKind::Actor => 0.5,
         _ => 0.0,
     }
+}
+/// Extra LimitFinder minimum-y extent above a placed node's origin, beyond
+/// the `URectangle` `y − 1` corner every box already contributes.
+///
+/// A stereotyped object draws its 12pt stereo label at baseline
+/// `y + 12.8281`; `LimitFinder.drawText` records its top at
+/// `baseline − (16.344 − 1.5) = y − 2.016`, i.e. 1.016px higher than the
+/// box corner. That label sets the graph minimum, shifting every node down
+/// by 1.016 (measured against jar 1.2026.6).
+pub(crate) fn leaf_min_border_y(entity: &ParsedEntity) -> f64 {
+    if matches!(entity.kind, EntityKind::Object) && entity.stereotype.is_some() {
+        return -1.016;
+    }
+    min_border_y(entity.kind)
+}
+
+/// LimitFinder maximum-y extent past a placed node's bottom edge.
+///
+/// An object with no attributes draws only its outline corner at
+/// `y + height − 1` (`TextBlockEmpty.drawU` records nothing); once it has a
+/// body the marged body block records a far corner at `y + height`. In a
+/// single-node diagram the smaller placed-node margin absorbs that one pixel,
+/// so the `−1` applies only with two or more nodes (jar-verified).
+pub(crate) fn leaf_max_extent_y(entity: &ParsedEntity, multi_node: bool) -> f64 {
+    if matches!(entity.kind, EntityKind::Object) {
+        return if entity.body.is_empty() && multi_node {
+            -1.0
+        } else {
+            0.0
+        };
+    }
+    max_extent_y(entity.kind)
 }
 
 /// LimitFinder extension beyond a node's placed bounding-box maximum, by shape.
@@ -907,9 +1008,30 @@ fn max_extent_x(kind: EntityKind) -> f64 {
 }
 fn max_extent_y(kind: EntityKind) -> f64 {
     match kind {
-        EntityKind::Database => 10.0,
+        // Both `USymbolDatabase` and `USymbolNode` finish with a translated
+        // `UEmpty(10,10)`, whose `drawEmpty` records a point 10px below the
+        // symbol box (LimitFinder structural bottom).
+        EntityKind::Database | EntityKind::Node => 10.0,
         _ => 0.0,
     }
+}
+
+/// LimitFinder maximum-x extent past a placed node's right edge.
+///
+/// An empty object draws only its outline corner `x + width − 1`; a body
+/// object's marged block reaches `x + width`. Other symbols keep their
+/// shape-specific reach (database/node back face). In a single-node diagram
+/// the smaller placed-node margin absorbs that one pixel, so the `−1`
+/// applies only with two or more nodes (mirrors [`leaf_max_extent_y`]).
+pub(crate) fn leaf_max_extent_x(entity: &ParsedEntity, multi_node: bool) -> f64 {
+    if matches!(entity.kind, EntityKind::Object) {
+        return if entity.body.is_empty() && multi_node {
+            -1.0
+        } else {
+            0.0
+        };
+    }
+    max_extent_x(entity.kind)
 }
 
 /// Collects every leaf key nested under group `root`, descending through
@@ -1205,7 +1327,7 @@ fn build_layout_from_dot(
         .filter_map(|(name, entity)| {
             let color = node_colors.get(*name).copied()?;
             let pos = dot_result.nodes.get(&color)?;
-            Some(pos.min_y + min_border_y(entity.kind))
+            Some(pos.min_y + leaf_min_border_y(entity))
         })
         .fold(f64::INFINITY, f64::min)
         .min(
@@ -1430,10 +1552,14 @@ fn build_layout_from_dot(
 
     for &li in &draw_order {
         let link = &links[li];
-        let edge_color = color_by_li[&li];
+        // `color_by_li` only contains links whose both endpoints resolve to
+        // a known entity; index it after that guard so a dangling link
+        // (e.g. the accepted-but-unresolved `object x : T {`) is skipped
+        // instead of panicking with an out-of-bounds HashMap index.
         if let (Some(from_node), Some(to_node)) =
             (node_map.get(&link.from), node_map.get(&link.to))
         {
+            let edge_color = color_by_li[&li];
             let link_id = format!("lnk{}", link_uid[li]);
             let is_extension = link.arrow.contains("<|") || link.arrow.contains("|<");
             // A plain edge with no arrowhead (`--`) is an association; an
@@ -1446,10 +1572,16 @@ fn build_layout_from_dot(
             } else {
                 "dependency"
             };
+            // Edge ids use the short `as` code when the entity declares one
+            // (`interface "User API" as API` → `Client-to-API`); nested and
+            // unaliased leaves keep their display so component-03 is stable.
             let path_name = |node: &LayoutNode| match node.kind {
                 EntityKind::Start => "*start*".to_string(),
                 EntityKind::End => "*end*".to_string(),
-                _ => node.display.clone(),
+                _ => entity_by_name
+                    .get(&node.name)
+                    .and_then(|e| e.alias.clone())
+                    .unwrap_or_else(|| node.display.clone()),
             };
             let pn_from = path_name(from_node);
             let pn_to = path_name(to_node);
@@ -1500,25 +1632,30 @@ fn build_layout_from_dot(
                 (d, arrow)
             };
 
-            // Edge label: a 13px label with a 1px pad, laid in a
-            // `UEmpty` spacer whose far corner has no −1. The text starts one
-            // pixel right of the recovered label box; the baseline sits
-            // 5.397 below the midpoint of the rank gap.
+            // Edge label: a 13px label with a 1px pad, laid in a `UEmpty`
+            // spacer whose far corner has no -1. The text starts one pixel
+            // right of the recovered label box; the baseline sits 5.397
+            // below the midpoint of the rank gap.
             let (label_anchor, label_spacer_right) = if let Some(text) = &link.label {
                 let text_w = measure_text_size(text, LABEL_FONT_SIZE);
                 // Graphviz positions the label at its virtual node's rank
-                // coordinate; map that y to the final frame. Reconstructing
-                // the gap midpoint from the placed node corners folds in a
-                // sub-pixel move-delta error for a folded leaf.
+                // coordinate; map that y to the final frame. The gap center
+                // uses the 2dp-rounded placed box height because graphviz
+                // quantizes node coords before placing the label vnode
+                // (verified links 90.967, attrs friend 138.463).
                 let gap_center =
-                    (from_node.y + from_node.height + to_node.y) / 2.0;
+                    (from_node.y + q2_halfup(from_node.height) + to_node.y) / 2.0;
                 let baseline_y = match dot_result.label_vnode_y.get(&edge_color) {
                     Some(&y) => -y + dy + LABEL_BASELINE_OFFSET,
                     None => gap_center + LABEL_BASELINE_OFFSET,
                 };
+                // Native edges populate `label_box_left` from the spline's
+                // extent across the label-rank band (limitBoxes), exactly as
+                // the fold solver does; the vertical HTTPS edge resolves to
+                // the column centre through the same anchor channel.
                 let label_x = match dot_result.label_box_left.get(&edge_color) {
                     Some(left) => q2_halfup(via_g5(left + dx)) + 1.0,
-                    None => from_node.center_x + 1.0,
+                    None => q2_halfup(from_node.center_x) + 1.0,
                 };
                 (
                     Some((label_x, baseline_y)),
@@ -1563,17 +1700,28 @@ fn build_layout_from_dot(
     //   total_width  = total_margin + floor(max_right)
     //   total_height = total_margin + floor(max_bottom)
     // where total_margin = margin + 8 for 2+ entities, margin + 6 for a single
-    // entity (the +8/+6 comes from LimitFinder delta(15,15) minus stroke-width
-    // adjustments; for class diagrams margin=7 → 15/13, for others margin=6 →
-    // 14/12).
+    let entity_by_name: HashMap<&str, &ParsedEntity> =
+        sorted_entities.iter().map(|(n, e)| (n.as_str(), *e)).collect();
     let total_margin = if nodes.len() > 1 { margin + 8.0 } else { margin + 6.0 };
+    let multi_node = nodes.len() > 1;
     let max_right = nodes
         .iter()
-        .map(|n| n.x + n.width + max_extent_x(n.kind))
+        .filter_map(|n| {
+            let entity = entity_by_name.get(n.name.as_str())?;
+            Some(n.x + n.width + leaf_max_extent_x(entity, multi_node))
+        })
         .fold(0.0_f64, f64::max);
     let max_bottom = nodes
         .iter()
-        .map(|n| n.y + n.height + max_extent_y(n.kind))
+        .filter_map(|n| {
+            let entity = entity_by_name.get(n.name.as_str())?;
+            // An empty object's `TextBlockEmpty` records nothing, so its
+            // far corner is the rect edge `h − 1`. In single-node diagrams
+            // the smaller placed-node margin absorbs that one pixel; only
+            // multi-node layouts subtract it (verified against the jar).
+            let extent = leaf_max_extent_y(entity, multi_node);
+            Some(n.y + n.height + extent)
+        })
         .fold(0.0_f64, f64::max);
     // Width and, for every established shape, height use the empirical
     // placed-coordinate margins verified against the Java jar. A database is
@@ -1608,12 +1756,27 @@ fn build_layout_from_dot(
         .max(15.0 + max_spacer.floor())
         .max(15.0 + max_forced_right.floor())
         .max(if clusters.is_empty() { 0.0 } else { 15.0 + clust_right.floor() });
-    let has_database = nodes.iter().any(|n| n.kind == EntityKind::Database);
-    let node_height = if has_database {
-        let min_draw_y = nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
-        // Structural span plus the top origin (margin) and a 15px bottom delta.
-        let span = max_bottom - min_draw_y;
-        span.floor() + min_draw_y + 15.0
+    // Height is anchored by the single lowest leaf. A symbol whose tail
+    // draws `UEmpty(10,10)` (`USymbolDatabase`, `USymbolNode`) pushes the
+    // LimitFinder structural bottom out by 10px, after which Smetana
+    // applies the full 15px delta; other shapes size from the placed-edge
+    // margin (`total_margin`). floor(max of bottoms) == max of floors, so
+    // this is the per-leaf `.floor() + 15` formula (jar: node-lowest 336,
+    // database-lowest 297).
+    let bottom_leaf_tailed = nodes
+        .iter()
+        .filter_map(|n| {
+            let entity = entity_by_name.get(n.name.as_str())?;
+            let extent = leaf_max_extent_y(entity, multi_node);
+            Some((
+                n.y + n.height + extent,
+                matches!(n.kind, EntityKind::Database | EntityKind::Node),
+            ))
+        })
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .is_some_and(|(_, tailed)| tailed);
+    let node_height = if bottom_leaf_tailed {
+        max_bottom.floor() + 15.0
     } else {
         total_margin + max_bottom.floor()
     };

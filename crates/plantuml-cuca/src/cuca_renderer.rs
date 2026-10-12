@@ -166,8 +166,8 @@ fn render_core(
     svg.svg_rectangle(0.0, 0.0, layout.total_width, layout.total_height, 0.0, 0.0, 0.0);
     svg.set_hidden(false);
 
-    if fragments.is_some() {
-        render_folded(&mut svg, layout, entities, fragments.expect("checked"), notes);
+    if let Some(fragments) = fragments {
+        render_folded(&mut svg, layout, entities, fragments, notes);
         return svg.create_xml();
     }
     // Render clusters first (folders sit behind their member entities),
@@ -410,6 +410,12 @@ const TAB_RAD: f64 = 3.75;
 /// Ported from: `decoration/symbol/USymbolFolder.drawFolder()` and
 /// `svek/Cluster.drawU()`.
 fn render_cluster(svg: &mut SvgGraphics, cluster: &LayoutCluster, entity: &ParsedEntity) {
+    // A deployment `node` group renders as an unfolded 3D box (dog-ear) with
+    // no fill; package/folder/frame/state groups keep the tabbed folder path.
+    if entity.kind == EntityKind::Node {
+        render_node_cluster(svg, cluster, entity);
+        return;
+    }
     let left = cluster.x;
     let top = cluster.y;
     let wid = cluster.width;
@@ -481,6 +487,81 @@ fn render_cluster(svg: &mut SvgGraphics, cluster: &LayoutCluster, entity: &Parse
     svg.close_group();
 }
 
+/// Renders a deployment `node` *group* as an unfolded 3D box: a filled-none
+/// seven-vertex dog-ear polygon, three fold strokes (diagonal flap, horizontal
+/// top, vertical back edge), and the bold title centred over the box.
+///
+/// Ported from: `svek/Cluster.drawU()` for an `EntityKind::Node` group, which
+/// reuses `USymbolNode`'s fold geometry (10px) rather than `USymbolFolder`'s
+/// rounded tab. Stroke is `#181818` width 1 (the leaf-node style), unlike the
+/// 1.5 `#000000` folder path.
+fn render_node_cluster(svg: &mut SvgGraphics, cluster: &LayoutCluster, entity: &ParsedEntity) {
+    const FOLD: f64 = 10.0;
+    const BASELINE_OFFSET: f64 = 27.9659;
+    let left = cluster.x;
+    let top = cluster.y;
+    let right = left + cluster.width;
+    let bot = top + cluster.height;
+
+    let source_line = cluster.source_line.to_string();
+    let attrs: Vec<(&str, &str)> = vec![
+        ("class", "cluster"),
+        ("data-qualified-name", &entity.name),
+        ("data-source-line", &source_line),
+        ("id", &cluster.entity_id),
+    ];
+    svg.open_group_with_attrs(&attrs);
+
+    // Seven vertices, closing back on the first (matches the JAR ordering).
+    let points = [
+        left,
+        top + FOLD,
+        left + FOLD,
+        top,
+        right,
+        top,
+        right,
+        bot - FOLD,
+        right - FOLD,
+        bot,
+        left,
+        bot,
+        left,
+        top + FOLD,
+    ];
+    svg.set_fill_color("none");
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(1.0, None);
+    svg.svg_polygon(0.0, &points);
+
+    // Fold strokes: diagonal flap, horizontal top, vertical back edge.
+    svg.svg_line(right - FOLD, top + FOLD, right, top, 0.0);
+    svg.svg_line(left, top + FOLD, right - FOLD, top + FOLD, 0.0);
+    svg.svg_line(right - FOLD, top + FOLD, right - FOLD, bot, 0.0);
+
+    // The title is centred on the inner box axis `(L + R - fold)/2 + 1`
+    // (verified against both node clusters in deployment-02).
+    let title_center = (left + right - FOLD) / 2.0 + 1.0;
+    let title_x = title_center - cluster.title_width / 2.0;
+    let mut text_attrs = indexmap::IndexMap::new();
+    text_attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+    svg.text(
+        entity.display.split('\n').next().unwrap_or(&entity.display),
+        title_x,
+        top + BASELINE_OFFSET,
+        Some(FONT_FAMILY),
+        FONT_SIZE_NAME,
+        Some("700"),
+        None,
+        None,
+        cluster.title_width,
+        &text_attrs,
+        None,
+    );
+
+    svg.close_group();
+}
+
 /// Formats a coordinate like Java's `%.4f` with trailing zeros and decimal point stripped.
 ///
 /// Java outputs `22.0000` as `22`, `84.9389` as `84.9389`, `69.2500` as `69.25`.
@@ -547,9 +628,10 @@ fn render_entity(
         EntityKind::Interface
             if matches!(diagram_type, plantuml_core::DiagramType::Description) =>
         {
-            render_lollipop_entity(svg, node, entity)
+            render_lollipop_entity(svg, node, entity);
         }
         EntityKind::State => render_state_entity(svg, node, entity),
+        EntityKind::Object => render_object_entity(svg, node, entity),
         EntityKind::Start | EntityKind::End => render_star_state(svg, node, entity),
         _ => render_box_entity(svg, node, entity),
     }
@@ -602,11 +684,11 @@ fn render_lollipop_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &Par
 ///
 /// Ported from: `USymbolNode.drawNode()`.
 fn render_node_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    const FOLD: f64 = 10.0;
     let x = node.x;
     let y = node.y;
     let w = node.width;
     let h = node.height;
-    const FOLD: f64 = 10.0;
 
     // Six vertices plus an explicit return to the first (matches the JAR).
     let points = [
@@ -1189,6 +1271,113 @@ fn render_state_entity(svg: &mut SvgGraphics, node: &LayoutNode, _entity: &Parse
     );
 }
 
+/// Renders an object instance (`EntityImageObject`): a single-separator box
+/// with a centered, non-underlined name, an optional 12pt italic
+/// stereotype above it, and plain attributes below it (no visibility
+/// icons, no methods section).
+///
+/// Offsets measured against Java PlantUML 1.2026.6 SVG output; geometry from
+/// `svek/image/EntityImageObject.java`.
+fn render_object_entity(svg: &mut SvgGraphics, node: &LayoutNode, entity: &ParsedEntity) {
+    // Box.
+    svg.set_fill_color(FILL_CLASS);
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_rectangle(
+        node.x,
+        node.y,
+        node.width,
+        node.height,
+        BOX_RX,
+        BOX_RX,
+        0.0,
+    );
+
+    let mut attrs = indexmap::IndexMap::new();
+    attrs.insert("fill".to_string(), COLOR_TEXT.to_string());
+
+    let has_stereo = entity.stereotype.is_some();
+
+    // Optional 12pt italic centered stereotype (`«name»`).
+    if let Some(st) = &entity.stereotype {
+        let stereo_text = format!("\u{00ab}{st}\u{00bb}");
+        let stereo_w = crate::cuca_layout::measure_object_stereotype(st);
+        let stereo_x = node.x + (node.width - stereo_w) / 2.0;
+        svg.text(
+            &stereo_text,
+            stereo_x,
+            node.y + 12.8281,
+            Some(FONT_FAMILY),
+            12,
+            None,
+            Some("italic"),
+            None,
+            stereo_w,
+            &attrs,
+            None,
+        );
+    }
+    let name_w = text_width(&entity.display, FONT_SIZE_NAME);
+    let name_x = node.x + (node.width - name_w) / 2.0;
+    let name_y = if has_stereo {
+        node.y + 33.3101
+    } else {
+        node.y + 16.9659
+    };
+    svg.text(
+        &entity.display,
+        name_x,
+        name_y,
+        Some(FONT_FAMILY),
+        FONT_SIZE_NAME,
+        None,
+        None,
+        None,
+        name_w,
+        &attrs,
+        None,
+    );
+
+    // Exactly one separator line (header bottom = 23.0679 without
+    // stereotype, 39.412 with one).
+    let sep_y = if has_stereo {
+        node.y + 39.412
+    } else {
+        node.y + 23.0679
+    };
+    svg.set_stroke_color(Some(STROKE_COLOR));
+    svg.set_stroke_width(STROKE_WIDTH_BOX, None);
+    svg.svg_line(
+        node.x + 1.0,
+        sep_y,
+        node.x + node.width - 1.0,
+        sep_y,
+        0.0,
+    );
+
+    // Attributes: 14px plain text at x + 6, first baseline 18.966 below
+    // the separator, 19.0679 row pitch.
+    for (i, line) in entity.body.iter().enumerate() {
+        let text = line.trim();
+        let text = text.strip_prefix(['+', '-', '#']).unwrap_or(text).trim();
+        let line_y = sep_y + 18.966 + i as f64 * 19.0679;
+        let field_w = text_width(text, FONT_SIZE_BODY);
+        svg.text(
+            text,
+            node.x + 6.0,
+            line_y,
+            Some(FONT_FAMILY),
+            FONT_SIZE_BODY,
+            None,
+            None,
+            None,
+            field_w,
+            &attrs,
+            None,
+        );
+    }
+}
+
 /// Renders a `[*]` initial (filled circle) or final (ring + dot) pseudo-state.
 ///
 /// Ported from: `net/sourceforge/plantuml/states/EntityImageCircle.java`.
@@ -1199,25 +1388,22 @@ fn render_star_state(
 ) {
     let cx = node.center_x;
     let cy = node.center_y;
-    match entity.kind {
-        EntityKind::End => {
-            // Outer ring (unfilled), inner dot.
-            svg.set_fill_color("none");
-            svg.set_stroke_color(Some("#222222"));
-            svg.set_stroke_width(1.0, None);
-            svg.svg_ellipse(cx, cy, 11.0, 11.0, 0.0);
-            svg.set_fill_color("#222222");
-            svg.set_stroke_color(Some("#222222"));
-            svg.set_stroke_width(1.0, None);
-            svg.svg_ellipse(cx, cy, 6.0, 6.0, 0.0);
-        }
-        _ => {
-            // Initial: filled r=10 circle.
-            svg.set_fill_color("#222222");
-            svg.set_stroke_color(Some("#222222"));
-            svg.set_stroke_width(1.0, None);
-            svg.svg_ellipse(cx, cy, 10.0, 10.0, 0.0);
-        }
+    if entity.kind == EntityKind::End {
+        // Outer ring (unfilled), inner dot.
+        svg.set_fill_color("none");
+        svg.set_stroke_color(Some("#222222"));
+        svg.set_stroke_width(1.0, None);
+        svg.svg_ellipse(cx, cy, 11.0, 11.0, 0.0);
+        svg.set_fill_color("#222222");
+        svg.set_stroke_color(Some("#222222"));
+        svg.set_stroke_width(1.0, None);
+        svg.svg_ellipse(cx, cy, 6.0, 6.0, 0.0);
+    } else {
+        // Initial: filled r=10 circle.
+        svg.set_fill_color("#222222");
+        svg.set_stroke_color(Some("#222222"));
+        svg.set_stroke_width(1.0, None);
+        svg.svg_ellipse(cx, cy, 10.0, 10.0, 0.0);
     }
 }
 
@@ -1409,6 +1595,7 @@ mod tests {
                 parent: None,
                 group: false,
                 members: Vec::new(),
+                alias: None,
                 forced_size: None,
             },
         );
@@ -1434,6 +1621,7 @@ mod tests {
             parent: None,
             group: false,
             members: Vec::new(),
+            alias: None,
             forced_size: None,
         }
     }
@@ -1484,6 +1672,49 @@ mod tests {
         assert!(svg.contains("polygon"), "Link must have arrow polygon");
     }
 
+    /// Regression for object-03 (`object alice : User {` … `alice --> bob`):
+    /// the declaration is accepted but its resolved entity key (`alice :
+    /// User`) never matches the bare link endpoints (`alice`/`bob`), so the
+    /// link is dangling. Layout must skip it rather than indexing the
+    /// endpoint-keyed `color_by_li` map out of bounds.
+    #[test]
+    fn render_dangling_link_does_not_panic() {
+        let mut entities = HashMap::new();
+        for key in ["alice : User", "bob : User"] {
+            entities.insert(
+                key.to_string(),
+                ParsedEntity {
+                    name: key.to_string(),
+                    display: key.to_string(),
+                    kind: EntityKind::Object,
+                    stereotype: None,
+                    body: vec!["name".to_string(), "age".to_string()],
+                    source_line: 1,
+                    parent: None,
+                    group: false,
+                    members: Vec::new(),
+                    alias: None,
+                    forced_size: None,
+                },
+            );
+        }
+        let links = vec![crate::entity_link_parser::ParsedLink {
+            from: "alice".to_string(),
+            to: "bob".to_string(),
+            arrow: "-->".to_string(),
+            label: Some("friend".to_string()),
+            source_line: 6,
+        }];
+        let layout = compute_layout(&entities, &links, plantuml_core::DiagramType::Object);
+        let svg = render_cuca_svg(
+            &layout,
+            &entities,
+            &[],
+            plantuml_core::DiagramType::Object,
+        );
+        assert!(svg.contains("<svg"));
+    }
+
     #[test]
     fn render_interface_entity() {
         let mut entities = HashMap::new();
@@ -1499,6 +1730,7 @@ mod tests {
                 parent: None,
                 group: false,
                 members: Vec::new(),
+                alias: None,
                 forced_size: None,
             },
         );

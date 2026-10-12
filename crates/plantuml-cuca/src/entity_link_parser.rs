@@ -39,6 +39,10 @@ pub struct ParsedEntity {
     pub group: bool,
     /// Child entity keys of a group, in source order.
     pub members: Vec<String>,
+    /// Explicit link alias declared with `as` (e.g.
+    /// `interface "User API" as API` → `Some("API")`). Edge path ids use
+    /// this short code instead of the (possibly quoted, spaced) display.
+    pub alias: Option<String>,
     /// Explicit Svek image size declared for a leaf produced by composite
     /// folding (`InnerStateAutonom` dimensions), overriding the kind-based
     /// default sizing.
@@ -264,20 +268,14 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
 
         // Closing brace for a group.
         if trimmed.starts_with('}') {
-            if let Some(g) = group_stack.pop() {
-                result
-                    .entities
-                    .get_mut(&g)
-                    .map(|_| ());
-            }
+            group_stack.pop();
             continue;
         }
 
         // Group / entity declaration.
         if let Some(decl) = parse_entity_declaration(trimmed) {
-            let (keyword, rest_full) = match trimmed.split_once(' ') {
-                Some(kv) => kv,
-                None => continue,
+            let Some((keyword, _rest_full)) = trimmed.split_once(' ') else {
+                continue;
             };
             let opens_group = trimmed.ends_with('{') || trimmed.contains(" {");
             let parent = group_stack.last().cloned();
@@ -298,9 +296,9 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
 
             let display = decl.display.clone();
             let mut entity = decl;
-            entity.name = qualified.clone();
+            entity.name.clone_from(&qualified);
             entity.display = display;
-            entity.parent = parent.clone();
+            entity.parent.clone_from(&parent);
             entity.group = is_group;
             entity.source_line = source_line;
 
@@ -318,7 +316,6 @@ pub fn parse_entity_link_source(lines: &[&str]) -> ParsedSource {
             } else if has_inline_body {
                 body_entity = Some(qualified.clone());
             }
-            let _ = rest_full;
             continue;
         }
 
@@ -425,7 +422,7 @@ fn create_implicit(
         qualified.clone(),
         ParsedEntity {
             name: qualified.clone(),
-            display: simple.clone(),
+            display: simple,
             kind,
             source_line,
             parent: parent.clone(),
@@ -450,6 +447,7 @@ fn empty_entity() -> ParsedEntity {
         parent: None,
         group: false,
         members: Vec::new(),
+        alias: None,
         forced_size: None,
     }
 }
@@ -487,7 +485,7 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
     // Handle `as` alias: `"User API" as API` → name API, display User API.
     // The left side is the (possibly quoted) display label, the right side
     // the internal entity name.
-    let (name, display) = if let Some((label, alias)) = name_part.split_once(" as ") {
+    let (name, display, alias) = if let Some((label, alias)) = name_part.split_once(" as ") {
         let label = label.trim().trim_end_matches('{').trim();
         let alias = alias.trim().trim_matches('"').trim_matches('\'');
         let name = endpoint_base(alias).to_string();
@@ -497,11 +495,12 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         } else {
             unquoted.to_string()
         };
-        (name, display)
+        let alias_code = Some(name.clone());
+        (name, display, alias_code)
     } else {
         let n = name_part.trim_end_matches('{').trim();
         let base = endpoint_base(n).to_string();
-        (base.clone(), base)
+        (base.clone(), base, None)
     };
 
     if name.is_empty() {
@@ -518,6 +517,7 @@ fn parse_entity_declaration(line: &str) -> Option<ParsedEntity> {
         parent: None,
         group: false,
         members: Vec::new(),
+        alias,
         forced_size: None,
     })
 }
@@ -660,6 +660,17 @@ mod tests {
         assert_eq!(entity.name, "Bob");
         assert_eq!(entity.kind, EntityKind::Interface);
         assert_eq!(entity.stereotype, Some("service".to_string()));
+    }
+
+    #[test]
+    fn test_parse_declaration_with_alias() {
+        let entity = parse_entity_declaration("interface \"User API\" as API").unwrap();
+        assert_eq!(entity.name, "API");
+        assert_eq!(entity.display, "User API");
+        assert_eq!(entity.alias, Some("API".to_string()));
+
+        let plain = parse_entity_declaration("class Client").unwrap();
+        assert_eq!(plain.alias, None);
     }
 
     #[test]

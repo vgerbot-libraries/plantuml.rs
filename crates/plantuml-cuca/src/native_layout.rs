@@ -63,11 +63,7 @@ struct REdge<'a> {
 /// A single dash `->` contracts to rank=same; double dash `-->`, dotted
 /// `..>` and plain `--` keep one rank apart.
 fn edge_minlen(arrow: &str) -> usize {
-    if arrow.trim() == "->" {
-        0
-    } else {
-        1
-    }
+    usize::from(arrow.trim() != "->")
 }
 struct Node {
     center: Point,
@@ -390,6 +386,27 @@ pub fn solve(
         children.get_mut(e.a).expect("tail present").push(e.b);
     }
 
+    // graphviz solves the horizontal constraint system in integer point
+    // units (`ND_coord.x = ND_rank`, an int): leaf anchors are truncated
+    // half-widths (`gv_nodesize`: `rw = trunc(w/2)`), within-rank packing
+    // uses those integer boxes, and a multi-child barycentre is an integer
+    // (floored) mean. The sub-pixel residual (e.g. a 45.079px half-width vs
+    // the integer 45) is re-introduced once, globally, by the frame
+    // normalization below, which anchors on the fractional leaf box edge.
+    //
+    // The integer path is enabled only on a labelled graph that fans out
+    // (one tail to two inter-rank heads sharing a rank): the topology whose
+    // rank-doubled label/edge-pair vnodes graphviz's horizontal network
+    // simplex resolves to an integer barycentre distinct from the f64 mean.
+    let has_labeled_edge = dag_edges.iter().any(|e| e.has_label && e.minlen > 0);
+    let fan_out = names.iter().any(|n| children[n].len() >= 2);
+    // A labelled fan-out (one tail to two inter-rank heads sharing a rank)
+    // is the topology graphviz's rank-doubled horizontal network simplex
+    // resolves to an integer barycentre distinct from the f64 mean. A
+    // converging topology is left on the fractional path pending the full
+    // aux-graph port, as is every labelled pure chain.
+    let integer_x = has_labeled_edge && fan_out;
+
     let mut center_x: HashMap<&String, f64> = HashMap::new();
     // `ideal_x`: position from the child mean alone, before within-rank
     // packing. The delta (packed - ideal) is propagated down unique-child
@@ -401,14 +418,27 @@ pub fn solve(
         for name in &members[r] {
             let node = &raw[name];
             let ideal = if children[name].is_empty() {
-                node.half_w
+                if integer_x {
+                    node.half_w.trunc()
+                } else {
+                    node.half_w
+                }
             } else {
                 let sum: f64 = children[name].iter().map(|c| center_x[c]).sum();
-                sum / children[name].len() as f64
+                let mean = sum / children[name].len() as f64;
+                if integer_x {
+                    mean.floor()
+                } else {
+                    mean
+                }
             };
             let mut c = ideal;
             if let Some(p) = prev {
-                let minlen = (raw[p].half_w + NODESEP + node.half_w).round();
+                let minlen = if integer_x {
+                    raw[p].half_w.trunc() + NODESEP + node.half_w.trunc()
+                } else {
+                    (raw[p].half_w + NODESEP + node.half_w).round()
+                };
                 c = c.max(center_x[p] + minlen);
             }
             ideal_x.insert(*name, ideal);
@@ -428,8 +458,8 @@ pub fn solve(
     // keeps its own packed x; its children inherit the accumulated ancestor
     // shift so the whole subtree moves with the displaced member.
     let mut carry: HashMap<&String, f64> = HashMap::new();
-    for r in 0..=max_rank {
-        for name in &members[r] {
+    for rank_members in &members {
+        for name in rank_members {
             let inherited = parents_of[name]
                 .iter()
                 .map(|p| carry.get(*p).copied().unwrap_or(0.0))
@@ -572,34 +602,6 @@ pub fn solve(
         let (t_ll, t_ur) = maximal_bbox(tail_name);
         let (h_ll, h_ur) = maximal_bbox(head_name);
 
-/// Builds the clip endpoint for `node`: a centre 18x18 port cell when present
-/// (an unstroked rectangle, clipped at half 9 exactly), otherwise the node's
-/// ellipse/rectangle outline expanded by half a pen.
-fn node_endpoint(node: &Node) -> Endpoint {
-    if let Some(half) = node.port_radius {
-        return Endpoint {
-            center: node.center,
-            shape: NodeShape::Rect {
-                half_w: half,
-                half_h: half,
-            },
-        };
-    }
-    Endpoint {
-        center: node.center,
-        shape: if node.is_ellipse {
-            NodeShape::Ellipse {
-                half_w: node.half_w + PEN_HALF,
-                half_h: node.half_h + PEN_HALF,
-            }
-        } else {
-            NodeShape::Rect {
-                half_w: node.half_w + PEN_HALF,
-                half_h: node.half_h + PEN_HALF,
-            }
-        },
-    }
-}
 
         if same_rank {
             // A rank=same edge is a flat horizontal cubic in the internal
@@ -653,7 +655,6 @@ fn node_endpoint(node: &Node) -> Endpoint {
                 b: polygon[(k + 1) % polygon.len()],
             })
             .collect();
-
         // Default ports are unconstrained: pass zero tangent vectors and let
         // the least-squares fit derive the endpoint slopes, as dot does.
         let free = Point::new(0.0, 0.0);
@@ -686,9 +687,38 @@ fn node_endpoint(node: &Node) -> Endpoint {
         nodes: out_nodes,
         edges: out_edges,
         raw_yup,
-        label_vnode_y: HashMap::new(),
         label_box_left: HashMap::new(),
+        label_vnode_y: HashMap::new(),
         draw_order: Vec::new(),
+    }
+}
+
+/// Builds the clip endpoint for `node`: a centre 18x18 port cell when present
+/// (an unstroked rectangle, clipped at half 9 exactly), otherwise the node's
+/// ellipse/rectangle outline expanded by half a pen.
+fn node_endpoint(node: &Node) -> Endpoint {
+    if let Some(half) = node.port_radius {
+        return Endpoint {
+            center: node.center,
+            shape: NodeShape::Rect {
+                half_w: half,
+                half_h: half,
+            },
+        };
+    }
+    Endpoint {
+        center: node.center,
+        shape: if node.is_ellipse {
+            NodeShape::Ellipse {
+                half_w: node.half_w + PEN_HALF,
+                half_h: node.half_h + PEN_HALF,
+            }
+        } else {
+            NodeShape::Rect {
+                half_w: node.half_w + PEN_HALF,
+                half_h: node.half_h + PEN_HALF,
+            }
+        },
     }
 }
 
