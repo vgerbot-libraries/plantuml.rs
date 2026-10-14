@@ -423,6 +423,8 @@ fn run_sequence_svg_test(name: &str) {
         parsed.hide_footbox,
         &parsed.notes,
         &parsed.groups,
+        &parsed.dividers,
+        parsed.autonumber,
         &parsed.msg_activates,
         &parsed.msg_deactivates,
         &parsed.msg_parallel,

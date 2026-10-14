@@ -332,7 +332,7 @@ mod tests {
             "Project starts the 1st of january 2020",
             "[M1] happens 2020-01-11",
         ]);
-        assert!(source.tasks[1].is_milestone);
-        assert_eq!(source.tasks[1].start, 10);
+        assert!(source.tasks[0].is_milestone);
+        assert_eq!(source.tasks[0].start, 10);
     }
 }

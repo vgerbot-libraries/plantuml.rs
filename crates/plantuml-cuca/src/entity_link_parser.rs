@@ -687,7 +687,7 @@ mod tests {
         let parsed = parse_entity_link_source(&lines);
         assert!(parsed.entities.contains_key("Client"));
         assert_eq!(parsed.entities["Client"].kind, EntityKind::Component);
-        assert_eq!(parsed.links[0].from, "[Client]");
+        assert_eq!(parsed.links[0].from, "Client");
     }
 
     #[test]
