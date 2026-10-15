@@ -27,12 +27,12 @@ use crate::gantt_parser::{GanttSource, GanttTask};
 /// Ascent at day-header font size 10.
 const ASCENT_10: f64 = 10.68999;
 /// Ascent at task-label font size 11.
-const ASCENT_11: f64 = 11.758912;
+const ASCENT_11: f64 = 11.758_912;
 /// Ascent at month-header font size 12.
 const ASCENT_12: f64 = 12.82809;
 /// Line height at font size 11 — task/milestone shape height
 /// (`TaskDrawRegular.getShapeHeight`).
-const SHAPE_HEIGHT: f64 = 14.981888;
+const SHAPE_HEIGHT: f64 = 14.981_888;
 
 // ── Layout constants (plantuml.skin `ganttDiagram` defaults) ─────────────
 
@@ -222,6 +222,7 @@ fn bars_width(bounder: &StringBounderSvg, source: &GanttSource, timeline_width: 
 // ── Text helpers ─────────────────────────────────────────────────────────
 
 /// Appends a centered `<text>` inside the column [start, end].
+#[allow(clippy::too_many_arguments)]
 fn centered_text(
     g: &mut XmlNode,
     bounder: &StringBounderSvg,
@@ -490,7 +491,16 @@ fn draw_constraint(
         + MARGIN
         + SHAPE_HEIGHT / 2.0;
 
-    let points: Vec<(f64, f64)> = if source_y != dest_y {
+    // Exact equality is correct: both Ys are identical integer-row formulas,
+    // and this distinguishes a same-row from a cross-row arrow.
+    #[allow(clippy::float_cmp)]
+    let points: Vec<(f64, f64)> = if source_y == dest_y {
+        vec![
+            (source_x, source_y),
+            (source_x, dest_y),
+            (dest_x, dest_y),
+        ]
+    } else {
         // atStart bottom, atEnd left; GArrows patches the final point -3 on x.
         if dest_x > source_x + 6.0 {
             vec![
@@ -511,12 +521,6 @@ fn draw_constraint(
                 (dest_x, dest_y),
             ]
         }
-    } else {
-        vec![
-            (source_x, source_y),
-            (source_x, dest_y),
-            (dest_x, dest_y),
-        ]
     };
 
     // Path: moveTo first, lineTo intermediates, lineTo(last.x - 3, last.y).

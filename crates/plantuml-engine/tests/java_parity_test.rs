@@ -35,12 +35,11 @@ fn run_parity_test(name: &str, source: &str) {
         std::env::set_var("PLANTUML_NO_DOT", "1");
     }
 
-    let java_svg = match java_plantuml::render_svg(source) {
-        Some(svg) => svg,
-        None => panic!(
+    let Some(java_svg) = java_plantuml::render_svg(source) else {
+        panic!(
             "Java PlantUML reference unavailable for {name}; set PLANTUML_JAR or \
              place the jar at tests/vendor/plantuml.jar (parity tests must not silently skip)"
-        ),
+        )
     };
     let rust_svg = plantuml_engine::render_svg(source)
         .unwrap_or_else(|e| panic!("Rust render should succeed for {name}: {e:?}"));
@@ -76,120 +75,120 @@ fn run_parity_test(name: &str, source: &str) {
 }
 // ── Sequence diagram ───────────────────────────────────────────────────
 
-parity_test!(sequence_basic_messages, r#"@startuml
+parity_test!(sequence_basic_messages, r"@startuml
 Alice -> Bob: hello
 Bob --> Alice: hi
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_declare_participants, r#"@startuml
+parity_test!(sequence_declare_participants, r"@startuml
 participant Alice
 participant Bob
 Alice -> Bob: Request
 Bob --> Alice: Response
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_actor_user, r#"@startuml
+parity_test!(sequence_actor_user, r"@startuml
 actor User
 User -> System: login
 System --> User: welcome
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_self_messages, r#"@startuml
+parity_test!(sequence_self_messages, r"@startuml
 Alice -> Alice: self message
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_notes_right, r#"@startuml
+parity_test!(sequence_notes_right, r"@startuml
 Alice -> Bob: hello
 note right of Alice: says hello
 Bob --> Alice: hi
 note right of Bob: replies
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_note_over, r#"@startuml
+parity_test!(sequence_note_over, r"@startuml
 Alice -> Bob: hello
 note over Alice, Bob: both
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_activate_deactivate, r#"@startuml
+parity_test!(sequence_activate_deactivate, r"@startuml
 Alice -> Bob: request
 activate Bob
 Bob --> Alice: response
 deactivate Bob
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_group_auth, r#"@startuml
+parity_test!(sequence_group_auth, r"@startuml
 group Authentication
 Alice -> Bob: credentials
 Bob --> Alice: token
 end
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_alt_else, r#"@startuml
+parity_test!(sequence_alt_else, r"@startuml
 alt success
 Alice -> Bob: ok
 else failure
 Alice -> Bob: fail
 end
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_loop_until, r#"@startuml
+parity_test!(sequence_loop_until, r"@startuml
 loop until done
 Alice -> Bob: check
 Bob --> Alice: not yet
 end
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_dividers, r#"@startuml
+parity_test!(sequence_dividers, r"@startuml
 Alice -> Bob: step 1
 == Phase 2 ==
 Bob -> Alice: step 2
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_autonumber, r#"@startuml
+parity_test!(sequence_autonumber, r"@startuml
 autonumber
 Alice -> Bob: first
 Bob --> Alice: second
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_title, r#"@startuml
+parity_test!(sequence_title, r"@startuml
 title My Sequence
 Alice -> Bob: hello
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_skinparam_bg, r#"@startuml
+parity_test!(sequence_skinparam_bg, r"@startuml
 skinparam backgroundColor #EEF
 Alice -> Bob: styled message
-@enduml"#);
+@enduml");
 
-parity_test!(sequence_colored_messages, r#"@startuml
+parity_test!(sequence_colored_messages, r"@startuml
 Alice -[#red]-> Bob: red message
-@enduml"#);
+@enduml");
 
 // ── Class diagram ────────────────────────────────────────────────────────
 
-parity_test!(class_declaring_classes, r#"@startuml
+parity_test!(class_declaring_classes, r"@startuml
 class Alice
 interface Bob
 abstract Foo
-@enduml"#);
+@enduml");
 
-parity_test!(class_relationships_inheritance, r#"@startuml
+parity_test!(class_relationships_inheritance, r"@startuml
 class Animal
 class Dog
 class Cat
 Animal <|-- Dog
 Animal <|-- Cat
-@enduml"#);
+@enduml");
 
-parity_test!(class_interface_realization, r#"@startuml
+parity_test!(class_interface_realization, r"@startuml
 interface Shape
 class Circle
 class Square
 Shape <|.. Circle
 Shape <|.. Square
-@enduml"#);
+@enduml");
 
-parity_test!(class_body, r#"@startuml
+parity_test!(class_body, r"@startuml
 class Foo {
   +field: int
   -privateField: String
@@ -197,18 +196,18 @@ class Foo {
   +method(): void
   -helper(): int
 }
-@enduml"#);
+@enduml");
 
 // ── Activity diagram (expected to fail — simplified layout) ─────────────
 
-parity_test!(activity_basic_flow, r#"@startuml
+parity_test!(activity_basic_flow, r"@startuml
 start
 :Do something;
 :Do another thing;
 stop
-@enduml"#);
+@enduml");
 
-parity_test!(activity_if_else, r#"@startuml
+parity_test!(activity_if_else, r"@startuml
 start
 if (condition?) then (yes)
   :Take yes path;
@@ -216,52 +215,52 @@ else (no)
   :Take no path;
 endif
 stop
-@enduml"#);
+@enduml");
 
-parity_test!(activity_while_loop, r#"@startuml
+parity_test!(activity_while_loop, r"@startuml
 start
 while (more data?) is (yes)
   :Process item;
 endwhile (no)
 stop
-@enduml"#);
+@enduml");
 
 // ── Use case diagram ──────────────────────────────────────────────────
 
-parity_test!(usecase_actors_usecases, r#"@startuml
+parity_test!(usecase_actors_usecases, r"@startuml
 actor User
 usecase (Login)
 usecase (Logout)
 User --> (Login)
 User --> (Logout)
-@enduml"#);
+@enduml");
 
-parity_test!(usecase_relationships, r#"@startuml
+parity_test!(usecase_relationships, r"@startuml
 usecase (Shopping)
 usecase (Checkout)
 usecase (Payment)
 (Shopping) --> (Checkout)
 (Checkout) --> (Payment)
-@enduml"#);
+@enduml");
 
-parity_test!(usecase_multiple_actors, r#"@startuml
+parity_test!(usecase_multiple_actors, r"@startuml
 actor Customer
 actor Admin
 usecase (Manage Orders)
 usecase (View Reports)
 Customer --> (Manage Orders)
 Admin --> (View Reports)
-@enduml"#);
+@enduml");
 
 // ── Component diagram ─────────────────────────────────────────────────
 
-parity_test!(component_declaring_components, r#"@startuml
+parity_test!(component_declaring_components, r"@startuml
 component [Web Server]
 component [App Server]
 database DB
 [Web Server] --> [App Server]
 [App Server] --> DB
-@enduml"#);
+@enduml");
 
 parity_test!(component_interfaces, r#"@startuml
 interface "User API" as API
@@ -283,15 +282,15 @@ package "Backend" {
 
 // ── State diagram (expected to fail — simplified layout) ───────────────
 
-parity_test!(state_declaring_states, r#"@startuml
+parity_test!(state_declaring_states, r"@startuml
 state Idle
 state Active
 [*] -> Idle
 Idle --> Active : start
 Active --> [*] : stop
-@enduml"#);
+@enduml");
 
-parity_test!(state_transitions_labels, r#"@startuml
+parity_test!(state_transitions_labels, r"@startuml
 state Off
 state On
 state Dim
@@ -300,9 +299,9 @@ Off --> On : switch
 On --> Dim : dimmer
 Dim --> On : brighter
 On --> Off : switch
-@enduml"#);
+@enduml");
 
-parity_test!(state_composite_states, r#"@startuml
+parity_test!(state_composite_states, r"@startuml
 state Active {
   state Running
   state Paused
@@ -311,21 +310,21 @@ state Active {
 }
 [*] --> Active
 Active --> [*] : done
-@enduml"#);
+@enduml");
 
 // ── Object diagram (expected to fail — simplified layout) ──────────────
 
-parity_test!(object_declaring_objects, r#"@startuml
+parity_test!(object_declaring_objects, r"@startuml
 object alice
 object bob <<User>>
 object carol
-@enduml"#);
+@enduml");
 
-parity_test!(object_links, r#"@startuml
+parity_test!(object_links, r"@startuml
 object alice
 object bob
 alice --> bob : knows
-@enduml"#);
+@enduml");
 
 parity_test!(object_attributes, r#"@startuml
 object alice <<User>> {
@@ -341,13 +340,13 @@ alice --> bob : friend
 
 // ── Deployment diagram (expected to fail — simplified layout) ──────────
 
-parity_test!(deployment_declaring_nodes, r#"@startuml
+parity_test!(deployment_declaring_nodes, r"@startuml
 node Server
 node Client
 database DB
 Server --> DB
 Client --> Server
-@enduml"#);
+@enduml");
 
 parity_test!(deployment_nested_nodes, r#"@startuml
 node "Application Server" {
@@ -361,7 +360,7 @@ node "Database Server" {
 [Web App] --> "Primary DB"
 @enduml"#);
 
-parity_test!(deployment_labeled_links, r#"@startuml
+parity_test!(deployment_labeled_links, r"@startuml
 node Client
 node LoadBalancer
 node Server1
@@ -369,7 +368,7 @@ node Server2
 Client --> LoadBalancer : HTTPS
 LoadBalancer --> Server1 : HTTP
 LoadBalancer --> Server2 : HTTP
-@enduml"#);
+@enduml");
 
 // ── Timing diagram (expected to fail — simplified layout) ──────────────
 
@@ -400,63 +399,63 @@ D is low
 
 // ── Gantt (expected to fail — simplified layout) ───────────────────────
 
-parity_test!(gantt_tasks, r#"@startgantt
+parity_test!(gantt_tasks, r"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
 [Task B] lasts 3 days
-@endgantt"#);
+@endgantt");
 
-parity_test!(gantt_dependencies, r#"@startgantt
+parity_test!(gantt_dependencies, r"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
 [Task B] lasts 3 days
 [Task B] starts at [Task A]'s end
-@endgantt"#);
+@endgantt");
 
-parity_test!(gantt_milestones, r#"@startgantt
+parity_test!(gantt_milestones, r"@startgantt
 Project starts the 1st of january 2020
 [Task A] lasts 5 days
 [M1] happens 2020-01-11
-@endgantt"#);
+@endgantt");
 
 // ── Mindmap (expected to fail — simplified layout) ──────────────────────
 
-parity_test!(mindmap_basic_tree, r#"@startmindmap
+parity_test!(mindmap_basic_tree, r"@startmindmap
 * Root idea
 ** First branch
 *** Sub idea
 *** Another sub idea
 ** Second branch
 *** Detail
-@endmindmap"#);
+@endmindmap");
 
-parity_test!(mindmap_plus_syntax, r#"@startmindmap
+parity_test!(mindmap_plus_syntax, r"@startmindmap
 + Root
 ++ Child A
 ++ Child B
 +++ Grandchild
-@endmindmap"#);
+@endmindmap");
 
-parity_test!(mindmap_left_right_branches, r#"@startmindmap
+parity_test!(mindmap_left_right_branches, r"@startmindmap
 * Central topic
 -- Left idea
 --- Deeper left
 ++ Right idea
 +++ Deeper right
-@endmindmap"#);
+@endmindmap");
 
 // ── WBS (expected to fail — simplified layout) ─────────────────────────
 
-parity_test!(wbs_basic_tree, r#"@startwbs
+parity_test!(wbs_basic_tree, r"@startwbs
 * Project
 ** Phase 1
 *** Task A
 *** Task B
 ** Phase 2
 *** Task C
-@endwbs"#);
+@endwbs");
 
-parity_test!(wbs_deeper_nesting, r#"@startwbs
+parity_test!(wbs_deeper_nesting, r"@startwbs
 * Product Launch
 ** Planning
 *** Market research
@@ -466,16 +465,16 @@ parity_test!(wbs_deeper_nesting, r#"@startwbs
 ** Execution
 *** Development
 *** Marketing
-@endwbs"#);
+@endwbs");
 
-parity_test!(wbs_styled_nodes, r#"@startwbs
+parity_test!(wbs_styled_nodes, r"@startwbs
 * Project
 ** Phase 1 [#LightBlue]
 *** Task A
 *** Task B
 ** Phase 2 [#LightGreen]
 *** Task C
-@endwbs"#);
+@endwbs");
 
 // ── JSON (expected to fail — simplified layout) ────────────────────────
 
@@ -508,10 +507,10 @@ parity_test!(json_array_values, r#"@startjson
 
 // ── YAML (expected to fail — simplified layout) ────────────────────────
 
-parity_test!(yaml_simple_keyvalue, r#"@startyaml
+parity_test!(yaml_simple_keyvalue, r"@startyaml
 key: value
 count: 42
-@endyaml"#);
+@endyaml");
 
 parity_test!(yaml_nested_mapping, r#"@startyaml
 name: Alice
@@ -520,11 +519,11 @@ address:
   zip: "10001"
 @endyaml"#);
 
-parity_test!(yaml_lists, r#"@startyaml
+parity_test!(yaml_lists, r"@startyaml
 users:
   - name: Alice
     role: admin
   - name: Bob
     role: user
 active: true
-@endyaml"#);
+@endyaml");

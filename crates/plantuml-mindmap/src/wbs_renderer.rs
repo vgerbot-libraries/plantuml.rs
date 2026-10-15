@@ -96,7 +96,7 @@ impl Node {
     }
 
     fn coll_width(list: &[Self]) -> f64 {
-        list.iter().map(Node::metrics).fold(0.0, |acc, m| acc.max(m.w))
+        list.iter().map(Self::metrics).fold(0.0, |acc, m| acc.max(m.w))
     }
 
     fn coll_height(list: &[Self]) -> f64 {
@@ -110,12 +110,12 @@ impl Node {
         if self.is_leaf() {
             return self.leaf_metrics();
         }
-        let w1 = (self.main_w / 2.0).max(COMPOSED_DELTA_X + Node::coll_width(&self.left));
+        let w1 = (self.main_w / 2.0).max(COMPOSED_DELTA_X + Self::coll_width(&self.left));
         let w_right =
-            (self.main_w / 2.0).max(COMPOSED_DELTA_X + Node::coll_width(&self.right));
+            (self.main_w / 2.0).max(COMPOSED_DELTA_X + Self::coll_width(&self.right));
         let h = self.main_h
-            + Node::coll_height(&self.left)
-                .max(Node::coll_height(&self.right));
+            + Self::coll_height(&self.left)
+                .max(Self::coll_height(&self.right));
         Metrics {
             w: w1 + w_right,
             h,

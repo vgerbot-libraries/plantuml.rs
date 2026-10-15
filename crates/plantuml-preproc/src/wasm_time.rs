@@ -15,8 +15,7 @@ pub fn now_secs() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .map_or(0, |d| d.as_secs())
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -33,8 +32,7 @@ pub fn now_nanos() -> u64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(1)
+            .map_or(1, |d| d.as_nanos() as u64)
     }
     #[cfg(target_arch = "wasm32")]
     {

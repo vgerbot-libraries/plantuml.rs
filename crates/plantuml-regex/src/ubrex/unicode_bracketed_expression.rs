@@ -119,18 +119,13 @@ mod tests {
         cut.match_str(text, 0).get_accepted_match()
     }
 
-    fn match_nav(pattern: &str, text: &str) -> Box<dyn UMatcher> {
-        let cut = build(pattern);
-        cut.match_text(&TextNavigator::build(text), 0)
-    }
-
     fn match_nav_pos(pattern: &str, text: &str, pos: usize) -> Box<dyn UMatcher> {
         let cut = build(pattern);
         cut.match_text(&TextNavigator::build(text), pos)
     }
 
     fn values_to_string(values: &[String]) -> String {
-        format!("{:?}", values)
+        format!("{values:?}")
     }
 
     // ===== SimpleTest =====

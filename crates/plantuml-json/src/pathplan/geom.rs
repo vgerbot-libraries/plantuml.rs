@@ -13,6 +13,9 @@ pub struct Point {
     pub y: f64,
 }
 
+// Methods are kept as `add`/`sub` (not the `Add`/`Sub` operator traits) to
+// match the graphviz C method names.
+#[allow(clippy::should_implement_trait)]
 impl Point {
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }

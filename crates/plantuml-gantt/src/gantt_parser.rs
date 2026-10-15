@@ -203,7 +203,7 @@ fn parse_natural_date(s: &str) -> Option<i64> {
 fn parse_ordinal_day(s: &str) -> Option<u32> {
     let digits = s
         .chars()
-        .take_while(|c| c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
         .collect::<String>();
     if digits.is_empty() {
         return None;
@@ -239,6 +239,9 @@ fn parse_month_name(s: &str) -> Option<u32> {
         .map(|i| u32::try_from(i).unwrap_or_default() + 1)
 }
 
+/// Days per month in a non-leap year.
+const DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
 /// Converts a calendar date into a day index (1970-01-01 = 0).
 #[must_use]
 pub fn date_to_day_index(year: i32, month: u32, day: u32) -> i64 {
@@ -246,7 +249,6 @@ pub fn date_to_day_index(year: i32, month: u32, day: u32) -> i64 {
     for y in 1970..year {
         total += if is_leap_year(y) { 366 } else { 365 };
     }
-    const DAYS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for m in 1..month {
         total += i64::from(DAYS[m as usize - 1]);
         if m == 2 && is_leap_year(year) {

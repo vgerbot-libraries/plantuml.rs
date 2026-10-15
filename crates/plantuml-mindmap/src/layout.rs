@@ -126,7 +126,10 @@ impl Frontier {
         }
     }
 
-    /// `addSingleInternal`.
+    // Exact float equality is intentional: stripes are matched/re-split by
+    // identity of the exact JVM-computed boundary coordinates, never by
+    // epsilon — adjacent stripes with numerically equal edges must merge.
+    #[allow(clippy::float_cmp)]
     fn add_single_internal(&mut self, x1: f64, x2: f64, value: f64, touch: Stripe) {
         if value <= touch.value {
             return;

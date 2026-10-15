@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn dimension_rejects_negative() {
         assert!(XDimension2D::new(-1.0, 5.0).is_none());
-        assert!(XDimension2D::new(f64::NAN, 5.0).is_none());
+        assert!(XDimension2D::new(<f64>::NAN, 5.0).is_none());
         assert!(XDimension2D::new(5.0, 5.0).is_some());
     }
 

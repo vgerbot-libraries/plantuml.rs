@@ -89,8 +89,6 @@ const MESSAGE_TEXT_X_OFFSET: f64 = 7.0;
 const ARROW_Y_BASE: f64 = 14.0;
 /// Base lifeline height (without message text).
 const LIFELINE_HEIGHT_BASE: f64 = 32.0;
-/// Height of the title block (text height + padding).
-const TITLE_HEIGHT: f64 = 35.0;
 /// Header gap between header and title (from Java layout).
 const HEADER_GAP: f64 = 6.0;
 /// Gap between footbox bottom and legend.
@@ -106,18 +104,14 @@ const HEADER_FONT_COLOR: &str = "#888888";
 /// Derived from `Style.createTextBlockBordered` (padding 5+5, `TextBlockBordered`
 /// +1 and the style margin); grounded empirically on the 1.2026.6 jar at 14px.
 const TITLE_BLOCK_W_EXTRA: f64 = 11.0;
-/// Canvas width allowance beyond the bold text width (block + page margins).
-const TITLE_CANVAS_W_EXTRA: f64 = 26.2;
 /// Vertical offset the bordered title block pushes participants down by.
 ///
 /// Title block height (`DecorateEntityImage.addTop`): style margin 5+5,
 /// border padding 5+5, text height 19.0679, +1.
+const TITLE_SHIFT_Y: f64 = 40.0679;
 /// Baseline offset of the title text inside its bordered block
 /// (rect top + 7.0769 top padding + 12.889 ascent).
 const TITLE_TEXT_OFFSET: f64 = 19.9659;
-const TITLE_SHIFT_Y: f64 = 40.0679;
-/// Baseline Y of the title text (canvas coordinates) when participants exist.
-const TITLE_BASELINE_Y: f64 = 29.9659;
 
 /// Per-character advances (px) for bold 14px sans-serif, measured from the
 /// PlantUML jar `textLength` attributes (single-char strings plus trailing
@@ -1973,7 +1967,7 @@ pub fn render_sequence_svg(
         }
         if let Some(pgi) = parent_gi {
             let (pfx, pfy, pfw, pfh) = group_frames[pgi];
-            let (efx, efy, efw, efh) = group_frames[gi];
+            let (efx, _efy, efw, _efh) = group_frames[gi];
             let new_left = pfx.min(efx);
             let new_right = (pfx + pfw).max(efx + efw);
             let new_width = new_right - new_left;
@@ -2066,7 +2060,7 @@ pub fn render_sequence_svg(
         }
         if let Some(pgi) = parent_gi {
             let (pfx, pfy, pfw, pfh) = group_frames[pgi];
-            let (efx, efy, efw, efh) = group_frames[gi];
+            let (efx, _efy, efw, _efh) = group_frames[gi];
             let new_left = pfx.min(efx);
             let new_right = (pfx + pfw).max(efx + efw);
             let new_width = new_right - new_left;
@@ -2208,7 +2202,7 @@ pub fn render_sequence_svg(
     // Also cap at group_lifeline_bottom when the max-arrow-Y message is inside a parallel group,
     // because its height is already accounted for by the group's own lifeline_bottom.
     let max_arrow_in_parallel_group = groups.iter().any(|g| g.parallel && last_arrow_idx >= g.msg_start && last_arrow_idx < g.msg_end);
-    let normal_lifeline_bottom = if has_parallel {
+    let _normal_lifeline_bottom = if has_parallel {
         let capped = normal_lifeline_bottom.min(msg_ygauge_max + PAGE_MARGIN);
         if max_arrow_in_parallel_group && group_lifeline_bottom > 0.0 {
             capped.min(group_lifeline_bottom)
@@ -3116,7 +3110,7 @@ pub fn render_sequence_svg(
                 if groups[gi].group_type != "else" || groups[gi].msg_start != msg_idx {
                     continue;
                 }
-                let (fx, fy, fw, _fh) = group_frames[gi];
+                let (fx, _fy, fw, _fh) = group_frames[gi];
                 let fx_off = fx + x_offset;
                 let group = &groups[gi];
                 let divider_y = arrow_ys[msg_idx.saturating_sub(1)] + 9.0;
@@ -3528,9 +3522,9 @@ fn draw_standalone_note(
     svg.set_fill_color(COLOR_TEXT);
     svg.set_stroke_color(None);
     svg.set_stroke_width(0.0, None);
-    for (_line_idx, line) in lines.iter().enumerate() {
+    for (line_idx, line) in lines.iter().enumerate() {
         let text_w = bounder.calculate_dimension(font_m, line).width();
-        let text_y = path_top + 5.0 + ASCENT_13 + (_line_idx as f64) * MSG_LINE_HEIGHT;
+        let text_y = path_top + 5.0 + ASCENT_13 + (line_idx as f64) * MSG_LINE_HEIGHT;
         svg.text(
             line, text_x, text_y, None, FONT_SIZE_MESSAGE, None, None, None,
             text_w, &indexmap::IndexMap::new(), None,
@@ -5014,10 +5008,9 @@ pub fn parse_simple_sequence(text: &str) -> Option<ParsedSequence> {
                     (NotePosition::Right, r)
                 } else if let Some(r) = s.strip_prefix("left") {
                     (NotePosition::Left, r)
-                } else if let Some(r) = s.strip_prefix("over") {
-                    (NotePosition::Right, r)
                 } else {
-                    return None;
+                    let r = s.strip_prefix("over")?;
+                    (NotePosition::Right, r)
                 };
                 let rest = rest.trim_start();
                 let rest = rest.strip_prefix("of").unwrap_or(rest);
@@ -5311,14 +5304,10 @@ fn build_arrow_config(
     config
 }
 
-/// Parses a `PlantUML` sequence arrow line, extracting participants, label, and arrow configuration.
-///
-/// Ported from: `net/sourceforge/plantuml/sequencediagram/command/CommandArrow.java`
-///
-/// Returns `(p1_code, p2_code, label, arrow_config, inline_activate, inline_deactivate, inline_destroy)`.
-fn parse_arrow_line(
-    line: &str,
-) -> Option<(
+/// Parsed fields of one sequence arrow line:
+/// `(p1_code, p2_code, label, arrow_config, inline_activate,
+/// inline_deactivate, inline_destroy, arrow_style)`.
+type ParsedArrowLine = (
     String,
     String,
     String,
@@ -5327,7 +5316,14 @@ fn parse_arrow_line(
     bool,
     bool,
     Option<String>,
-)> {
+);
+
+/// Parses a `PlantUML` sequence arrow line, extracting participants, label, and arrow configuration.
+///
+/// Ported from: `net/sourceforge/plantuml/sequencediagram/command/CommandArrow.java`
+///
+/// Returns `(p1_code, p2_code, label, arrow_config, inline_activate, inline_deactivate, inline_destroy)`.
+fn parse_arrow_line(line: &str) -> Option<ParsedArrowLine> {
     // Capture the [style] bracket content ("-[#red]->", "-[hidden]->"), then
     // remove the bracket from the notation for arrow-body parsing. The tokens
     // are returned and applied to the ArrowConfiguration by the caller,
@@ -5363,7 +5359,7 @@ fn parse_arrow_line(
         }
     }
     // Try longest bodies first (greedy: prefer dotted `--` over solid `-`)
-    candidates.sort_by(|a, b| (b.1 - b.0).cmp(&(a.1 - a.0)));
+    candidates.sort_by_key(|&(s, e)| std::cmp::Reverse(e - s));
 
     for &(body_start, body_end) in &candidates {
         let body_len = body_end - body_start;

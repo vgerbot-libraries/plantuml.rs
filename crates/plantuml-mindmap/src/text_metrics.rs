@@ -19,10 +19,10 @@ pub const BOX_PADDING: f64 = 10.0;
 /// AWT ascent (SansSerif, fractional metrics) per point size, measured from the
 /// reference JVM. Used to place the text baseline; the SVG cleaner rounds to
 /// three decimals, so four decimals here are sufficient.
-const ASCENT_12: f64 = 12.8280897;
-const ASCENT_14: f64 = 14.9659348;
-const DESCENT_12: f64 = 3.5160246;
-const DESCENT_14: f64 = 4.1019821;
+const ASCENT_12: f64 = 12.828_089_7;
+const ASCENT_14: f64 = 14.965_934_8;
+const DESCENT_12: f64 = 3.516_024_6;
+const DESCENT_14: f64 = 4.101_982_1;
 
 /// Exact AWT `getStringBounds` height (ascent + descent); this depends only on
 /// the font size, not the label. The Rust bounder rounds this to three decimals

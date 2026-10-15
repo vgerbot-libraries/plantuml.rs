@@ -101,6 +101,8 @@ fn num(v: f64) -> String {
 /// right-facing node anchors its box left edge (left-facing: right edge) at
 /// `ox`; the box is vertically centred on `oy`. Each child finger origin is
 /// offset by the parent box width plus 50 horizontally and its packed `cy`.
+// `child_ox`/`child_oy` are the conventional (x, y) coordinate pair.
+#[allow(clippy::similar_names)]
 fn draw_side(svg: &mut SvgGraphics, node: &LaidNode, ox: f64, oy: f64, right: bool) {
     // Own box: edge-anchored at ox, vertically centred on oy. The reverse
     // root of a two-sided map draws nothing (the regular side draws it).

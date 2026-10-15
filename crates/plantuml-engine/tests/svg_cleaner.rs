@@ -14,7 +14,7 @@ enum CleanNode {
     Element {
         name: String,
         attrs: Vec<(String, String)>,
-        children: Vec<CleanNode>,
+        children: Vec<Self>,
     },
     Text(String),
 }
@@ -58,30 +58,15 @@ pub fn clean(svg_xml: &str) -> String {
             Ok(Event::Text(e)) => {
                 let text = e.unescape().unwrap_or_default().to_string();
                 if !text.is_empty() {
-                    if let Some(parent) = stack.last_mut() {
-                        if let CleanNode::Element { children, .. } = parent {
-                            children.push(CleanNode::Text(text));
-                        }
-                    }
-                }
-            }
-            Ok(Event::PI(_)) | Ok(Event::Decl(_)) => {
-                // Skip processing instructions and declarations
-            }
-            Ok(Event::Comment(_)) => {
-                // Skip comments
-            }
-            Ok(Event::CData(e)) => {
-                let text = String::from_utf8_lossy(e.as_ref()).to_string();
-                if let Some(parent) = stack.last_mut() {
-                    if let CleanNode::Element { children, .. } = parent {
+                    if let Some(CleanNode::Element { children, .. }) = stack.last_mut() {
                         children.push(CleanNode::Text(text));
                     }
                 }
             }
-            Ok(Event::Eof) => break,
+            // Processing instructions, declarations, comments, and any other
+            // events are skipped.
+            Ok(Event::Eof) | Err(_) => break,
             Ok(_) => {}
-            Err(_) => break,
         }
         buf.clear();
     }
@@ -157,7 +142,7 @@ fn round_coord_attr(key: &str, value: &str) -> String {
         if let Ok(v) = s.parse::<f64>() {
             let r = (v * 1000.0).round() / 1000.0;
             // Match Java's trimZeros: strip trailing zeros and optional dot
-            let formatted = format!("{:.3}", r);
+            let formatted = format!("{r:.3}");
             let trimmed = formatted
                 .trim_end_matches('0')
                 .trim_end_matches('.');
@@ -176,14 +161,14 @@ fn round_coord_attr(key: &str, value: &str) -> String {
     } else if key == "points" {
         // points="x1,y1 x2,y2 ..." or "x1,y1,x2,y2,..."
         value
-            .split(|c: char| c == ',' || c == ' ')
+            .split([',', ' '])
             .map(|s| round_one(s.trim()))
             .collect::<Vec<_>>()
             .join(",")
     } else if key == "viewBox" {
         value
             .split_whitespace()
-            .map(|s| round_one(s))
+            .map(round_one)
             .collect::<Vec<_>>()
             .join(" ")
     } else if key == "d" {
@@ -207,7 +192,7 @@ fn round_path_data(d: &str) -> String {
             if !num_buf.is_empty() {
                 if let Ok(v) = num_buf.parse::<f64>() {
                     let r = (v * 1000.0).round() / 1000.0;
-                    let formatted = format!("{:.3}", r);
+                    let formatted = format!("{r:.3}");
                     let trimmed = formatted
                         .trim_end_matches('0')
                         .trim_end_matches('.');
@@ -228,7 +213,7 @@ fn round_path_data(d: &str) -> String {
     if !num_buf.is_empty() {
         if let Ok(v) = num_buf.parse::<f64>() {
             let r = (v * 1000.0).round() / 1000.0;
-            let formatted = format!("{:.3}", r);
+            let formatted = format!("{r:.3}");
             let trimmed = formatted
                 .trim_end_matches('0')
                 .trim_end_matches('.');
@@ -274,28 +259,24 @@ fn serialize_node(node: &CleanNode, indent: usize) -> String {
                 .iter()
                 .all(|c| matches!(c, CleanNode::Text(_)));
 
+            result.push('>');
             if all_text {
-                result.push('>');
                 for child in children {
                     if let CleanNode::Text(t) = child {
                         result.push_str(&escape_text(t));
                     }
                 }
-                result.push_str("</");
-                result.push_str(name);
-                result.push('>');
             } else {
-                result.push('>');
                 for child in children {
                     result.push('\n');
                     result.push_str(&serialize_node(child, indent + 2));
                 }
                 result.push('\n');
                 result.push_str(&" ".repeat(indent));
-                result.push_str("</");
-                result.push_str(name);
-                result.push('>');
             }
+            result.push_str("</");
+            result.push_str(name);
+            result.push('>');
             result
         }
         CleanNode::Text(text) => {

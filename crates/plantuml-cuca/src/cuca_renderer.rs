@@ -1616,7 +1616,7 @@ mod tests {
             display: name.to_string(),
             kind: EntityKind::Class,
             stereotype: None,
-            body: body.iter().map(|s| s.to_string()).collect(),
+            body: body.iter().map(std::string::ToString::to_string).collect(),
             source_line: 1,
             parent: None,
             group: false,

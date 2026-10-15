@@ -313,12 +313,8 @@ fn get_types(chars: &[char], p: usize) -> HashSet<DiagramType> {
                 set.insert(DiagramType::Unknown);
             }
         }
-        'y' => {
-            if check("yaml", chars, p) {
-                set.insert(DiagramType::Yaml);
-            } else {
-                set.insert(DiagramType::Unknown);
-            }
+        'y' if check("yaml", chars, p) => {
+            set.insert(DiagramType::Yaml);
         }
         _ => {
             set.insert(DiagramType::Unknown);
@@ -352,7 +348,7 @@ mod tests {
         assert!(types.contains(&DiagramType::Sequence));
         assert!(types.contains(&DiagramType::Class));
         assert!(types.contains(&DiagramType::Activity));
-        assert!(types.len() == 10);
+        assert_eq!(types.len(), 10);
     }
 
     #[test]

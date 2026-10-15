@@ -50,20 +50,20 @@ impl SvgCleaner {
 
         loop {
             let event = match reader.read_event() {
-                Ok(Event::Eof) => break,
+                Ok(Event::Eof) | Err(_) => break,
                 Ok(event) => event,
-                Err(_) => break,
             };
 
             match event {
-                Event::Decl(_) => {
-                    // Omit XML declaration (OutputKeys.OMIT_XML_DECLARATION = "yes").
-                }
-                Event::PI(_) if remove_pi => {
-                    // Remove processing instructions (SvgCleaner.clean only).
+                Event::Decl(_) | Event::DocType(_) | Event::Eof => {
+                    // Omit XML declaration/doctype; Eof is handled by the
+                    // outer read loop (OutputKeys.OMIT_XML_DECLARATION = "yes").
                 }
                 Event::PI(pi) => {
-                    let _ = writer.write_event(Event::PI(pi));
+                    // clean() drops processing instructions; normalise() keeps them.
+                    if !remove_pi {
+                        let _ = writer.write_event(Event::PI(pi));
+                    }
                 }
                 Event::Start(start) => {
                     Self::write_indent(&mut writer, depth);
@@ -71,9 +71,7 @@ impl SvgCleaner {
                     depth += 1;
                 }
                 Event::End(end) => {
-                    if depth > 0 {
-                        depth -= 1;
-                    }
+                    depth = depth.saturating_sub(1);
                     Self::write_indent(&mut writer, depth);
                     let _ = writer.write_event(Event::End(end));
                 }
@@ -97,7 +95,6 @@ impl SvgCleaner {
                     Self::write_indent(&mut writer, depth);
                     let _ = writer.write_event(Event::Comment(comment));
                 }
-                Event::DocType(_) | Event::Eof => {}
             }
         }
 

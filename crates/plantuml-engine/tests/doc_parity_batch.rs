@@ -12,6 +12,7 @@ mod java_plantuml;
 mod svg_cleaner;
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
 
@@ -138,11 +139,10 @@ fn count_hunks(java: &[&str], rust: &[&str]) -> usize {
             j += 1; // insertion in rust
         }
     }
-    if i < n || j < m {
-        if !in_hunk {
+    if (i < n || j < m)
+        && !in_hunk {
             hunks += 1;
         }
-    }
     hunks
 }
 
@@ -195,7 +195,7 @@ fn batch_compare() {
             .unwrap_or_else(|payload| {
                 let msg = payload
                     .downcast_ref::<&'static str>()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "unknown panic".to_string());
                 Err(plantuml_engine::RenderError::Export(format!("Rust panic: {msg}")))
@@ -256,7 +256,7 @@ fn batch_compare() {
     }
 
     // ── report.json ──
-    let json_values: Vec<Value> = cases.iter().map(|c| c.to_json()).collect();
+    let json_values: Vec<Value> = cases.iter().map(CaseReport::to_json).collect();
     let json = serde_json::to_string_pretty(&json_values).unwrap();
     fs::write(out_dir.join("report.json"), &json).unwrap();
 
@@ -266,27 +266,25 @@ fn batch_compare() {
         by_status.entry(c.status.as_str()).or_default().push(c);
     }
     let mut txt = String::new();
-    txt.push_str(&format!("Total examples: {}\n\n", cases.len()));
+    let _ = write!(txt, "Total examples: {}\n\n", cases.len());
     for (status, group) in &by_status {
-        txt.push_str(&format!("{status}: {}\n", group.len()));
+        let _ = writeln!(txt, "{status}: {}", group.len());
     }
     txt.push('\n');
     for c in &cases {
-        txt.push_str(&format!(
-            "{:<16} {:<16}",
-            c.name, c.status,
-        ));
-        if let (Some(j), Some(r)) = (&c.java_dims, &c.rust_dims) {
-            txt.push_str(&format!(" java={}x{} rust={}x{}", j[0], j[1], r[0], r[1]));
+        let _ = write!(txt, "{:<16} {:<16}", c.name, c.status);
+        if let (Some([jw, jh]), Some([rw, rh])) = (&c.java_dims, &c.rust_dims) {
+            let _ = write!(txt, " java={jw}x{jh} rust={rw}x{rh}");
         }
         if c.status == "MISMATCH" {
-            txt.push_str(&format!(
+            let _ = write!(
+                txt,
                 " lines(java/rust)={}/{} hunks={}",
                 c.cleaned_lines_java, c.cleaned_lines_rust, c.diff_hunks
-            ));
+            );
         }
         if let Some(e) = &c.rust_error {
-            txt.push_str(&format!(" error={e}"));
+            let _ = write!(txt, " error={e}");
         }
         txt.push('\n');
     }

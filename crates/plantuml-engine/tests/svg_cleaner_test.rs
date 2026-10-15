@@ -35,7 +35,7 @@ fn test_normalise_pretty_prints() {
 
 #[test]
 fn test_clean_and_normalise_produce_same_structure() {
-    let svg = r#"<svg><g><rect/></g></svg>"#;
+    let svg = r"<svg><g><rect/></g></svg>";
     let cleaned = SvgCleaner::clean(svg);
     let normalised = SvgCleaner::normalise(svg);
     // Without PIs, clean and normalise should produce the same output.
@@ -44,7 +44,7 @@ fn test_clean_and_normalise_produce_same_structure() {
 
 #[test]
 fn test_preserves_text_content() {
-    let svg = r#"<svg><text>Hello World</text></svg>"#;
+    let svg = r"<svg><text>Hello World</text></svg>";
     let cleaned = SvgCleaner::clean(svg);
     assert!(
         cleaned.contains("Hello World"),

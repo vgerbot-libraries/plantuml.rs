@@ -451,12 +451,6 @@ pub fn render_json_svg(root: &Value, _highlights: &[Highlight], diagram_type: &s
     // `manageOneNode` creation order), not by record Vec index: children
     // records are pushed before their parent.
     let mut order = Vec::new();
-    fn push_preorder(idx: usize, records: &[Record], order: &mut Vec<usize>) {
-        order.push(idx);
-        for &(_, child) in &records[idx].children {
-            push_preorder(child, records, order);
-        }
-    }
     push_preorder(root_idx, &records, &mut order);
     for &idx in &order {
         draw_record(&mut svg, &records[idx]);
@@ -469,6 +463,15 @@ pub fn render_json_svg(root: &Value, _highlights: &[Highlight], diagram_type: &s
     svg.ensure_visible(total_w, total_h);
 
     svg.create_xml()
+}
+
+/// Pushes node indices in the `manageOneNode` creation order: the node itself,
+/// then children depth-first in their stored order.
+fn push_preorder(idx: usize, records: &[Record], order: &mut Vec<usize>) {
+    order.push(idx);
+    for &(_, child) in &records[idx].children {
+        push_preorder(child, records, order);
+    }
 }
 
 // ── Edge drawing ─────────────────────────────────────────────────────────
@@ -547,6 +550,7 @@ fn draw_arrow(svg: &mut SvgGraphics, p1: (f64, f64), p2: (f64, f64)) {
 
 /// Formats a coordinate like the reference path output: integer when whole,
 /// otherwise up to four decimals with trailing zeros removed.
+#[allow(clippy::float_cmp)] // exact whole-number test after rounding, no epsilon needed
 fn num(v: f64) -> String {
     let r = (v * 10000.0).round() / 10000.0;
     if r == r.trunc() {

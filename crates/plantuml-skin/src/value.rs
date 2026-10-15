@@ -484,6 +484,9 @@ mod tests {
         assert_eq!(v.as_horizontal_alignment(), HorizontalAlignment::Center);
     }
 
+    // `3.14` here is arbitrary skinparameter input text (parsed via
+    // `as_double_default_to`), not an approximation of π.
+    #[allow(clippy::approx_constant)]
     #[test]
     fn as_double_default_to() {
         let v = Value::regular("abc", Specificity::at_order(1));

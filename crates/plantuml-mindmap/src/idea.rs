@@ -145,14 +145,14 @@ fn parse_tree(lines: &[&str]) -> Option<Idea> {
         // Prefix markers are decided per line so a `*` root can mix with
         // `++`/`--` children.
         let (level, rest, is_left) = match trimmed.chars().next() {
-            Some('+') | Some('-') => {
+            Some('+' | '-') => {
                 let end = trimmed
                     .chars()
                     .take_while(|&c| c == '+' || c == '-')
                     .count();
                 (end - 1, &trimmed[end..], trimmed.starts_with('-'))
             }
-            Some('*') | Some('#') => {
+            Some('*' | '#') => {
                 let end = trimmed
                     .chars()
                     .take_while(|&c| c == '*' || c == '#')

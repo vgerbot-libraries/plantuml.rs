@@ -821,7 +821,7 @@ fn shift_shape(shape: &Shape, dx: f64, dy: f64) -> Shape {
     let mut s = shape.clone();
     match &mut s {
         Shape::Polygon { points, .. } => {
-            for c in points.chunks_exact_mut(2) {
+            for c in points.as_chunks_mut::<2>().0 {
                 c[0] += dx;
                 c[1] += dy;
             }
@@ -1074,7 +1074,7 @@ fn shape_slot_y(shape: &Shape) -> Option<(f64, f64)> {
 
 /// Returns min/max y of a flat polygon.
 fn min_max_y(points: &[f64]) -> Option<(f64, f64)> {
-    let ys: Vec<f64> = points.chunks_exact(2).map(|p| p[1]).collect();
+    let ys: Vec<f64> = points.as_chunks::<2>().0.iter().map(|p| p[1]).collect();
     Some((*ys.first()?, ys.iter().copied().fold(f64::MIN, f64::max)))
 }
 
@@ -1180,7 +1180,7 @@ fn limit_minmax(canvas: &Canvas, slots: &[(f64, f64)]) -> (f64, f64, f64, f64) {
         // Arrowhead polygons: LimitFinder adds a ±10 x margin to UPolygons.
         for poly in connector.arrowheads() {
             if let Some((p_min_y, p_max_y)) = min_max_y(&poly) {
-                let xs: Vec<f64> = poly.chunks_exact(2).map(|p| p[0]).collect();
+                let xs: Vec<f64> = poly.as_chunks::<2>().0.iter().map(|p| p[0]).collect();
                 let min_xp = xs.iter().copied().fold(f64::MAX, f64::min);
                 let max_xp = xs.iter().copied().fold(f64::MIN, f64::max);
                 add(
@@ -1232,7 +1232,7 @@ fn limit_shape(
             let Some((pmin_y, pmax_y)) = min_max_y(points) else {
                 return;
             };
-            let xs: Vec<f64> = points.chunks_exact(2).map(|p| p[0]).collect();
+            let xs: Vec<f64> = points.as_chunks::<2>().0.iter().map(|p| p[0]).collect();
             let pmin_x = xs.iter().copied().fold(f64::MAX, f64::min);
             let pmax_x = xs.iter().copied().fold(f64::MIN, f64::max);
             add(pmin_x - 10.0, compress_y(slots, pmin_y), lo_x, lo_y, hi_x, hi_y);
@@ -1345,11 +1345,11 @@ fn emit_shape(svg: &mut SvgGraphics, shape: &Shape, slots: &[(f64, f64)], ox: f6
             svg.set_stroke_color(Some(STROKE));
             svg.set_stroke_width(*stroke_width, None);
             let compressed: Vec<f64> = points
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .flat_map(|p| [p[0], compress_y(slots, p[1])])
                 .collect();
             let shifted: Vec<f64> = compressed
-                .chunks_exact(2)
+                .as_chunks::<2>().0.iter()
                 .flat_map(|p| [p[0] + ox, p[1] + oy])
                 .collect();
             svg.svg_polygon(0.0, &shifted);
@@ -1407,7 +1407,7 @@ fn emit_connector(
                         ((x1 + x2) / 2.0, (y1 + y2) / 2.0),
                     );
                     let shifted: Vec<f64> = poly
-                        .chunks_exact(2)
+                        .as_chunks::<2>().0.iter()
                         .flat_map(|p| [p[0] + ox, compress_y(slots, p[1]) + oy])
                         .collect();
                     svg.svg_polygon(0.0, &shifted);
@@ -1430,7 +1430,7 @@ fn emit_connector(
     svg.set_stroke_width(1.0, None);
     for poly in connector.terminal_arrowheads() {
         let shifted: Vec<f64> = poly
-            .chunks_exact(2)
+            .as_chunks::<2>().0.iter()
             .flat_map(|p| [p[0] + ox, compress_y(slots, p[1]) + oy])
             .collect();
         svg.svg_polygon(0.0, &shifted);

@@ -46,8 +46,6 @@ const TICK_PIXELS: f64 = 50.0;
 const FRAME_HEIGHT: f64 = 50.0679;
 /// Height of the title strip above the panel.
 const TITLE_STRIP: f64 = 20.0679;
-/// Suggested panel height (clock and binary).
-const PANEL_HEIGHT: f64 = 30.0;
 /// Baseline of the signal name measured from the frame top.
 const TITLE_BASELINE: f64 = 14.9659;
 /// Signal-name text X.
@@ -151,7 +149,7 @@ fn build_ruler(source: &TimingSource) -> Ruler {
             .iter()
             .filter(|t| **t > 0.0)
             .map(|t| t.round() as i64)
-            .fold(0_i64, |acc, v| gcd(acc, v))
+            .fold(0_i64, gcd)
             .max(1);
         let scale = TICK_PIXELS / unit as f64;
         // Width covers delta + one tick unit: (max/unit + 1) * TICK_PIXELS.
@@ -240,6 +238,7 @@ fn draw_title_strip(svg: &mut SvgGraphics, name: &str, frame_top: f64, panel_top
 }
 
 /// Draws a clock waveform.
+#[allow(clippy::while_float)] // epsilon-bounded clock edge loop
 fn draw_clock(svg: &mut SvgGraphics, ruler: &Ruler, signal: &Signal, frame_top: f64) {
     let panel_top = frame_top + TITLE_STRIP;
     let high_y = panel_top + PANEL_MARGIN;
@@ -254,6 +253,8 @@ fn draw_clock(svg: &mut SvgGraphics, ruler: &Ruler, signal: &Signal, frame_top: 
 
     let mut edges: Vec<f64> = Vec::new();
     let mut t = start;
+    // The 1e-9 epsilon already guards the boundary; only the toggle count
+    // matters, so the direct float comparison is intentional.
     while t <= end_time + 1e-9 {
         edges.push(t);
         t += half;

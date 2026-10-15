@@ -70,7 +70,7 @@ fn test_render_dispatches_svg() {
 fn test_json_renders_svg() {
     let source = "@startjson\n{\"key\": \"value\"}\n@endjson";
     let result = render_svg(source);
-    assert!(result.is_ok(), "JSON should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "JSON should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "JSON must produce SVG");
     assert!(svg.contains("key"), "JSON SVG must contain the key");
@@ -83,7 +83,7 @@ fn test_json_renders_svg() {
 fn test_yaml_renders_svg() {
     let source = "@startyaml\nkey: value\n@endyaml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "YAML should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "YAML should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "YAML must produce SVG");
     assert_java_parity(source, &svg, "YAML diagram");
@@ -95,7 +95,7 @@ fn test_yaml_renders_svg() {
 fn test_mindmap_renders_svg() {
     let source = "@startmindmap\n* root\n** a\n*** a1\n** b\n@endmindmap";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Mindmap should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "Mindmap should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Mindmap must produce SVG");
     assert!(svg.contains("root"), "Mindmap SVG must contain root label");
@@ -108,7 +108,7 @@ fn test_mindmap_renders_svg() {
 fn test_wbs_renders_svg() {
     let source = "@startwbs\n* Project\n** Planning\n*** Define scope\n** Implementation\n@endwbs";
     let result = render_svg(source);
-    assert!(result.is_ok(), "WBS should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "WBS should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "WBS must produce SVG");
     assert!(svg.contains("Project"), "WBS SVG must contain Project label");
@@ -121,7 +121,7 @@ fn test_wbs_renders_svg() {
 fn test_class_renders_svg() {
     let source = "@startuml\nclass Alice\nclass Bob\nAlice --> Bob : knows\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Class diagram should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "Class diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Class diagram must produce SVG");
     assert!(svg.contains("Alice"), "Class SVG must contain Alice label");
@@ -135,7 +135,7 @@ fn test_class_renders_svg() {
 fn test_object_renders_svg() {
     let source = "@startuml\nobject alice\nobject bob\nalice --> bob : link\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Object diagram should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "Object diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Object diagram must produce SVG");
     assert!(svg.contains("alice"), "Object SVG must contain alice label");
@@ -148,7 +148,7 @@ fn test_object_renders_svg() {
 fn test_class_with_body_renders_svg() {
     let source = "@startuml\nclass Foo {\n+ field: int\n+ method(): void\n}\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Class with body should render: {:?}", result);
+    assert!(result.is_ok(), "Class with body should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Class with body must produce SVG");
     assert!(svg.contains("field"), "Class SVG must contain field");
@@ -162,7 +162,7 @@ fn test_class_with_body_renders_svg() {
 fn test_state_renders_svg() {
     let source = "@startuml\nstate Idle\nstate Active\nIdle --> Active : start\nActive --> Idle : stop\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "State diagram should render via pipeline: {:?}", result);
+    assert!(result.is_ok(), "State diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "State diagram must produce SVG");
     assert!(svg.contains("Idle"), "State SVG must contain Idle label");
@@ -176,7 +176,7 @@ fn test_state_renders_svg() {
 fn test_component_renders_svg() {
     let source = "@startuml\ncomponent [Web Server]\ncomponent [Database]\n[Web Server] --> [Database] : queries\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Component diagram should render: {:?}", result);
+    assert!(result.is_ok(), "Component diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Component diagram must produce SVG");
     assert_java_parity(source, &svg, "Component diagram");
@@ -187,7 +187,7 @@ fn test_component_renders_svg() {
 fn test_usecase_renders_svg() {
     let source = "@startuml\nactor User\nusecase (Login)\nusecase (Logout)\nUser --> (Login)\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "UseCase diagram should render: {:?}", result);
+    assert!(result.is_ok(), "UseCase diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "UseCase diagram must produce SVG");
     assert!(svg.contains("User"), "UseCase SVG must contain User");
@@ -200,7 +200,7 @@ fn test_usecase_renders_svg() {
 fn test_deployment_renders_svg() {
     let source = "@startuml\nnode \"Server\" {\n  database \"DB\"\n}\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Deployment diagram should render: {:?}", result);
+    assert!(result.is_ok(), "Deployment diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Deployment diagram must produce SVG");
     assert_java_parity(source, &svg, "Deployment diagram");
@@ -211,11 +211,11 @@ fn test_deployment_renders_svg() {
 fn test_timing_renders_svg() {
     let source = "@starttiming\nbinary A\nbinary B\nA = 0\nB = 0\nA = 1\nB = 1\n@endtiming";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Timing diagram should render: {:?}", result);
+    assert!(result.is_ok(), "Timing diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Timing diagram must produce SVG");
-    assert!(svg.contains("A"), "Timing SVG must contain signal A");
-    assert!(svg.contains("B"), "Timing SVG must contain signal B");
+    assert!(svg.contains('A'), "Timing SVG must contain signal A");
+    assert!(svg.contains('B'), "Timing SVG must contain signal B");
     assert_java_parity(source, &svg, "Timing diagram");
 }
 
@@ -224,7 +224,7 @@ fn test_timing_renders_svg() {
 fn test_gantt_renders_svg() {
     let source = "@startgantt\ntask [Task1] lasts 5 days\ntask [Task2] lasts 3 days\n[Task2] depends on [Task1]\n@endgantt";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Gantt diagram should render: {:?}", result);
+    assert!(result.is_ok(), "Gantt diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Gantt diagram must produce SVG");
     assert!(svg.contains("Task1"), "Gantt SVG must contain Task1");
@@ -237,7 +237,7 @@ fn test_gantt_renders_svg() {
 fn test_activity_renders_svg() {
     let source = "@startuml\nstart\n:Do something;\nstop\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Activity diagram should render: {:?}", result);
+    assert!(result.is_ok(), "Activity diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Activity diagram must produce SVG");
     assert!(svg.contains("Do something"), "Activity SVG must contain action label");
@@ -249,7 +249,7 @@ fn test_activity_renders_svg() {
 fn test_activity_if_else_renders_svg() {
     let source = "@startuml\nstart\nif (cond?) then (yes)\n:yes action;\nelse (no)\n:no action;\nendif\nstop\n@enduml";
     let result = render_svg(source);
-    assert!(result.is_ok(), "Activity if/else should render: {:?}", result);
+    assert!(result.is_ok(), "Activity if/else should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Activity if/else must produce SVG");
     assert!(svg.contains("cond?"), "Activity SVG must contain condition");

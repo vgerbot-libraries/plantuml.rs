@@ -30,7 +30,7 @@ fn main() {
             println!("\n--- First 500 chars ---");
             println!("{}", &svg[..svg.len().min(500)]);
         }
-        Err(e) => println!("JSON ERROR: {:?}", e),
+        Err(e) => println!("JSON ERROR: {e:?}"),
     }
     
     println!("\n---\n");
@@ -56,7 +56,7 @@ hobbies:
             println!("Contains 'name': {}", svg.contains("name"));
             println!("Contains 'Alice': {}", svg.contains("Alice"));
         }
-        Err(e) => println!("YAML ERROR: {:?}", e),
+        Err(e) => println!("YAML ERROR: {e:?}"),
     }
     
     // Invalid JSON test
@@ -69,7 +69,7 @@ hobbies:
             println!("\nContains 'does not sound': {}", svg.contains("does\u{00a0}not\u{00a0}sound"));
             println!("Contains 'sound': {}", svg.contains("sound"));
         }
-        Err(e) => println!("Invalid JSON error: {:?}", e),
+        Err(e) => println!("Invalid JSON error: {e:?}"),
     }
 }
 
