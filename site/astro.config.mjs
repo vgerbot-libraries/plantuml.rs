@@ -14,7 +14,7 @@ export default defineConfig({
       title: 'plantuml.rs',
       logo: { src: './src/assets/logo.svg', replacesTitle: false },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/vgerbot/plantuml.rs' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/vgerbot-libraries/plantuml.rs' },
       ],
       customCss: ['./src/styles/custom.css'],
       sidebar: [

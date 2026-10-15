@@ -15,7 +15,7 @@ description: Prerequisites and build instructions for plantuml.rs
 ## Build the core library
 
 ```sh
-git clone https://github.com/vgerbot/plantuml.rs.git
+git clone https://github.com/vgerbot-libraries/plantuml.rs.git
 cd plantuml.rs
 cargo build
 ```
