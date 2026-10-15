@@ -631,9 +631,9 @@ impl TContext {
                     }
                     // Multi-line function call: if ')' not found on current line,
                     // read additional lines from read_line2.
-                    let func_call_str;
+                    
                     let mut consumed_extra_lines = 0;
-                    if depth > 0 {
+                    let func_call_str = if depth > 0 {
                         // Build multi-line function call string
                         let mut full_str = str[i..].to_string();
                         // Strip trailing backslash (line continuation) from current line
@@ -669,10 +669,10 @@ impl TContext {
                                 break;
                             }
                         }
-                        func_call_str = full_str;
+                        full_str
                     } else {
-                        func_call_str = str[i..j].to_string();
-                    }
+                        str[i..j].to_string()
+                    };
                     let func_call = StringLocated::new(func_call_str, s.get_location().clone());
                     // Set pending_add BEFORE executing the procedure so the procedure body
                     // can pick it up (text before the call is prepended to first body line).
@@ -873,20 +873,18 @@ impl TContext {
     /// Creates a `Knowledge` view over this context and memory.
     ///
     /// Ported from `TContext.asKnowledge` (Java lines 298-313).
-    pub fn as_knowledge(
+    pub fn as_knowledge<'a>(
         &mut self,
-        memory: &mut dyn TMemory,
+        memory: *mut (dyn TMemory + 'a),
         location: &StringLocated,
-    ) -> super::expression::knowledge::ContextKnowledge {
+    ) -> super::expression::knowledge::ContextKnowledge<'a> {
         // SAFETY: The raw pointers are valid for the duration of expression
-        // evaluation (single-threaded, stack-owned). We erase the lifetime
-        // from the memory pointer via an `as` cast so that the returned
-        // ContextKnowledge does not hold a borrow of `self` or `memory`,
-        let ctx_ptr = self as *mut Self;
-        let mem_ptr: *mut (dyn TMemory + '_) = memory;
-        #[allow(clippy::unnecessary_cast)]
-        let mem_ptr: *mut (dyn TMemory + 'static) = mem_ptr as *mut dyn TMemory;
-        super::expression::knowledge::ContextKnowledge::new(ctx_ptr, mem_ptr, location.clone())
+        // evaluation (single-threaded, stack-owned). Taking `memory` as a raw
+        // pointer lets the caller keep using the original `&mut dyn TMemory`
+        // while the `ContextKnowledge` exists; the memory pointer keeps the
+        // original lifetime `'a`, which `get_result` outlives.
+        let ctx_ptr = std::ptr::from_mut::<Self>(self);
+        super::expression::knowledge::ContextKnowledge::new(ctx_ptr, memory, location.clone())
     }
 
     /// Extracts and joins results from position `n1` onward.

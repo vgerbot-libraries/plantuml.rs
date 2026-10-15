@@ -41,25 +41,29 @@ pub trait Knowledge {
 /// `this`. The pointers are valid for the duration of expression evaluation
 /// (single-threaded, stack-owned).
 ///
-/// The lifetime of the borrowed references is erased via `transmute` on the
-/// raw pointers. This is safe because the caller (`TContext::as_knowledge`)
-/// guarantees that both `context` and `memory` outlive the
-/// `ContextKnowledge`, and no other mutable references exist during
-/// expression evaluation (single-threaded).
-pub struct ContextKnowledge {
+/// The memory pointer keeps the original lifetime `'a` (only the borrow is
+/// erased into a raw pointer). This is safe because the caller
+/// (`TContext::as_knowledge`) guarantees that both `context` and `memory`
+/// outlive the `ContextKnowledge`, and no other mutable references exist
+/// during expression evaluation (single-threaded).
+pub struct ContextKnowledge<'a> {
     context: *mut TContext,
-    memory: *mut dyn TMemory,
+    memory: *mut (dyn TMemory + 'a),
     location: StringLocated,
 }
 
-impl ContextKnowledge {
+impl<'a> ContextKnowledge<'a> {
     /// Creates a new `ContextKnowledge` from raw pointers.
     ///
     /// # Safety
     /// The caller must ensure `context` and `memory` outlive this `ContextKnowledge`
     /// and that no other mutable references to them exist during its use.
     #[must_use]
-    pub fn new(context: *mut TContext, memory: *mut dyn TMemory, location: StringLocated) -> Self {
+    pub fn new(
+        context: *mut TContext,
+        memory: *mut (dyn TMemory + 'a),
+        location: StringLocated,
+    ) -> Self {
         Self {
             context,
             memory,
@@ -68,7 +72,7 @@ impl ContextKnowledge {
     }
 }
 
-impl Knowledge for ContextKnowledge {
+impl Knowledge for ContextKnowledge<'_> {
     fn get_variable(&self, name: &str) -> Result<Option<TValue>, EaterException> {
         if name.contains('.') || name.contains('[') {
             // SAFETY: context and memory are valid for the duration of expression

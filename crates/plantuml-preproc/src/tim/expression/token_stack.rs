@@ -202,7 +202,10 @@ impl TokenStack {
         context: &mut TContext,
         memory: &mut dyn TMemory,
     ) -> Result<super::t_value::TValue, EaterException> {
-        let knowledge = context.as_knowledge(memory, location);
+        // SAFETY: `memory` is valid for the rest of this function and the
+        // `ContextKnowledge` is dropped before it returns; the evaluator is
+        // single-threaded and uses the pointer only through the knowledge.
+        let knowledge = context.as_knowledge(std::ptr::from_mut::<dyn TMemory>(memory), location);
         let mut tmp = self.without_space();
         tmp.guess_functions(location)?;
         let mut it = tmp.token_iterator();
