@@ -131,19 +131,26 @@ fn maximal_label_box(
     (llx, urx)
 }
 
-/// Max x reached by a spline inside a y-band, ported from the per-box sampling
-/// of `routespl.c::limitBoxes`. Used to recover the label anchor.
+/// Max x reached by a spline inside a y-band.
+///
+/// Graphviz positions the label virtual node through the network-simplex x
+/// constraints, then routes; on the singleton-rank chains this solver handles,
+/// the resulting vnode coordinate equals the routed spline's geometric x
+/// extent across the label band. Recover it directly from the fitted cubic
+/// with a fine de Casteljau subdivision. A coarse fixed grid (the
+/// `routesplines.c::limitBoxes` 10*boxn sampling) undershoots the true
+/// extremum by ~0.005 where the spline runs tangent to the band edge, which
+/// quantizes the anchor one cent wrong (back edge "switch": 1.045 at the
+/// extremum → 1.05, vs 1.044997 on the coarse grid → 1.04).
 fn spline_max_x_in_band(points: &[Point], y_lo: f64, y_hi: f64) -> f64 {
-    // `limitBoxes` samples with num_div = delta * boxn; the first pass uses
-    // delta=INIT_DELTA(10) and boxn = the corridor box count.
     const F: f64 = 0.0001;
-    let num_div: f64 = (10.0_f64 * 5.0).max(1.0);
+    const SUBDIV: usize = 2000;
     let mut max_x = f64::NEG_INFINITY;
 
     for seg in points.windows(4).step_by(3) {
         let (p0, p1, p2, p3) = (seg[0], seg[1], seg[2], seg[3]);
-        for si in 0..=num_div as usize {
-            let t = si as f64 / num_div;
+        for si in 0..=SUBDIV {
+            let t = si as f64 / SUBDIV as f64;
             // de Casteljau down to one sampled point.
             let s0 = p0.add(p1.sub(p0).scale(t));
             let s1 = p1.add(p2.sub(p1).scale(t));
@@ -157,6 +164,63 @@ fn spline_max_x_in_band(points: &[Point], y_lo: f64, y_hi: f64) -> f64 {
         }
     }
     max_x
+}
+
+/// Left edge of an edge-label table, exactly as graphviz 14 derives it.
+///
+/// Ported from `lib/common/routespl.c::limitBoxes` followed by
+/// `lib/dotgen/dotsplines.c::recover_slack`. After routing, graphviz shrinks
+/// the label rank's corridor box by coarse de Casteljau sampling of the
+/// *straight* centre-to-centre cubic `[P0, P0, P3, P3]` with
+/// `num_div = 10 * boxn` subdivisions and recording the greatest sample `x`
+/// that falls in the box's y-band; `recover_slack` then sets the labelled
+/// virtual node's x to that right edge. For a `minlen = 1` (doubled-rank)
+/// chain there are five rank boxes, hence `num_div = 50`.
+///
+/// The routed/clipped spline is deliberately *not* used: graphviz samples the
+/// straight cubic here, which is what keeps a diagonal label anchored on the
+/// column side rather than at the curved edge's furthest excursion.
+///
+/// `start` and `end` are the one-pixel-inset path terminals in the internal
+/// y-up frame (`tail.y - 1` and `head.y + 1`); `vn_y` is the label virtual
+/// node's rank coordinate.
+pub fn label_box_left_straight(start: Point, end: Point, vn_y: f64) -> f64 {
+    const NUM_DIV: usize = 50;
+    const F: f64 = 0.0001;
+
+    let y_lo = vn_y - LABEL_HALF_H;
+    let y_hi = vn_y + LABEL_HALF_H;
+
+    // Control polygon [P0, P0, P3, P3]. The in-place forward substitution
+    // mirrors `limitBoxes` exactly so rounding is bit-for-bit identical.
+    let (x0, y0) = (start.x, start.y);
+    let (x1, y1) = (start.x, start.y);
+    let (x2, y2) = (end.x, end.y);
+    let (x3, y3) = (end.x, end.y);
+
+    let mut right = f64::NEG_INFINITY;
+    for si in 0..=NUM_DIV {
+        let t = si as f64 / NUM_DIV as f64;
+        let (mut ax, mut ay) = (x0, y0);
+        let (mut bx, mut by) = (x1, y1);
+        let (mut cx, mut cy) = (x2, y2);
+        ax += t * (bx - ax);
+        ay += t * (by - ay);
+        bx += t * (cx - bx);
+        by += t * (cy - by);
+        cx += t * (x3 - cx);
+        cy += t * (y3 - cy);
+        ax += t * (bx - ax);
+        ay += t * (by - ay);
+        bx += t * (cx - bx);
+        by += t * (cy - by);
+        ax += t * (bx - ax);
+        ay += t * (by - ay);
+        if ay <= y_hi + F && ay >= y_lo - F {
+            right = right.max(ax);
+        }
+    }
+    right
 }
 
 /// Runs the labeled-edge layout solver.

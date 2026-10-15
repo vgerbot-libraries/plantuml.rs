@@ -846,6 +846,16 @@ pub(crate) fn compute_layout_ranked(
         .filter_map(|(_, e)| e.parent.as_ref().map(|p| (&e.name, p)))
         .collect();
 
+    // Title line count of each group (`position.c::clust_ht` label border):
+    // the display label split on its embedded line breaks, one line minimum.
+    let group_lines: HashMap<&String, usize> = sorted_entities
+        .iter()
+        .filter(|(_, e)| e.group && !e.display.is_empty())
+        .map(|(name, e)| {
+            let title_lines = e.display.matches('\n').count() + 1;
+            (*name, title_lines)
+        })
+        .collect();
     // Build adjacency for rank assignment (needed for LayoutNode.rank field).
     let entity_names: HashSet<&String> = leaf_sorted.iter().map(|(n, _)| *n).collect();
     let mut incoming: HashMap<&String, HashSet<&String>> = HashMap::new();
@@ -903,18 +913,21 @@ pub(crate) fn compute_layout_ranked(
     // fall back to the pure-Rust solver instead of the old vertical stack.
     let (dot_string, node_colors) =
         generate_dot_string(&leaf_sorted, &entity_data, &links);
-    // Select the pure-Rust solver. Graphviz switches to rank doubling for the
-    // whole graph whenever any edge carries a label (`lib/dotgen/rank.c
+    // Select the pure-Rust solver. Graphviz switches to rank doubling for
+    // the whole graph whenever any edge carries a label (`lib/dotgen/rank.c
     // ::edgelabel_ranks`). The default `native_layout` reproduces flat
-    // diagrams; the doubled-rank `solve_labeled` is required only by the
-    // autarkic-fold outer frame, which requests it explicitly through
-    // `force_labeled`. Keeping ordinary graphs on the native solver preserves
-    // the clean-baseline flat-diagram output.
+    // diagrams and fans; the doubled-rank `solve_labeled` is bit-exact on
+    // linear chains (one real node per longest-path rank) and is required by
+    // the autarkic-fold outer frame, which requests it explicitly through
+    // `force_labeled`. Keeping forks on the native solver preserves the
+    // clean-baseline flat-diagram output.
+    let use_labeled = force_labeled
+        || crate::native_layout::is_singleton_rank_chain(&sorted_data, &links);
     let native_solve = || {
-        if force_labeled {
+        if use_labeled {
             crate::labeled_layout::solve_labeled(&sorted_data, &links, nodesep, base_ranksep)
         } else {
-            crate::native_layout::solve(&sorted_data, &links, &leaf_group)
+            crate::native_layout::solve(&sorted_data, &links, &leaf_group, &group_lines)
         }
     };
     let dot_result = if let Some(svg) = run_dot(&dot_string) {
@@ -932,6 +945,7 @@ pub(crate) fn compute_layout_ranked(
         &node_colors,
         &dot_result,
         &rank_of,
+        &leaf_group,
         diagram_type,
     )
 }
@@ -1012,6 +1026,11 @@ fn max_extent_y(kind: EntityKind) -> f64 {
         // `UEmpty(10,10)`, whose `drawEmpty` records a point 10px below the
         // symbol box (LimitFinder structural bottom).
         EntityKind::Database | EntityKind::Node => 10.0,
+        // A description-diagram interface draws its name below the circle
+        // symbol (`EntityImageImageDescription` stacks `asSmall` then `desc`);
+        // the label's recorded far corner lands 2px below the 64px shield
+        // box after flooring.
+        EntityKind::Interface => 2.0,
         _ => 0.0,
     }
 }
@@ -1145,7 +1164,7 @@ pub(crate) fn emit_edge_path(
     (d, arrow)
 }
 
-#[allow(clippy::similar_names)]
+#[allow(clippy::too_many_arguments, clippy::similar_names)]
 fn build_layout_from_dot(
     sorted_entities: &[(&String, &ParsedEntity)],
     entity_data: &HashMap<&String, EntityData>,
@@ -1154,6 +1173,7 @@ fn build_layout_from_dot(
     node_colors: &HashMap<String, i32>,
     dot_result: &DotSvgResult,
     rank_of: &HashMap<&String, usize>,
+    leaf_group: &HashMap<&String, &String>,
     diagram_type: plantuml_core::DiagramType,
 ) -> CucaLayout {
     let margin = if matches!(diagram_type, plantuml_core::DiagramType::Class) {
@@ -1170,6 +1190,10 @@ fn build_layout_from_dot(
         .filter(|(_, e)| e.group)
         .collect();
 
+    // Kind of each group (`Node` groups render as a 3D box, others as a
+    // rounded folder tab), used for the asymmetric LimitFinder reserve.
+    let group_kind: HashMap<&String, EntityKind> =
+        group_sorted.iter().map(|(n, e)| (*n, e.kind)).collect();
     // ── Raw-frame leaf boxes ─────────────────────────────────────────────
     // Placed (un-shifted) box of each leaf: top-left from the solver, size
     // after the same points round-trip the solver applied to its half extents.
@@ -1200,39 +1224,68 @@ fn build_layout_from_dot(
     // leaf it reserves the 16px cluster margin. Horizontally the folder is the
     // member extent ± 16, rounded.
     let mut clusters_raw: Vec<RawCluster<'_>> = Vec::new();
-    // A stacked column has ONE centre shared by every leaf and cluster. The
-    // native normalization pins the outer frame edge to zero so that centre is
-    // the rounded outer extent — an integer. Compute it once from all leaves
-    // (corner reconstruction perturbs per-leaf centres by ≤0.005) and round.
-    let global_center = {
-        let (sum, n) = leaf_box_raw
-            .values()
-            .map(|(x, _, w, _)| (x + w / 2.0, 1u32))
-            .fold((0.0_f64, 0u32), |(s, n), (c, k)| (s + c, n + k));
-        if n == 0 {
-            None
-        } else {
-            Some((sum / f64::from(n)).round())
+    // Each titled folder is an asymmetric envelope, not a box symmetric about
+    // one shared centre. Graphviz wraps a folder body in three nested 8px
+    // subgraphs (`p0` > the titled cluster > `p1`); when two sibling folders
+    // overlap a rank the simplex compacts their CONTENT boxes together and the
+    // inset title-table node overhangs the OUTER edge:
+    //   p1 half      = round(widest member half) + 8
+    //   facing edge  = column centre +/− (round half + 16)  (toward the
+    //                  sibling sharing the rank)
+    //   titled width = title table WIDTH + 16, where the HTML table WIDTH is
+    //                  floor(bold title width + 60)
+    //   outer edge   = facing edge − titled width   (title overhangs outward)
+    // Verified against graphviz 14.1.2 `-Tdot` (Application Server 16..220,
+    // Database Server 244..434) and four extra title probes for the +60 rule.
+
+    // Column centre of every group in the raw (un-shifted) frame.
+    let group_center: HashMap<&String, f64> = {
+        let mut sum: HashMap<&String, f64> = HashMap::new();
+        let mut cnt: HashMap<&String, u32> = HashMap::new();
+        for (name, _) in sorted_entities.iter().filter(|(_, e)| !e.group) {
+            if let Some(&g) = leaf_group.get(name) {
+                if let Some((x, _, w, _)) = leaf_box_raw.get(name) {
+                    *sum.entry(g).or_insert(0.0) += x + w / 2.0;
+                    *cnt.entry(g).or_insert(0) += 1;
+                }
+            }
         }
+        sum.into_iter()
+            .filter_map(|(g, s)| cnt.get(&g).map(|&c| (g, s / f64::from(c))))
+            .collect()
+    };
+
+    // Ranks occupied by each group's own leaves, used to detect sibling
+    // folders that overlap a rank (and therefore face each other).
+    let group_ranks: HashMap<&String, std::collections::HashSet<usize>> = {
+        let mut m: HashMap<&String, std::collections::HashSet<usize>> = HashMap::new();
+        for (name, _) in sorted_entities.iter().filter(|(_, e)| !e.group) {
+            if let Some(&g) = leaf_group.get(name) {
+                m.entry(g).or_default().insert(rank_of.get(name).copied().unwrap_or(0));
+            }
+        }
+        m
     };
 
     let mut member_leaves: Vec<&String> = Vec::new();
     for (gname, gent) in &group_sorted {
         member_leaves.clear();
         collect_member_leaves(gname, sorted_entities, &mut member_leaves);
-        // Member leaves' placed centre and the content half-extent reaching
-        // left/right of it. The cluster box is symmetric about that centre:
-        // edges are `centre ± round(inner + 16)` — rounding the half-extent,
-        // not the absolute edge (Frontend width 86, Backend width 94).
-        let mut inner_left = 0.0f64;
-        let mut inner_right = 0.0f64;
+        let ccx = match group_center.get(gname) {
+            // Graphviz's cluster ln/rn bounds round member centres to the
+            // integer column (`contain_nodes`), so folder edges land on
+            // integers even though the rendered leaf box carries a sub-pixel
+            // glyph-width offset (e.g. 244, not 244.0045).
+            Some(&c) => c.round(),
+            None => continue,
+        };
+        // Widest member half-width (rounded) and raw vertical extent.
+        let mut max_half = 0.0f64;
         let mut min_y = f64::INFINITY;
         let mut max_b = f64::NEG_INFINITY;
         for ln in &member_leaves {
-            if let Some((x, y, w, h)) = leaf_box_raw.get(*ln) {
-                let c = x + w / 2.0;
-                inner_left = inner_left.max(c - x);
-                inner_right = inner_right.max(x + w - c);
+            if let Some((_, y, w, h)) = leaf_box_raw.get(*ln) {
+                max_half = max_half.max((w / 2.0).round());
                 min_y = min_y.min(*y);
                 max_b = max_b.max(y + h);
             }
@@ -1240,19 +1293,75 @@ fn build_layout_from_dot(
         if min_y.is_infinite() {
             continue;
         }
-        let ccx = global_center.expect("at least one leaf");
-        let left_extent = (inner_left + 16.0).round();
-        let right_extent = (inner_right + 16.0).round();
-        let left = ccx - left_extent;
-        let right = ccx + right_extent;
+        // Inner `p1` content subgraph reaches `round(maxhalf)+8` each side;
+        // the titled cluster adds a further 8, so the content-flush base
+        // envelope is `ccx ± (p1_half + 8)`.
+        let p1_half = max_half + 8.0;
+        let base_left = ccx - p1_half - 8.0;
+        let base_right = ccx + p1_half + 8.0;
+        // Title table WIDTH = floor(bold + 60); the titled envelope must be at
+        // least table + 16 wide.
+        let bold = gent
+            .display
+            .split('\n')
+            .map(measure_text_bold)
+            .fold(0.0_f64, f64::max);
+        let title_table = (bold + 60.0).floor();
+        let titled_width = (2.0 * p1_half + 16.0).max(title_table + 16.0);
+        let is_node_group = gent.kind == EntityKind::Node;
+        // A side-by-side folder shares a rank band; only then does the
+        // content flush toward its sibling and the title overhang outward.
+        let sibling_right = is_node_group
+            && group_sorted.iter().any(|(other, _)| {
+                other != gname
+                    && group_ranks.get(*other).is_some_and(|r| {
+                        group_ranks[gname].intersection(r).next().is_some()
+                    })
+                    && group_center.get(*other).is_some_and(|&oc| oc > ccx)
+            });
+        let sibling_left = is_node_group
+            && group_sorted.iter().any(|(other, _)| {
+                other != gname
+                    && group_ranks.get(*other).is_some_and(|r| {
+                        group_ranks[gname].intersection(r).next().is_some()
+                    })
+                    && group_center.get(*other).is_some_and(|&oc| oc < ccx)
+            });
+        let (left, right) = if sibling_right {
+            // Content flushes right toward the sibling; the title table
+            // overhangs the outer (left) edge.
+            (base_right - titled_width, base_right)
+        } else if sibling_left {
+            // Content flushes left; the title table overhangs the outer edge.
+            (base_left, base_left + titled_width)
+        } else {
+            // A lone folder, or any rounded package: a symmetric envelope
+            // about the content column. Its plain-text title is inset and
+            // never widens the box the way a deployment node-group's HTML
+            // `<TABLE>` label does.
+            (base_left, base_right)
+        };
         let lines = 1 + gent.display.matches('\n').count();
-        let top_extent = 16.0 + (19.0 * lines as f64 + 3.0);
-        let top = ((min_y - top_extent) * 100.0).round() / 100.0;
+        // A deployment node group is the USymbolNode 3D box: its polygon
+        // `top` is the dog-ear apex, 10px above the stroked top edge. The
+        // edge clears the topmost member box by 33px (16 cluster margin + the
+        // 19px one-line title block, −2), so the apex is 43px above the
+        // topmost member (`top` also drives the global y minimum, so the apex
+        // always renders at the diagram margin). Rounded folders use 38.
+        let top = if is_node_group {
+            ((min_y - (16.0 + 19.0 * lines as f64 + 3.0 + 5.0)) * 100.0).round() / 100.0
+        } else {
+            let top_extent = 16.0 + (19.0 * lines as f64 + 3.0);
+            ((min_y - top_extent) * 100.0).round() / 100.0
+        };
+        // The drawn box keeps the standard 16px cluster margin below the
+        // bottommost member for both node groups and folders.
+        let bottom_margin = 16.0;
         // graphviz sets the cluster bbox from the RAW (un-quantized) node
         // coordinate: yup bottom = center − (half_h + cluster margin). Using
         // the q2-placed leaf edge folds in a sub-pixel quantization error.
         let bottom_raw = if dot_result.raw_yup.is_empty() {
-            max_b + 16.0
+            max_b + bottom_margin
         } else {
             member_leaves
                 .iter()
@@ -1260,7 +1369,7 @@ fn build_layout_from_dot(
                     dot_result
                         .raw_yup
                         .get(*ln)
-                        .map(|&(cy, hh)| -cy + hh + 16.0)
+                        .map(|&(cy, hh)| -cy + hh + bottom_margin)
                 })
                 .fold(f64::NEG_INFINITY, f64::max)
         };
@@ -1309,7 +1418,18 @@ fn build_layout_from_dot(
         .min(
             clusters_raw
                 .iter()
-                .map(|(_, _, left, _, _, _, _, _)| *left)
+                .map(|(_, gname, left, _, _, _, _, _)| {
+                    // A deployment node group carries the 10px USymbolNode
+                    // 3D depth in its LimitFinder min-x (the dog-ear flap is
+                    // reserved though only the fold is stroked), so the
+                    // global minimum reaches 10px left of the drawn box.
+                    let border = if group_kind.get(*gname) == Some(&EntityKind::Node) {
+                        10.0
+                    } else {
+                        0.0
+                    };
+                    *left - border
+                })
                 .fold(f64::INFINITY, f64::min),
         );
     let min_min_x = if dot_result.label_box_left.is_empty() {
@@ -1333,7 +1453,18 @@ fn build_layout_from_dot(
         .min(
             clusters_raw
                 .iter()
-                .map(|(_, _, _, top, _, _, _, _)| top - LABEL_INSET)
+                .map(|(_, gname, _, top, _, _, _, _)| {
+                    if group_kind.get(*gname) == Some(&EntityKind::Node) {
+                        // The 3D dog-ear apex (`top`) is the highest stroked
+                        // point; unlike the x axis the 10px depth never extends
+                        // above it.
+                        *top
+                    } else {
+                        // A rounded-folder label inset node reaches 0.602px
+                        // above the drawn origin.
+                        top - LABEL_INSET
+                    }
+                })
                 .fold(f64::INFINITY, f64::min),
         );
 
@@ -1741,7 +1872,17 @@ fn build_layout_from_dot(
     // every jar-rendered variant the edge is 15 past the floor of the far
     // edge (graphviz `bb` + the LimitFinder delta). Take the maximum so the
     let (clust_right, clust_bottom) = clusters.iter().fold((0.0_f64, 0.0_f64), |(r, b), c| {
-        (r.max(c.x + c.width), b.max(c.y + c.height))
+        // A deployment node group's 10px USymbolNode 3D depth extends beyond
+        // the drawn far-right and bottom edges (java canvas reaches those +10).
+        let depth = if group_kind.get(&c.name) == Some(&EntityKind::Node) {
+            10.0
+        } else {
+            0.0
+        };
+        (
+            r.max(c.x + c.width + depth),
+            b.max(c.y + c.height + depth),
+        )
     });
     // A folded composite node carries an embedded inner `SvekResult` whose
     // far corner is recorded without −1, exactly like an edge-label spacer,
@@ -1883,6 +2024,7 @@ pub(crate) struct EntityData {
     /// (component-diagram lollipop); edges clip to this circle, not the box.
     pub(crate) port_circle: Option<f64>,
 }
+
 
 
 
