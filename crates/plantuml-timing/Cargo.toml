@@ -3,6 +3,7 @@ name = "plantuml-timing"
 version = "0.1.0"
 edition = "2021"
 description = "Timing diagram for plantuml.rs"
+license = "MIT"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }

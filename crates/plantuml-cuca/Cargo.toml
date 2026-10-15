@@ -3,6 +3,7 @@ name = "plantuml-cuca"
 version = "0.1.0"
 edition = "2021"
 description = "CucaDiagram foundation for class, state, and description diagrams"
+license = "MIT"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }

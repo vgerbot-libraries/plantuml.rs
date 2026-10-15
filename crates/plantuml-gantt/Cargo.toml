@@ -3,6 +3,7 @@ name = "plantuml-gantt"
 version = "0.1.0"
 edition = "2021"
 description = "Gantt diagram for plantuml.rs"
+license = "MIT"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }

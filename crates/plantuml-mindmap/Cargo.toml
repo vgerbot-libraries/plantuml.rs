@@ -3,6 +3,7 @@ name = "plantuml-mindmap"
 version = "0.1.0"
 edition = "2021"
 description = "Mindmap and WBS diagram support for plantuml.rs"
+license = "MIT"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }

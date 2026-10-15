@@ -3,6 +3,7 @@ name = "plantuml-json"
 version = "0.1.0"
 edition = "2021"
 description = "JSON and YAML diagram rendering for plantuml.rs"
+license = "MIT"
 
 [dependencies]
 plantuml-core = { path = "../plantuml-core" }
