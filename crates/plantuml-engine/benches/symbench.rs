@@ -17,6 +17,7 @@
 use std::fs;
 use std::hint::black_box;
 use std::io::{self, Write};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -32,8 +33,8 @@ enum Status {
 impl Status {
     fn as_str(self) -> &'static str {
         match self {
-            Status::Ok => "ok",
-            Status::Fail => "fail",
+            Self::Ok => "ok",
+            Self::Fail => "fail",
         }
     }
 }
@@ -184,7 +185,9 @@ fn json_escape(s: &str) -> String {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
             c => out.push(c),
         }
     }
