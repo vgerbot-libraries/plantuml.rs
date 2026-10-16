@@ -1,0 +1,11 @@
+@startuml
+package "Frontend" {
+  component [UI]
+}
+package "Backend" {
+  component [API]
+  database Store
+}
+[UI] --> [API]
+[API] --> Store
+@enduml

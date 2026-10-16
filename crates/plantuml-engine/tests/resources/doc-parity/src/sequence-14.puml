@@ -1,0 +1,4 @@
+@startuml
+skinparam backgroundColor #EEF
+Alice -> Bob: styled message
+@enduml

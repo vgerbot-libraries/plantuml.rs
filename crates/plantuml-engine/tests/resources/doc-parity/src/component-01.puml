@@ -1,0 +1,7 @@
+@startuml
+component [Web Server]
+component [App Server]
+database DB
+[Web Server] --> [App Server]
+[App Server] --> DB
+@enduml

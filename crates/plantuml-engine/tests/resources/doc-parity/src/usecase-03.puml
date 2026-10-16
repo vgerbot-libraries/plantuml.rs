@@ -1,0 +1,8 @@
+@startuml
+actor Customer
+actor Admin
+usecase (Manage Orders)
+usecase (View Reports)
+Customer --> (Manage Orders)
+Admin --> (View Reports)
+@enduml

@@ -1,0 +1,7 @@
+@startuml
+actor User
+usecase (Login)
+usecase (Logout)
+User --> (Login)
+User --> (Logout)
+@enduml

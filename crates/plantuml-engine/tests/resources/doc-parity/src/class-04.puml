@@ -1,0 +1,9 @@
+@startuml
+class Foo {
+  +field: int
+  -privateField: String
+  #protectedField: bool
+  +method(): void
+  -helper(): int
+}
+@enduml

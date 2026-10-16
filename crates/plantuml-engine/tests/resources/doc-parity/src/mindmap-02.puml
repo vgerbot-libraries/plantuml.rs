@@ -1,0 +1,6 @@
+@startmindmap
++ Root
+++ Child A
+++ Child B
++++ Grandchild
+@endmindmap

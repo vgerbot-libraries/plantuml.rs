@@ -1,0 +1,4 @@
+@startuml
+title My Sequence
+Alice -> Bob: hello
+@enduml

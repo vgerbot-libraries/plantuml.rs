@@ -158,7 +158,8 @@ fn batch_compare() {
     }));
 
     let root = workspace_root();
-    let src_dir = root.join("temp/doc-parity/src");
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let src_dir = manifest_dir.join("tests/resources/doc-parity/src");
     let out_dir = root.join("temp/doc-parity/out");
     let java_dir = out_dir.join("java");
     let rust_dir = out_dir.join("rust");

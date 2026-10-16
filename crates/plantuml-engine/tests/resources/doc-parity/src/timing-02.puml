@@ -1,0 +1,3 @@
+@starttiming
+clock "clk" as C with period 10
+@endtiming

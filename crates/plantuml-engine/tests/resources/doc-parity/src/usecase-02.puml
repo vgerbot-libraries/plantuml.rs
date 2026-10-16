@@ -1,0 +1,7 @@
+@startuml
+usecase (Shopping)
+usecase (Checkout)
+usecase (Payment)
+(Shopping) --> (Checkout)
+(Checkout) --> (Payment)
+@enduml

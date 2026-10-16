@@ -1,0 +1,11 @@
+@startuml
+node "Application Server" {
+  component [Web App]
+  database "Cache"
+}
+node "Database Server" {
+  database "Primary DB"
+}
+[Web App] --> "Cache"
+[Web App] --> "Primary DB"
+@enduml

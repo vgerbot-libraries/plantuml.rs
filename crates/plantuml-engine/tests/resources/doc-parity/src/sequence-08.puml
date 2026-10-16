@@ -1,0 +1,6 @@
+@startuml
+group Authentication
+Alice -> Bob: credentials
+Bob --> Alice: token
+end
+@enduml

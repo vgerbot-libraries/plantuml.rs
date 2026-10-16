@@ -1,0 +1,9 @@
+@startuml
+node Client
+node LoadBalancer
+node Server1
+node Server2
+Client --> LoadBalancer : HTTPS
+LoadBalancer --> Server1 : HTTP
+LoadBalancer --> Server2 : HTTP
+@enduml

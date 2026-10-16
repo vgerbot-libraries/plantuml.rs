@@ -1,0 +1,10 @@
+@startuml
+state Off
+state On
+state Dim
+[*] --> Off
+Off --> On : switch
+On --> Dim : dimmer
+Dim --> On : brighter
+On --> Off : switch
+@enduml

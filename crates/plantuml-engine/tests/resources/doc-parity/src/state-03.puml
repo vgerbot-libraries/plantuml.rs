@@ -1,0 +1,10 @@
+@startuml
+state Active {
+  state Running
+  state Paused
+  Running --> Paused : pause
+  Paused --> Running : resume
+}
+[*] --> Active
+Active --> [*] : done
+@enduml

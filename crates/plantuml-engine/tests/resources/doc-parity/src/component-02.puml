@@ -1,0 +1,5 @@
+@startuml
+interface "User API" as API
+[Client] ..> API : uses
+[Service] -- API : provides
+@enduml

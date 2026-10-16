@@ -1,0 +1,5 @@
+@startuml
+actor User
+User -> System: login
+System --> User: welcome
+@enduml

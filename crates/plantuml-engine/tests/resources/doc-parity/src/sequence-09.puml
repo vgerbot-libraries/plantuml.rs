@@ -1,0 +1,7 @@
+@startuml
+alt success
+Alice -> Bob: ok
+else failure
+Alice -> Bob: fail
+end
+@enduml

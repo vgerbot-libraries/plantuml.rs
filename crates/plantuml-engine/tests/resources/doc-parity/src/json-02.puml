@@ -1,0 +1,9 @@
+@startjson
+{
+  "name": "Alice",
+  "address": {
+    "city": "NYC",
+    "zip": "10001"
+  }
+}
+@endjson

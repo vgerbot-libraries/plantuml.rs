@@ -1,0 +1,6 @@
+@startuml
+loop until done
+Alice -> Bob: check
+Bob --> Alice: not yet
+end
+@enduml

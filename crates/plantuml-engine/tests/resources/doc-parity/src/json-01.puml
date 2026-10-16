@@ -1,0 +1,6 @@
+@startjson
+{
+  "key": "value",
+  "count": 42
+}
+@endjson

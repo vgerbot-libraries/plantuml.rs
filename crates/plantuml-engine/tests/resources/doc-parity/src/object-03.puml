@@ -1,0 +1,11 @@
+@startuml
+object alice : User {
+  name = "Alice"
+  age = 30
+}
+object bob : User {
+  name = "Bob"
+  age = 25
+}
+alice --> bob : friend
+@enduml

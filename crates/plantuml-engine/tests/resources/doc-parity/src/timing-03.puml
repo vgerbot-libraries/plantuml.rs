@@ -1,0 +1,10 @@
+@starttiming
+clock "clk" as C with period 10
+binary "Data" as D
+@0
+D is low
+@5
+D is high
+@15
+D is low
+@endtiming

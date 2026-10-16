@@ -1,0 +1,8 @@
+@startwbs
+* Project
+** Phase 1 [#LightBlue]
+*** Task A
+*** Task B
+** Phase 2 [#LightGreen]
+*** Task C
+@endwbs

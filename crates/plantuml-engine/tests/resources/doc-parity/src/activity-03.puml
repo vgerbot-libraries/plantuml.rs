@@ -1,0 +1,7 @@
+@startuml
+start
+while (more data?) is (yes)
+  :Process item;
+endwhile (no)
+stop
+@enduml

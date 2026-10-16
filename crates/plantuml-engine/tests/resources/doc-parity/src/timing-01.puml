@@ -1,0 +1,9 @@
+@starttiming
+binary "Signal A" as A
+@0
+A is low
+@5
+A is high
+@10
+A is low
+@endtiming

@@ -1,0 +1,5 @@
+@startuml
+class Alice
+interface Bob
+abstract Foo
+@enduml

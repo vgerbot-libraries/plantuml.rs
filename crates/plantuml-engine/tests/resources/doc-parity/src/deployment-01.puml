@@ -1,0 +1,7 @@
+@startuml
+node Server
+node Client
+database DB
+Server --> DB
+Client --> Server
+@enduml

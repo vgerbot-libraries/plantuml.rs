@@ -1,0 +1,7 @@
+@startmindmap
+* Central topic
+-- Left idea
+--- Deeper left
+++ Right idea
++++ Deeper right
+@endmindmap

@@ -1,0 +1,5 @@
+@startuml
+Alice -> Bob: step 1
+== Phase 2 ==
+Bob -> Alice: step 2
+@enduml

@@ -1,0 +1,6 @@
+@startuml
+Alice -> Bob: hello
+note right of Alice: says hello
+Bob --> Alice: hi
+note right of Bob: replies
+@enduml
