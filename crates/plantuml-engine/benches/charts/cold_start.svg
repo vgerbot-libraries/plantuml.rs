@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="340" viewBox="0 0 900 340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="450.0" y="24" text-anchor="middle" font-size="14" font-weight="600" fill="#1F2937">Cold process: one full corpus pass (startup included)</text>
+<line x1="60.0" y1="260.0" x2="435.0" y2="260.0" stroke="#E5E7EB"/>
+<text x="52.0" y="264.0" font-size="11" fill="#6B7280" text-anchor="end">0.000</text>
+<line x1="60.0" y1="212.0" x2="435.0" y2="212.0" stroke="#E5E7EB"/>
+<text x="52.0" y="216.0" font-size="11" fill="#6B7280" text-anchor="end">2.00</text>
+<line x1="60.0" y1="164.0" x2="435.0" y2="164.0" stroke="#E5E7EB"/>
+<text x="52.0" y="168.0" font-size="11" fill="#6B7280" text-anchor="end">4.00</text>
+<line x1="60.0" y1="116.0" x2="435.0" y2="116.0" stroke="#E5E7EB"/>
+<text x="52.0" y="120.0" font-size="11" fill="#6B7280" text-anchor="end">6.00</text>
+<line x1="60.0" y1="68.0" x2="435.0" y2="68.0" stroke="#E5E7EB"/>
+<text x="52.0" y="72.0" font-size="11" fill="#6B7280" text-anchor="end">8.00</text>
+<rect x="57.0" y="244.4" width="110" height="15.6" fill="#CE422B" rx="3"/>
+<text x="111.8" y="237.4" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">0.650</text>
+<text x="111.8" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">Rust</text>
+<rect x="192.7" y="108.3" width="110" height="151.7" fill="#5382A1" rx="3"/>
+<text x="247.5" y="101.3" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">6.32</text>
+<text x="247.5" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">Java harness</text>
+<rect x="328.3" y="141.2" width="110" height="118.8" fill="#8C6D4B" rx="3"/>
+<text x="383.2" y="134.2" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">4.95</text>
+<text x="383.2" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">java -jar CLI</text>
+<text x="247.5" y="302.0" font-size="12" fill="#6B7280" text-anchor="middle">Wall time (s)</text>
+<line x1="60.0" y1="260" x2="435.0" y2="260" stroke="#374151"/>
+<line x1="505.0" y1="260.0" x2="880.0" y2="260.0" stroke="#E5E7EB"/>
+<text x="497.0" y="264.0" font-size="11" fill="#6B7280" text-anchor="end">0.000</text>
+<line x1="505.0" y1="196.0" x2="880.0" y2="196.0" stroke="#E5E7EB"/>
+<text x="497.0" y="200.0" font-size="11" fill="#6B7280" text-anchor="end">200</text>
+<line x1="505.0" y1="132.0" x2="880.0" y2="132.0" stroke="#E5E7EB"/>
+<text x="497.0" y="136.0" font-size="11" fill="#6B7280" text-anchor="end">400</text>
+<line x1="505.0" y1="68.0" x2="880.0" y2="68.0" stroke="#E5E7EB"/>
+<text x="497.0" y="72.0" font-size="11" fill="#6B7280" text-anchor="end">600</text>
+<rect x="502.0" y="211.0" width="110" height="49.0" fill="#CE422B" rx="3"/>
+<text x="556.8" y="204.0" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">153</text>
+<text x="556.8" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">Rust</text>
+<rect x="637.7" y="145.9" width="110" height="114.1" fill="#5382A1" rx="3"/>
+<text x="692.5" y="138.9" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">357</text>
+<text x="692.5" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">Java harness</text>
+<rect x="773.3" y="155.8" width="110" height="104.2" fill="#8C6D4B" rx="3"/>
+<text x="828.2" y="148.8" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">326</text>
+<text x="828.2" y="278.0" font-size="12" fill="#1F2937" text-anchor="middle">java -jar CLI</text>
+<text x="692.5" y="302.0" font-size="12" fill="#6B7280" text-anchor="middle">Peak RSS (MB)</text>
+<line x1="505.0" y1="260" x2="880.0" y2="260" stroke="#374151"/>
+<text x="888" y="24" text-anchor="end" font-size="10" fill="#6B7280">2026-10-16 · dd8970f · jar 1.2026.6</text>
+</svg>

@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-16",
+  "sha": "dd8970f",
+  "jar": "1.2026.6",
+  "n": 219,
+  "iters": 20,
+  "warmup": 5,
+  "ratio_total": 1.9778098799477823,
+  "ratio_geo_mean": 4.031122931768499,
+  "ratio_median": 3.4546344822525703,
+  "win": 204,
+  "rust_per_render_us": 2963.6933993150683,
+  "java_per_render_us": 5861.6220863013705,
+  "once_ratio": 9.093973328332089,
+  "cold": {
+    "rust": {
+      "wall_s": 0.65,
+      "rss_kb": 156808
+    },
+    "java_bench": {
+      "wall_s": 6.32,
+      "rss_kb": 365248
+    },
+    "java_cli": {
+      "wall_s": 4.95,
+      "rss_kb": 333512
+    }
+  }
+}

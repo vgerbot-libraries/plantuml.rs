@@ -1,0 +1,108 @@
+name: Benchmark
+
+# Runs the Rust-vs-Java symmetric benchmark, regenerates the SVG charts
+# under crates/plantuml-engine/benches/charts/, and commits them back to
+# the repository so they render in the README.
+#
+#   on schedule  -> nightly, commits refreshed charts to the default branch
+#   workflow_dispatch -> manual run, optionally skipping the commit
+#
+# GitHub-hosted runners are noisy shared VMs: the numbers are regression
+# indicators, not publication-grade measurements. The local run.sh remains
+# the source of truth for detailed comparison.
+
+on:
+  schedule:
+    # 03:17 UTC — off the hour to dodge the scheduled-actions rush.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit regenerated charts back to the repository'
+        type: boolean
+        default: true
+      iters:
+        description: 'Timed iterations per file'
+        type: string
+        default: '20'
+
+env:
+  PLANTUML_REF_VERSION: 1.2026.6
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ITERS: ${{ github.event.inputs.iters || '20' }}
+      WARMUP: '5'
+      COLD_RUNS: '3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup update stable --no-self-update
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Fetch Java PlantUML reference jar
+        run: |
+          mkdir -p crates/plantuml-engine/tests/vendor
+          curl -fL --retry 3 \
+            "https://repo1.maven.org/maven2/net/sourceforge/plantuml/plantuml/${PLANTUML_REF_VERSION}/plantuml-${PLANTUML_REF_VERSION}.jar" \
+            -o crates/plantuml-engine/tests/vendor/plantuml.jar
+
+      - name: Run benchmark
+        run: |
+          crates/plantuml-engine/benches/run.sh \
+            crates/plantuml-engine/benches/results/ci
+
+      - name: Generate SVG charts
+        env:
+          BENCH_SHA: ${{ github.sha }}
+          BENCH_DATE: ${{ github.event.head_commit.timestamp || '' }}
+          BENCH_JAR: ${{ env.PLANTUML_REF_VERSION }}
+        run: |
+          # BENCH_DATE accepts an ISO timestamp; charts.py wants YYYY-MM-DD.
+          if [ -n "$BENCH_DATE" ]; then
+            export BENCH_DATE="${BENCH_DATE%%T*}"
+          fi
+        if: >
+          github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.commit != 'false')
+      - name: Upload raw benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: crates/plantuml-engine/benches/results/ci
+          retention-days: 30
+
+      - name: Commit charts
+        if: >
+          github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.event.inputs.commit != 'false')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/plantuml-engine/benches/charts
+          if git diff --cached --quiet; then
+            echo "No chart changes to commit."
+          else
+            git commit -m "chore(bench): refresh performance charts [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

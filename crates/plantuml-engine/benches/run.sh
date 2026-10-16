@@ -27,8 +27,15 @@ echo "== compile java harness =="
 javac -cp "$JAR" -d "$JBUILD" "$HERE/java/SymBench.java" 2>&1 | grep -v 'warning:' || true
 JAVA_CP="$JBUILD:$JAR"
 # Pin both sides to one physical core when taskset is available.
+# PIN_CPU overrides; otherwise take the last online CPU (CI runners may
+# have fewer than eight cores).
 PIN=""
-if command -v taskset >/dev/null; then PIN="taskset -c 7"; fi
+if command -v taskset >/dev/null; then
+    PIN_CPU="${PIN_CPU:-$(( $(nproc) - 1 ))}"
+    if taskset -c "$PIN_CPU" true 2>/dev/null; then
+        PIN="taskset -c $PIN_CPU"
+    fi
+fi
 JVM_BASE="$PIN java -Xbatch -XX:+UseSerialGC"
 
 echo "== classify corpus =="
@@ -67,8 +74,12 @@ $PIN java -cp "$JAVA_CP" SymBench once "$OUT/manifest.tsv" "$OUT/java_once.json"
 
 echo "== cold processes: ${COLD_RUNS} runs each, min wall / median RSS =="
 cut -f1 "$OUT/manifest.tsv" > "$OUT/files.txt"
-# This jar's --null still writes *.null next to inputs; redirect all output.
-COLD_DIR="$OUT/coldout"
+# plantuml -o is resolved relative to each INPUT file's directory, so this
+# MUST be absolute or *.null files leak all over the corpus tree.
+case "$OUT" in
+  /*) COLD_DIR="$OUT/coldout" ;;
+  *)  COLD_DIR="$(pwd)/$OUT/coldout" ;;
+esac
 mkdir -p "$COLD_DIR"
 run_cold() {
     local label="$1"; shift
@@ -80,12 +91,12 @@ run_cold() {
         rss=$(awk -F': ' '/Maximum resident set size/{print $2}' "$OUT/.time.$label.$i")
         [ -z "$wall" ] || [ -z "$rss" ] && { echo "$label: missing time output" >&2; continue; }
         rss_lines+=("$rss")
-        secs=$(echo "$wall" | awk -F'[:.]' '{printf "%.3f", ($1*60)+$2+"0."$3}')
-        best=$(echo "$best $secs" | awk '{if ($1=="" || $2<$1) print $2; else print $1}')
+        secs=$(python3 -c 'import sys; p=sys.argv[1].split(":"); print(float(p[-1])+int(p[-2])+(int(p[-3])*3600 if len(p)>2 else 0))' "$wall")
+        best=$(awk -v b="$best" -v s="$secs" 'BEGIN{print (b=="" || s<b) ? s : b}')
     done
     local rss_med
     rss_med=$(printf '%s\n' "${rss_lines[@]}" | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')
-    [ -n "$best" ] && echo "$label $best $rss_med"
+    if [ -n "$best" ]; then echo "$label $best $rss_med"; fi
 }
 
 {

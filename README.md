@@ -275,6 +275,29 @@ downloads PlantUML 1.2026.6 from Maven Central. Tests that cannot find Java
 or the JAR skip gracefully, except the documentation parity suite, which
 fails loudly.
 
+## Performance
+
+Steady-state SVG rendering is benchmarked against the Java reference over
+the ~220 vega corpus files that both implementations render successfully.
+Each file is timed over 20 passes (5 warmup), with both processes pinned to
+one core; the ratio below is `java_ns / rust_ns` — **above 1 means Rust is
+faster**. Charts are regenerated nightly by the
+[Benchmark workflow](.github/workflows/benchmark.yml) on a GitHub-hosted
+runner; see [`crates/plantuml-engine/benches/`](crates/plantuml-engine/benches)
+for the symmetric harness, the raw numbers, and how to run the benchmark
+locally. Shared CI VMs are noisy, so treat absolute values as regression
+indicators rather than publication-grade measurements.
+
+![Aggregate throughput — steady-state per-render latency and single-pass wall time](crates/plantuml-engine/benches/charts/throughput.svg)
+
+![Distribution of per-file Java/Rust latency ratios](crates/plantuml-engine/benches/charts/ratio_hist.svg)
+
+![Median Java/Rust latency ratio by corpus category](crates/plantuml-engine/benches/charts/categories.svg)
+
+![Per-file Rust vs Java mean latency on log-log axes](crates/plantuml-engine/benches/charts/scatter.svg)
+
+![Cold-process wall time and peak RSS for one full corpus pass](crates/plantuml-engine/benches/charts/cold_start.svg)
+
 ## Documentation
 
 - User documentation and the WASM playground live in `site/`

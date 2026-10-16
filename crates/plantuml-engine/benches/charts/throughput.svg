@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="330" viewBox="0 0 900 330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="450.0" y="24" text-anchor="middle" font-size="14" font-weight="600" fill="#1F2937">Aggregate throughput — all corpus files</text>
+<line x1="60.0" y1="250.0" x2="435.0" y2="250.0" stroke="#E5E7EB"/>
+<text x="52.0" y="254.0" font-size="11" fill="#6B7280" text-anchor="end">0.000</text>
+<line x1="60.0" y1="204.5" x2="435.0" y2="204.5" stroke="#E5E7EB"/>
+<text x="52.0" y="208.5" font-size="11" fill="#6B7280" text-anchor="end">2000</text>
+<line x1="60.0" y1="159.0" x2="435.0" y2="159.0" stroke="#E5E7EB"/>
+<text x="52.0" y="163.0" font-size="11" fill="#6B7280" text-anchor="end">4000</text>
+<line x1="60.0" y1="113.5" x2="435.0" y2="113.5" stroke="#E5E7EB"/>
+<text x="52.0" y="117.5" font-size="11" fill="#6B7280" text-anchor="end">6000</text>
+<line x1="60.0" y1="68.0" x2="435.0" y2="68.0" stroke="#E5E7EB"/>
+<text x="52.0" y="72.0" font-size="11" fill="#6B7280" text-anchor="end">8000</text>
+<rect x="124.5" y="182.6" width="110" height="67.4" fill="#CE422B" rx="3"/>
+<text x="179.5" y="175.6" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">2964</text>
+<text x="179.5" y="268.0" font-size="12" fill="#1F2937" text-anchor="middle">Rust</text>
+<rect x="260.5" y="116.6" width="110" height="133.4" fill="#5382A1" rx="3"/>
+<text x="315.5" y="109.6" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">5862</text>
+<text x="315.5" y="268.0" font-size="12" fill="#1F2937" text-anchor="middle">Java</text>
+<text x="247.5" y="292.0" font-size="12" fill="#6B7280" text-anchor="middle">Steady state per render</text>
+<line x1="60.0" y1="250" x2="435.0" y2="250" stroke="#374151"/>
+<line x1="505.0" y1="250.0" x2="880.0" y2="250.0" stroke="#E5E7EB"/>
+<text x="497.0" y="254.0" font-size="11" fill="#6B7280" text-anchor="end">0.000</text>
+<line x1="505.0" y1="204.5" x2="880.0" y2="204.5" stroke="#E5E7EB"/>
+<text x="497.0" y="208.5" font-size="11" fill="#6B7280" text-anchor="end">2.00</text>
+<line x1="505.0" y1="159.0" x2="880.0" y2="159.0" stroke="#E5E7EB"/>
+<text x="497.0" y="163.0" font-size="11" fill="#6B7280" text-anchor="end">4.00</text>
+<line x1="505.0" y1="113.5" x2="880.0" y2="113.5" stroke="#E5E7EB"/>
+<text x="497.0" y="117.5" font-size="11" fill="#6B7280" text-anchor="end">6.00</text>
+<line x1="505.0" y1="68.0" x2="880.0" y2="68.0" stroke="#E5E7EB"/>
+<text x="497.0" y="72.0" font-size="11" fill="#6B7280" text-anchor="end">8.00</text>
+<rect x="569.5" y="234.5" width="110" height="15.5" fill="#CE422B" rx="3"/>
+<text x="624.5" y="227.5" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">0.683</text>
+<text x="624.5" y="268.0" font-size="12" fill="#1F2937" text-anchor="middle">Rust</text>
+<rect x="705.5" y="108.6" width="110" height="141.4" fill="#5382A1" rx="3"/>
+<text x="760.5" y="101.6" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">6.22</text>
+<text x="760.5" y="268.0" font-size="12" fill="#1F2937" text-anchor="middle">Java</text>
+<text x="692.5" y="292.0" font-size="12" fill="#6B7280" text-anchor="middle">Single cold-cache pass, total wall (s)</text>
+<line x1="505.0" y1="250" x2="880.0" y2="250" stroke="#374151"/>
+<text x="470.0" y="320.0" font-size="13" font-weight="600" fill="#1F2937" text-anchor="middle">Java / Rust total-time ratio: 1.98x   (&gt;1 means Rust is faster)</text>
+<text x="888" y="24" text-anchor="end" font-size="10" fill="#6B7280">2026-10-16 · dd8970f · jar 1.2026.6</text>
+</svg>
