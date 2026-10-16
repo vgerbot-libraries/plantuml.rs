@@ -30,3 +30,7 @@ indexmap = { workspace = true }
 
 [dev-dependencies]
 quick-xml = { workspace = true }
+
+[[bench]]
+name = "symbench"
+harness = false
