@@ -4318,7 +4318,7 @@ fn render_sequence_svg_teoz(
         // teoz (JAR 1.2026.6): GroupingTile.addConstraints only delegates to
         // its child tiles; group frames never push participants. Horizontal
         // separation of parallel groups emerges from their member messages.
-        if false && group.parallel && gi > 0 {
+        if false {
             // Find the left sibling: skip else groups, find the first non-else group before this one
             let mut left_gi = gi - 1;
             while left_gi > 0 && groups[left_gi].group_type == "else" {
@@ -5114,22 +5114,19 @@ fn render_sequence_svg_teoz(
         let mut v = Vec::new();
         let mut li = 0usize;
         for ev in diagram.events() {
-            match ev {
-                SequenceEvent::LifeEvent(le) => {
-                    let ev_idx = li;
-                    li += 1;
-                    if le.is_destroy() {
-                        let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
-                        let y = if let Some(m) = le.message_index() {
-                            arrow_ys.get(m).copied().unwrap_or(lifeline_y)
-                        } else {
-                            let hook = teoz_layout.life_hook.get(ev_idx).copied().filter(|h| h.is_finite()).unwrap_or(0.0);
-                            lifeline_y + hook
-                        };
-                        v.push((p_idx, y));
-                    }
+            if let SequenceEvent::LifeEvent(le) = ev {
+                let ev_idx = li;
+                li += 1;
+                if le.is_destroy() {
+                    let p_idx = pcode_to_idx.get(le.participant().code()).copied().unwrap_or(0);
+                    let y = if let Some(m) = le.message_index() {
+                        arrow_ys.get(m).copied().unwrap_or(lifeline_y)
+                    } else {
+                        let hook = teoz_layout.life_hook.get(ev_idx).copied().filter(|h| h.is_finite()).unwrap_or(0.0);
+                        lifeline_y + hook
+                    };
+                    v.push((p_idx, y));
                 }
-                _ => {}
             }
         }
         v
@@ -5164,24 +5161,22 @@ fn render_sequence_svg_teoz(
                         ExoType::ToRight | ExoType::FromRight => (p1_c, p1_c + exo_w),
                         ExoType::FromLeft | ExoType::ToLeft => (p2_c - exo_w, p2_c),
                     }
-                } else {
-                    if is_self {
-                        // Frame extent uses CommunicationTileSelf.getMin/MaxX:
-                        // compWidth = max(50, label + 2*MESSAGE_TEXT_X_OFFSET),
-                        // plus 5*maxLevel livebox on the exposed edge. This is
-                        // the tile's layout extent (not the drawn 42px loop).
-                        let label_w = pre_wrapped_widths.get(mi).copied().unwrap_or(0.0);
-                        let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
-                        let comp_w = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-                        if is_reverse {
-                            let live_adj = if max_act > 0.0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
-                            (p1_c - comp_w - live_adj, p1_c + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act)
-                        } else {
-                            (p1_c, p1_c + comp_w + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act)
-                        }
+                } else if is_self {
+                    // Frame extent uses CommunicationTileSelf.getMin/MaxX:
+                    // compWidth = max(50, label + 2*MESSAGE_TEXT_X_OFFSET),
+                    // plus 5*maxLevel livebox on the exposed edge. This is
+                    // the tile's layout extent (not the drawn 42px loop).
+                    let label_w = pre_wrapped_widths.get(mi).copied().unwrap_or(0.0);
+                    let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
+                    let comp_w = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
+                    if is_reverse {
+                        let live_adj = if max_act > 0.0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
+                        (p1_c - comp_w - live_adj, p1_c + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act)
                     } else {
-                        (p1_c.min(p2_c), p1_c.max(p2_c))
+                        (p1_c, p1_c + comp_w + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act)
                     }
+                } else {
+                    (p1_c.min(p2_c), p1_c.max(p2_c))
                 };
                 if let Some(note) = notes.iter().find(|n| n.msg_index == mi && n.participant.is_none()) {
                     let note_text_w = max_line_width(&bounder, &font_m, &note.text);
@@ -5228,21 +5223,21 @@ fn render_sequence_svg_teoz(
     // Header component width per gid (bold13 keyword + 45, plus the 11px
     // bracketed comment when present).
     let mut teoz_header_w: Vec<f64> = vec![0.0; teoz_layout.group_pref.len()];
-    for gid in 0..teoz_header_w.len() {
+    for (gid, slot) in teoz_header_w.iter_mut().enumerate() {
         let kw = &teoz_layout.group_kind[gid];
+        let comment = &teoz_layout.group_comment[gid];
         let tab_label = if kw == "group" {
-            let c = &teoz_layout.group_comment[gid];
-            if c.is_empty() { "group".to_string() } else { c.clone() }
+            if comment.is_empty() { "group".to_string() } else { comment.clone() }
         } else {
             kw.clone()
         };
         let mut w = max_line_width(&bounder, &font_bold, &tab_label) + 45.0;
-        if kw != "group" && !teoz_layout.group_comment[gid].is_empty() {
-            let cond = format!("[{}]", teoz_layout.group_comment[gid]);
+        if kw != "group" && !comment.is_empty() {
+            let cond = format!("[{comment}]");
             let font_small = UFont::sans_serif(11).with_style(FontStyle::bold());
             w += GROUP_TEXT_PADDING + max_line_width(&bounder, &font_small, &cond);
         }
-        teoz_header_w[gid] = w;
+        *slot = w;
     }
     // Per-LifeEvent X extent (LifeEventTile.getMin/MaxX), keyed to the same
     // LifeEvent subsequence as `teoz_layout.life_hook`. Level is the nesting
@@ -5934,7 +5929,7 @@ fn render_sequence_svg_teoz(
             }
         }
         let msg_deals = |mi: usize, p: usize| -> bool {
-            evs.iter().find(|e| e.is_msg && e.mi == mi).map_or(false, |e| e.parts.contains(&p))
+            evs.iter().find(|e| e.is_msg && e.mi == mi).is_some_and(|e| e.parts.contains(&p))
         };
         // Gauge step Y per participant keyed by global event index, with the
         // +5 nudge for a deactivate landing on an already-used Y (LiveBoxes.addStep).
@@ -5950,7 +5945,7 @@ fn render_sequence_svg_teoz(
                         !l.is_msg
                             && attach[k] == Some(mi)
                             && l.parts == e.parts
-                            && diagram.events().get(k).map_or(false, |ev| {
+                            && diagram.events().get(k).is_some_and(|ev| {
                                 matches!(ev, SequenceEvent::LifeEvent(le) if le.is_activate())
                             })
                     });
@@ -5958,7 +5953,7 @@ fn render_sequence_svg_teoz(
                         !l.is_msg
                             && attach[k] == Some(mi)
                             && l.parts == e.parts
-                            && diagram.events().get(k).map_or(false, |ev| {
+                            && diagram.events().get(k).is_some_and(|ev| {
                                 matches!(ev, SequenceEvent::LifeEvent(le) if le.is_deactivate() || le.is_destroy())
                             })
                     });
@@ -5998,8 +5993,8 @@ fn render_sequence_svg_teoz(
         let level_at = |target: usize, p: usize| -> i32 {
             let mut level = 0i32;
             for (ei, e) in evs.iter().enumerate() {
-                if !e.is_msg {
-                    if e.parts[0] == p {
+                if !e.is_msg
+                    && e.parts[0] == p {
                         if let Some(SequenceEvent::LifeEvent(le)) = diagram.events().get(ei) {
                             if le.is_activate() {
                                 level += 1;
@@ -6008,7 +6003,6 @@ fn render_sequence_svg_teoz(
                             }
                         }
                     }
-                }
                 if ei == target {
                     if e.is_msg {
                         let tmi = e.mi;
@@ -6020,7 +6014,7 @@ fn render_sequence_svg_teoz(
                             }
                             let am = attach[k];
                             let linked = am == Some(tmi)
-                                || am.map_or(false, |am_mi| par_with(&par_brother, am_mi, tmi));
+                                || am.is_some_and(|am_mi| par_with(&par_brother, am_mi, tmi));
                             if !linked || l.parts[0] != p || !msg_deals(tmi, p) {
                                 continue;
                             }
@@ -6065,8 +6059,8 @@ fn render_sequence_svg_teoz(
                         continue;
                     }
                     let le_msg = attach[ei];
-                    let coalesce = le_msg.map_or(false, |am| {
-                        last_message.map_or(false, |lm| par_with(&par_brother, am, lm))
+                    let coalesce = le_msg.is_some_and(|am| {
+                        last_message.is_some_and(|lm| par_with(&par_brother, am, lm))
                     });
                     let le_act = matches!(diagram.events().get(ei), Some(SequenceEvent::LifeEvent(le)) if le.is_activate());
                     let le_deact = matches!(diagram.events().get(ei), Some(SequenceEvent::LifeEvent(le)) if le.is_deactivate() || le.is_destroy());
@@ -6088,15 +6082,12 @@ fn render_sequence_svg_teoz(
                     seen_deact = false;
                     last_message = Some(e.mi);
                 }
-                let pos = match position {
-                    Some(v) => v,
-                    None => continue,
-                };
+                let Some(pos) = position else { continue };
                 indent = level_at(ei, p);
                 // Step.isDestroy: a message immediately followed (skipping
                 // notes) by a destroy LifeEvent on this participant.
                 let is_destroy = e.is_msg
-                    && evs.get(ei + 1).map_or(false, |n| {
+                    && evs.get(ei + 1).is_some_and(|n| {
                         !n.is_msg
                             && n.parts[0] == p
                             && matches!(diagram.events().get(ei + 1),
@@ -6690,8 +6681,8 @@ fn render_sequence_svg_teoz(
     // pre-pass (GroupingTile.drawCompBackground) before the lifelines; the
     // frame border is drawn later interleaved with the messages.
     if teoz {
-        for gid in 0..teoz_layout.group_backcolor.len() {
-            if let Some(bc) = &teoz_layout.group_backcolor[gid] {
+        for (gid, bc) in teoz_layout.group_backcolor.iter().enumerate() {
+            if let Some(bc) = bc {
                 let (fmin, fmax) = teoz_frame_x[gid];
                 let fx = fmin + x_offset;
                 let fw = fmax - fmin;
@@ -6923,8 +6914,8 @@ fn render_sequence_svg_teoz(
             svg.svg_path(&path_d, 0.0);
         };
         // Heads: rect at head_y, text baseline head_y + 21.9659.
-        for i in 0..participants.len() {
-            if is_actor[i] {
+        for (i, &actor) in is_actor.iter().enumerate() {
+            if actor {
                 let hy = head_y + (common_own - own_heights[i]);
                 draw_actor(&mut svg, i, hy);
             } else {
@@ -6933,8 +6924,8 @@ fn render_sequence_svg_teoz(
         }
         // Tails: rect at lifeline bottom (footbox_y), same 33.0679 band.
         if !hide_footbox {
-            for i in 0..participants.len() {
-                if is_actor[i] {
+            for (i, &actor) in is_actor.iter().enumerate() {
+                if actor {
                     draw_actor(&mut svg, i, footbox_y);
                 } else {
                     draw_box(&mut svg, i, footbox_y, footbox_y + PADDING_TOP + ASCENT_14);
@@ -8719,6 +8710,7 @@ pub struct DividerInfo {
 }
 
 /// Source-order structural token used to reconstruct the teoz tile tree.
+///
 /// teoz lays groups out as ONE frame containing sections (alt/else) and
 /// messages, which the flat [`GroupInfo`] list cannot express (it emits one
 /// frame per `else` section). Recorded during the text parse; only consumed by
@@ -9116,9 +9108,9 @@ fn teoz_group_meta(
 ) {
     for node in nodes {
         if let TeozNode::Group { gid, kind: k, comment: c, backcolor: bc, sections, .. } = node {
-            kind[*gid] = k.clone();
-            comment[*gid] = c.clone();
-            backcolor[*gid] = bc.clone();
+            kind[*gid].clone_from(k);
+            comment[*gid].clone_from(c);
+            backcolor[*gid].clone_from(bc);
             for sec in sections {
                 teoz_group_meta(&sec.children, kind, comment, backcolor);
             }
@@ -9198,7 +9190,7 @@ fn teoz_measure_nodes(
             if gsec.len() <= *gid {
                 gsec.resize(gid + 1, Vec::new());
             }
-            gsec[*gid] = sections.clone();
+            gsec[*gid].clone_from(sections);
             let mut raw = Vec::new();
             teoz_raw_sections(sections, &mut raw);
             let body = teoz_stream_pref(&raw, is_self, rows, gpref, empty);
@@ -9304,15 +9296,17 @@ fn layout_teoz(tree: &[TeozNode], n_msgs: usize, is_self: &[bool], rows: &[usize
     let mut gsec: Vec<Vec<TeozSection>> = vec![Vec::new(); n_groups];
     teoz_measure_nodes(tree, is_self, rows, empty, &mut gpref, &mut gsec);
 
-    let mut out = TeozLayoutOut::default();
-    out.msg_hook = vec![f64::NAN; n_msgs];
-    out.group_hook = vec![0.0; n_groups];
-    out.group_pref = gpref.clone();
-    out.group_body = gpref.iter().map(|p| p - TEOZ_HEADER_H - TEOZ_GROUP_TAIL).collect();
-    out.group_else = vec![Vec::new(); n_groups];
-    out.group_kind = vec![String::new(); n_groups];
-    out.group_comment = vec![String::new(); n_groups];
-    out.group_backcolor = vec![None; n_groups];
+    let mut out = TeozLayoutOut {
+        msg_hook: vec![f64::NAN; n_msgs],
+        group_hook: vec![0.0; n_groups],
+        group_pref: gpref.clone(),
+        group_body: gpref.iter().map(|p| p - TEOZ_HEADER_H - TEOZ_GROUP_TAIL).collect(),
+        group_else: vec![Vec::new(); n_groups],
+        group_kind: vec![String::new(); n_groups],
+        group_comment: vec![String::new(); n_groups],
+        group_backcolor: vec![None; n_groups],
+        ..Default::default()
+    };
     teoz_group_meta(tree, &mut out.group_kind, &mut out.group_comment, &mut out.group_backcolor);
 
     // Root placement.
@@ -9371,7 +9365,7 @@ pub struct GroupInfo {
 fn expand_hex_shorthand(color: &str) -> String {
     let bytes = color.as_bytes();
     if bytes.len() == 4 && bytes[0] == b'#'
-        && bytes[1..].iter().all(|b| b.is_ascii_hexdigit())
+        && bytes[1..].iter().all(u8::is_ascii_hexdigit)
     {
         let mut out = String::with_capacity(7);
         out.push('#');
