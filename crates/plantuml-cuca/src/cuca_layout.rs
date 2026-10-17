@@ -1005,6 +1005,14 @@ pub(crate) fn leaf_max_extent_y(entity: &ParsedEntity, multi_node: bool) -> f64 
             0.0
         };
     }
+    if matches!(entity.kind, EntityKind::State) {
+        // `EntityImageState.drawU` strokes its rounded rect, whose LimitFinder
+        // far corner is `y + height − 1`. Against the multi-node 14px placed
+        // margin that already accounts for that −1 no offset is needed; the
+        // smaller single-node margin is two pixels short (jar viewBox single
+        // Idle = 71 = (7+50−1) + 15).
+        return if multi_node { 0.0 } else { 2.0 };
+    }
     max_extent_y(entity.kind)
 }
 
@@ -1049,6 +1057,15 @@ pub(crate) fn leaf_max_extent_x(entity: &ParsedEntity, multi_node: bool) -> f64 
         } else {
             0.0
         };
+    }
+    if matches!(entity.kind, EntityKind::State) {
+        // A state always draws its internal name separator as
+        // `ULine.hline(width)`; LimitFinder.drawULine records the endpoint at
+        // the full `x + width` corner, one pixel past the stroked rect's
+        // `x + width − 1`. In a single-node diagram the placed margin is two
+        // pixels smaller still, so the reach is +3 there (jar single Idle
+        // 57 + 15 = 72; two-state 66.34 → 81; labeled cycle 79.06 → 94).
+        return if multi_node { 1.0 } else { 3.0 };
     }
     max_extent_x(entity.kind)
 }
@@ -1334,11 +1351,18 @@ fn build_layout_from_dot(
         } else if sibling_left {
             // Content flushes left; the title table overhangs the outer edge.
             (base_left, base_left + titled_width)
+        } else if is_node_group {
+            // A lone deployment node group is a symmetric envelope about the
+            // content column, just like a side-by-side one: graphviz sizes
+            // the cluster to the HTML title-table WIDTH + 16 and recenters
+            // its member on the widened centre (jar: Server 16..136 around a
+            // database at x=76). Rounded folders below keep the plain-text
+            // content envelope, whose inset label never widens the box.
+            (ccx - titled_width / 2.0, ccx + titled_width / 2.0)
         } else {
-            // A lone folder, or any rounded package: a symmetric envelope
-            // about the content column. Its plain-text title is inset and
-            // never widens the box the way a deployment node-group's HTML
-            // `<TABLE>` label does.
+            // A lone rounded package: a symmetric envelope about the content
+            // column. Its plain-text title is inset and never widens the box
+            // the way a deployment node-group's HTML `<TABLE>` label does.
             (base_left, base_right)
         };
         let lines = 1 + gent.display.matches('\n').count();

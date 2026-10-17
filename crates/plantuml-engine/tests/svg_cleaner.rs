@@ -113,7 +113,11 @@ fn parse_element(e: &BytesStart) -> CleanNode {
 /// and differ between Java and Rust. Replace them with `fID` so that
 /// comparison focuses on structure, not on the opaque ID.
 fn normalize_filter_attr(key: &str, value: &str) -> String {
-    if key == "id" && value.starts_with('f') && value.len() >= 2 && value[1..].chars().all(|c| c.is_ascii_alphanumeric()) {
+    if key == "id"
+        && value.starts_with('f')
+        && value.len() >= 2
+        && value[1..].chars().all(|c| c.is_ascii_alphanumeric())
+    {
         return "fID".to_string();
     }
     if key == "filter" {
@@ -134,8 +138,20 @@ fn normalize_filter_attr(key: &str, value: &str) -> String {
 fn round_coord_attr(key: &str, value: &str) -> String {
     /// Attributes containing a single numeric coordinate or dimension.
     const SINGLE_NUM: &[&str] = &[
-        "x", "y", "x1", "y1", "x2", "y2", "width", "height",
-        "textLength", "rx", "ry", "cx", "cy", "r",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "width",
+        "height",
+        "textLength",
+        "rx",
+        "ry",
+        "cx",
+        "cy",
+        "r",
     ];
 
     fn round_one(s: &str) -> String {
@@ -143,9 +159,7 @@ fn round_coord_attr(key: &str, value: &str) -> String {
             let r = (v * 1000.0).round() / 1000.0;
             // Match Java's trimZeros: strip trailing zeros and optional dot
             let formatted = format!("{r:.3}");
-            let trimmed = formatted
-                .trim_end_matches('0')
-                .trim_end_matches('.');
+            let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
             if trimmed.is_empty() || trimmed == "-0" {
                 "0".to_string()
             } else {
@@ -166,11 +180,7 @@ fn round_coord_attr(key: &str, value: &str) -> String {
             .collect::<Vec<_>>()
             .join(",")
     } else if key == "viewBox" {
-        value
-            .split_whitespace()
-            .map(round_one)
-            .collect::<Vec<_>>()
-            .join(" ")
+        value.split_whitespace().map(round_one).collect::<Vec<_>>().join(" ")
     } else if key == "d" {
         // Round all numeric values in SVG path data to 3 decimal places.
         round_path_data(value)
@@ -193,9 +203,7 @@ fn round_path_data(d: &str) -> String {
                 if let Ok(v) = num_buf.parse::<f64>() {
                     let r = (v * 1000.0).round() / 1000.0;
                     let formatted = format!("{r:.3}");
-                    let trimmed = formatted
-                        .trim_end_matches('0')
-                        .trim_end_matches('.');
+                    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
                     result.push_str(if trimmed.is_empty() || trimmed == "-0" {
                         "0"
                     } else {
@@ -214,9 +222,7 @@ fn round_path_data(d: &str) -> String {
         if let Ok(v) = num_buf.parse::<f64>() {
             let r = (v * 1000.0).round() / 1000.0;
             let formatted = format!("{r:.3}");
-            let trimmed = formatted
-                .trim_end_matches('0')
-                .trim_end_matches('.');
+            let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
             result.push_str(if trimmed.is_empty() || trimmed == "-0" {
                 "0"
             } else {
@@ -231,11 +237,7 @@ fn round_path_data(d: &str) -> String {
 
 fn serialize_node(node: &CleanNode, indent: usize) -> String {
     match node {
-        CleanNode::Element {
-            name,
-            attrs,
-            children,
-        } => {
+        CleanNode::Element { name, attrs, children } => {
             let mut result = String::new();
             result.push_str(&" ".repeat(indent));
             result.push('<');
@@ -255,9 +257,7 @@ fn serialize_node(node: &CleanNode, indent: usize) -> String {
             }
 
             // Check if all children are text (inline element)
-            let all_text = children
-                .iter()
-                .all(|c| matches!(c, CleanNode::Text(_)));
+            let all_text = children.iter().all(|c| matches!(c, CleanNode::Text(_)));
 
             result.push('>');
             if all_text {

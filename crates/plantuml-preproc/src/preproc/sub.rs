@@ -55,11 +55,14 @@ impl Sub {
             let line_type = trimmed.get_type();
 
             if line_type == TLineType::Startsub {
-                // Parse the !startsub directive to get the sub name
-                // In the full implementation, this would use EaterStartsub.
-                // For now, we check if the line contains the blocname.
-                let line_str = trimmed.get_string();
-                if line_str.contains(blocname) {
+                // Match `!startsub <blocname>` exactly (same tokenization as
+                // EaterStartsub in the Java reference, without pulling the
+                // TIM layer into the preproc module).
+                let line_str = trimmed.get_string().trim_start();
+                let matches = line_str
+                    .strip_prefix("!startsub")
+                    .is_some_and(|rest| rest.trim() == blocname);
+                if matches {
                     skip = false;
                     if result.is_none() {
                         result = Some(Self::new(blocname));

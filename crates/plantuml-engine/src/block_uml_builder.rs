@@ -2,12 +2,38 @@
 //!
 //! Ported from `net.sourceforge.plantuml.BlockUmlBuilder`.
 
+use plantuml_preproc::preproc::read_line::ReadLine;
+use plantuml_preproc::preproc2::read_filter::ReadFilter;
+use plantuml_preproc::preproc2::ReadFilterMergeLines;
 use plantuml_preproc::preproc::Defines;
 use plantuml_preproc::string_located::StringLocated;
 use plantuml_preproc::stubs::LineLocation;
 
 use crate::block_uml::BlockUml;
 use crate::start_utils::StartUtils;
+
+/// In-memory `ReadLine` over a list of located lines.
+struct VecReadLine {
+    lines: std::vec::IntoIter<StringLocated>,
+}
+
+impl VecReadLine {
+    fn new(lines: Vec<StringLocated>) -> Self {
+        Self {
+            lines: lines.into_iter(),
+        }
+    }
+}
+
+impl ReadLine for VecReadLine {
+    fn read_line(&mut self) -> std::io::Result<Option<StringLocated>> {
+        Ok(self.lines.next())
+    }
+
+    fn close(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 /// Builds `BlockUml` blocks from a source string.
 ///
@@ -34,7 +60,15 @@ impl BlockUmlBuilder {
         defines: &Defines,
         current_dir: Option<std::path::PathBuf>,
     ) -> Self {
-        let lines = Self::create_string_located(source);
+        // Java applies ReadFilterMergeLines (trailing-backslash continuation)
+        // to the main source reader before block splitting. The same merge is
+        // NOT applied inside `!includesub` file readers.
+        let raw: Box<dyn ReadLine> = Box::new(VecReadLine::new(Self::create_string_located(source)));
+        let mut merged = ReadFilterMergeLines.apply_filter(raw);
+        let mut lines = Vec::new();
+        while let Ok(Some(s)) = merged.read_line() {
+            lines.push(s);
+        }
         let mut blocks = Vec::new();
         let mut current: Option<Vec<StringLocated>> = None;
         let mut paused = false;

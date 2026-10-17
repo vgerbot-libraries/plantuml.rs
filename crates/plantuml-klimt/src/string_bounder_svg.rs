@@ -114,6 +114,34 @@ const AWT_SIZE_12_PLAIN: [f64; 95] = [
     7.380051, 7.380051, 4.956039, 5.748047, 4.332031, 7.416046, 6.096039, 9.432068,
     6.348038, 6.120041, 5.640045, 4.560028, 6.612045, 4.560028, 6.864044,
 ];
+/// Per-character widths (pixels, plain font size 13, chars 0x20–0x7E).
+#[allow(clippy::unreadable_literal)]
+const AWT_SIZE_13_PLAIN: [f64; 95] = [
+    3.380005, 3.497009, 5.304001, 8.398010,
+    7.436005, 10.803009, 9.516006, 2.925003,
+    3.900009, 3.900009, 7.163010, 7.436005,
+    3.484009, 4.186005, 3.484009, 4.835999,
+    7.436005, 7.436005, 7.436005, 7.436005,
+    7.436005, 7.436005, 7.436005, 7.436005,
+    7.436005, 7.436005, 3.484009, 3.484009,
+    7.436005, 7.436005, 7.436005, 5.641998,
+    11.687012, 8.307007, 8.450012, 8.216003,
+    9.490005, 7.228012, 6.747009, 9.464005,
+    9.633011, 4.406998, 3.548996, 8.047012,
+    6.812012, 11.791016, 9.880005, 10.153015,
+    7.865005, 10.153015, 8.086014, 7.137009,
+    7.228012, 9.503006, 7.800003, 12.090012,
+    7.618011, 7.358002, 7.436005, 4.277008,
+    4.835999, 4.277008, 7.436005, 5.772003,
+    3.653000, 7.292999, 7.995010, 6.240005,
+    7.995010, 7.332001, 4.472000, 7.995010,
+    8.034012, 3.354004, 3.354004, 6.942001,
+    3.354004, 12.155014, 8.034012, 7.865005,
+    7.995010, 7.995010, 5.369003, 6.227005,
+    4.693008, 8.034012, 6.604004, 10.218002,
+    6.876999, 6.630005, 6.110001, 4.940002,
+    7.163010, 4.940002, 7.436005,
+];
 
 /// Per-character widths (pixels, font size 14, chars 0x20–0x7E).
 #[allow(clippy::unreadable_literal)]
@@ -237,24 +265,28 @@ impl StringBounderSvg {
 
     /// Sums the size-exact ASCII width for `text`, or `None` if the size has
     /// no exact table or the text contains a character outside 0x20–0x7E.
-    fn exact_ascii_width(size: f64, bold: bool, text: &str) -> Option<f64> {
+    pub fn exact_ascii_width(size: f64, bold: bool, text: &str) -> Option<f64> {
         let table: &[f64; 95] = match size as u32 {
             11 if bold => &AWT_SIZE_11_BOLD,
             13 if bold => &AWT_SIZE_13_BOLD,
             14 if bold => &AWT_SIZE_14_BOLD,
             11 => &AWT_SIZE_11_PLAIN,
             12 => &AWT_SIZE_12_PLAIN,
+            13 => &AWT_SIZE_13_PLAIN,
             14 => &AWT_SIZE_14_PLAIN,
             _ => return None,
         };
-        let mut width = 0.0_f64;
+        // AWT's TextLayout accumulates glyph advances as 32-bit floats, so
+        // long labels carry a few 1e-5 float-rounding differences versus an
+        // f64 sum. Replicate the float accumulation order exactly.
+        let mut width = 0.0_f32;
         for cp in text.chars().map(|c| c as u32) {
             if !(0x20..=0x7e).contains(&cp) {
                 return None;
             }
-            width += table[(cp - 0x20) as usize];
+            width += table[(cp - 0x20) as usize] as f32;
         }
-        Some(width)
+        Some(f64::from(width))
     }
 }
 

@@ -56,12 +56,8 @@ pub struct TContext {
     preprocessing_artifact: PreprocessingArtifact,
     path_system: PathSystem,
     pending_add: Option<String>,
-    // Multi-line function call support: raw pointer + length of the lines slice
-    // being processed by execute_lines_internal, plus the current read index.
-    // Used by read_line2() to fetch additional lines when a function call spans
-    // multiple lines (e.g. `box("multi \` + newline + `line")`).
-    reading_lines_ptr: Option<*const StringLocated>,
-    reading_lines_len: usize,
+    // Current read index in `execute_lines_internal`, used by `!while` /
+    // `!foreach` to jump back to the loop start.
     reading_index: usize,
 }
 
@@ -80,8 +76,6 @@ impl TContext {
             functions_set: FunctionsSet::new(),
             charset: String::new(),
             pending_add: None,
-            reading_lines_ptr: None,
-            reading_lines_len: 0,
             reading_index: 0,
             subs: HashMap::new(),
             definitions_container: DefinitionsContainer,
@@ -93,18 +87,13 @@ impl TContext {
         context
     }
 
-    /// Reads the next line from the current line iterator.
-    /// Used by `EaterFunctionCall` when a function call spans multiple lines.
-    /// Returns `None` if no more lines are available.
-    pub fn read_line2(&mut self) -> Option<StringLocated> {
-        if let Some(ptr) = self.reading_lines_ptr {
-            if self.reading_index < self.reading_lines_len {
-                let line = unsafe { (*ptr.add(self.reading_index)).clone() };
-                self.reading_index += 1;
-                return Some(line);
-            }
-        }
-        None
+    /// Appends the failing line, tagged with a preprocessor error.
+    ///
+    /// Ported from `TimLoader.load`'s catch block:
+    /// `context.getResultList().add(e.getLocation().withErrorPreprocessor(msg))`.
+    pub fn append_preprocessor_error(&mut self, location: &StringLocated, message: &str) {
+        self.result_list
+            .push(location.with_error_preprocessor(message));
     }
 
     /// Returns the files used in the current preprocessing.
@@ -260,15 +249,10 @@ impl TContext {
         function_type: Option<TFunctionType>,
         in_function: bool,
     ) -> Result<Option<TValue>, EaterException> {
-        // Save outer reading state (for nested procedure calls)
-        let saved_ptr = self.reading_lines_ptr;
-        let saved_len = self.reading_lines_len;
+        // Save outer reading state for nested procedure calls.
         let saved_index = self.reading_index;
         let mut current_sub: Option<(String, Vec<StringLocated>)> = None;
         let mut i = 0;
-        // Set up reading_lines for multi-line function call support.
-        self.reading_lines_ptr = Some(lines.as_ptr());
-        self.reading_lines_len = lines.len();
         while i < lines.len() {
             self.reading_index = i + 1;
             let line = lines[i].clone();
@@ -328,7 +312,7 @@ impl TContext {
             match t {
                 TLineType::Plain => {
                     if memory.are_all_if_ok() {
-                        self.add_plain(memory, &line);
+                        self.add_plain(memory, &line)?;
                     }
                 }
                 TLineType::Affectation => {
@@ -551,31 +535,28 @@ impl TContext {
             }
             i = self.reading_index;
         }
-        // Restore outer reading state
-        self.reading_lines_ptr = saved_ptr;
-        self.reading_lines_len = saved_len;
+        // Restore outer reading state.
         self.reading_index = saved_index;
         Ok(None)
     }
 
-    fn add_plain(&mut self, memory: &mut dyn TMemory, s: &StringLocated) {
-        let new_s = self.apply_functions_and_variables(memory, s);
-        if let Some(new_s) = new_s {
-            // Empty string from a non-empty input means a procedure was executed
-            // and its body lines were already added to result_list. Don't push.
-            if !new_s.is_empty() || s.get_string().is_empty() {
-                let final_s = if let Some(pending) = self.pending_add.take() {
-                    format!("{pending}{new_s}")
-                } else {
-                    new_s
-                };
-                self.result_list
-                    .push(StringLocated::new(final_s, s.get_location().clone()));
-            }
-        } else {
-            self.result_list.push(s.clone());
+    fn add_plain(&mut self, memory: &mut dyn TMemory, s: &StringLocated) -> Result<(), EaterException> {
+        // Mirrors `TContext.addPlain`, which propagates `EaterException`:
+        // a failure (e.g. an unterminated call from a backslash continuation)
+        // aborts processing and lets `TimLoader` truncate output at the line.
+        let new_s = self.apply_functions_and_variables_internal(memory, s)?;
+        // Empty string from a non-empty input means a procedure was executed
+        // and its body lines were already added to result_list. Don't push.
+        if !new_s.is_empty() || s.get_string().is_empty() {
+            let final_s = if let Some(pending) = self.pending_add.take() {
+                format!("{pending}{new_s}")
+            } else {
+                new_s
+            };
+            self.result_list
+                .push(StringLocated::new(final_s, s.get_location().clone()));
         }
-
+        Ok(())
     }
 
     /// Applies function calls and variable substitutions to a line.
@@ -604,7 +585,7 @@ impl TContext {
             if let Some(func_name) = self.get_function_name_at(str, i) {
                 let end = i + func_name.len();
                 if end < bytes.len() && bytes[end] == '(' {
-                    // Find matching close parenthesis
+                    // Find the matching close parenthesis.
                     let mut depth = 1;
                     let mut j = end + 1;
                     let mut in_string = false;
@@ -629,50 +610,13 @@ impl TContext {
                         }
                         j += 1;
                     }
-                    // Multi-line function call: if ')' not found on current line,
-                    // read additional lines from read_line2.
-                    
-                    let mut consumed_extra_lines = 0;
-                    let func_call_str = if depth > 0 {
-                        // Build multi-line function call string
-                        let mut full_str = str[i..].to_string();
-                        // Strip trailing backslash (line continuation) from current line
-                        if full_str.ends_with('\\') {
-                            full_str.pop();
-                        }
-                        while let Some(extra_line) = self.read_line2() {
-                            consumed_extra_lines += 1;
-                            let extra_s = extra_line.get_string();
-                            // Strip trailing backslash (line continuation)
-                            let extra_s = extra_s.strip_suffix('\\').unwrap_or(extra_s);
-                            full_str.push_str(extra_s);
-                            let extra_bytes: Vec<char> =
-                                extra_s.chars().collect();
-                            for &c in &extra_bytes {
-                                if in_string {
-                                    if c == string_char {
-                                        in_string = false;
-                                    }
-                                } else if c == '"' || c == '\'' {
-                                    in_string = true;
-                                    string_char = c;
-                                } else if c == '(' {
-                                    depth += 1;
-                                } else if c == ')' {
-                                    depth -= 1;
-                                    if depth == 0 {
-                                        break;
-                                    }
-                                }
-                            }
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        full_str
-                    } else {
-                        str[i..j].to_string()
-                    };
+                    // Match the Java port: no multi-line call rescue here. An
+                    // unclosed call (e.g. an unterminated string from a
+                    // trailing-backslash continuation) is parsed as-is and
+                    // fails inside `EaterFunctionCall`, surfacing as a
+                    // preprocessor error. Backslash merging only happens in
+                    // the main-source reader chain, never inside `!includesub`.
+                    let func_call_str = str[i..j].to_string();
                     let func_call = StringLocated::new(func_call_str, s.get_location().clone());
                     // Set pending_add BEFORE executing the procedure so the procedure body
                     // can pick it up (text before the call is prepended to first body line).
@@ -683,32 +627,18 @@ impl TContext {
                         // Procedure was executed: its body lines are already in result_list.
                         result.clear();
                         // Append remaining text after the procedure call to the last result line.
-                        let remaining = if consumed_extra_lines > 0 {
-                            // For multi-line calls, remaining text is empty (all consumed)
-                            ""
-                        } else {
-                            &str[j..]
-                        };
+                        let remaining = &str[j..];
                         if !remaining.is_empty() {
                             if let Some(last) = self.result_list.last_mut() {
                                 let new_str = format!("{}{}", last.get_string(), remaining);
                                 *last = StringLocated::new(new_str, last.get_location().clone());
                             }
                         }
-                    } else {
-                        result.push_str(&value_str);
-                    }
-                    if consumed_extra_lines > 0 {
-                        // Multi-line call consumed all remaining chars on current line
-                        i = bytes.len();
-                    } else {
-                        i = j;
-                    }
-                    // If procedure was executed (value_str empty), return early.
-                    // The remaining text was already appended to the last result line.
-                    if value_str.is_empty() {
+                        // Procedure: return early (the remaining text was appended).
                         return Ok(String::new());
                     }
+                    result.push_str(&value_str);
+                    i = j;
                     continue;
                 }
             }
@@ -824,35 +754,58 @@ impl TContext {
         eater.analyze(self, memory)?;
         let what = eater.get_what().unwrap_or("").to_string();
 
-        // Check if the name contains "!" (filename!blocname)
-        if let Some(idx) = what.find('!') {
-            // filename!blocname case: read the file and find sub-blocks
+        // `filename!blocname`: read the file through the same reader chain as
+        // the JAR (ReadLineReader -> UncommentReadLine -> Sub::from_file).
+        // Note: no ReadFilterMergeLines here, matching TContext in
+        // PlantUML 1.2026.6 — trailing-backslash continuations inside an
+        // included sub stay unmerged there.
+        let idx = what.find('!');
+        let mut sub: Option<Sub> = None;
+        if let Some(idx) = idx {
             let filename = &what[..idx];
             let blocname = &what[idx + 1..];
-            // Try to resolve and read the file
+            let saved_path_system = self.path_system.clone();
             if let Some(path) = self.path_system.resolve_file(filename) {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    let lines = parse_puml_lines(&content);
-                    let sub_lines = collect_sub_block_lines(&lines, blocname);
-                    for _sl in &sub_lines {
-                    }
-                    if !sub_lines.is_empty() {
-                        self.execute_lines_internal(memory, &sub_lines, None, false)?;
-                        return Ok(());
+                if let Ok(file) = std::fs::File::open(&path) {
+                    self.path_system.set_current_dir(
+                        path.parent()
+                            .map(std::path::Path::to_path_buf)
+                            .unwrap_or_default(),
+                    );
+                    let reader = crate::preproc::ReadLineReader::new(
+                        Box::new(std::io::BufReader::new(file)),
+                        &what,
+                        Some(s.get_location().clone()),
+                    );
+                    let mut reader = crate::preproc::UncommentReadLine::new(Box::new(reader));
+                    if let Ok(found) = Sub::from_file(&mut reader, blocname) {
+                        sub = found;
+                    } else {
+                        self.path_system = saved_path_system;
+                        return Err(EaterException::new(format!("cannot include {what}"), s));
                     }
                 }
             }
+            // Restore the path system (mirrors the Java `finally` block),
+            // even when no sub block was found below.
+            self.path_system = saved_path_system;
+        }
+
+        // Plain block name (or a file that carried no matching block): look
+        // the sub up among blocks collected from the current source.
+        if sub.is_none() {
+            if let Some(block_name) = idx.is_none().then_some(what.as_str()) {
+                sub = self.subs.get(block_name).cloned();
+            }
+        }
+
+        let Some(sub) = sub else {
             return Err(EaterException::new(format!("cannot include {what}"), s));
-        }
+        };
 
-        // Just blocname: look up in subs map
-        if let Some(sub) = self.subs.get(&what) {
-            let sub_lines: Vec<StringLocated> = sub.lines().to_vec();
-            self.execute_lines_internal(memory, &sub_lines, None, false)?;
-            return Ok(());
-        }
-
-        Err(EaterException::new(format!("cannot include {what}"), s))
+        let sub_lines = sub.lines().to_vec();
+        self.execute_lines_internal(memory, &sub_lines, None, false)?;
+        Ok(())
     }
 
     /// Parses a variable as JSON, falling back to string if parsing fails.
@@ -980,55 +933,3 @@ impl Default for TContext {
     }
 }
 
-/// Parses puml file content into `StringLocated` lines, skipping YAML header.
-fn parse_puml_lines(content: &str) -> Vec<StringLocated> {
-    let mut lines = Vec::new();
-    let mut inside_yaml = false;
-    let mut yaml_done = false;
-    let mut line_num = 0u32;
-
-    for line in content.lines() {
-        line_num += 1;
-        if !yaml_done && line.trim() == "---" {
-            inside_yaml = !inside_yaml;
-            if !inside_yaml {
-                yaml_done = true;
-            }
-            continue;
-        }
-        if inside_yaml {
-            continue;
-        }
-        lines.push(StringLocated::new(
-            line.to_string(),
-            crate::stubs::LineLocation::new(None, line_num),
-        ));
-    }
-    lines
-}
-
-/// Collects lines from all sub-blocks with the given name.
-fn collect_sub_block_lines(lines: &[StringLocated], blocname: &str) -> Vec<StringLocated> {
-    let mut result = Vec::new();
-    let mut in_sub = false;
-    let mut skip = false;
-
-    for line in lines {
-        let t = line.get_type();
-        if t == crate::TLineType::Startsub {
-            let line_str = line.get_string();
-            if line_str.contains(blocname) {
-                in_sub = true;
-                skip = false;
-            }
-            continue;
-        }
-        if t == crate::TLineType::Endsub && in_sub {
-            skip = true;
-        }
-        if in_sub && !skip {
-            result.push(line.clone());
-        }
-    }
-    result
-}

@@ -51,20 +51,16 @@ impl TimLoader {
             return;
         }
         let result = self.context.execute_lines(&mut self.global, &raw, None, false);
-        match result {
-            Ok(_) => {
-                self.result_list = Some(self.context.get_result_list().to_vec());
-                self.preprocessing_artifact = Some(self.context.get_preprocessing_artifact().clone());
-            }
-            Err(e) => {
-                self.preprocessor_error = true;
-                self.result_list = Some(vec![StringLocated::with_error(
-                    e.get_message().to_string(),
-                    e.get_location().get_location().clone(),
-                    e.get_message().to_string(),
-                )]);
-            }
+        if let Err(e) = result {
+            // Mirrors TimLoader.load in PlantUML: the accumulated result list
+            // is kept and the failing line (tagged with the preprocessor
+            // error) is appended; preproc output truncates at the error site.
+            self.context
+                .append_preprocessor_error(e.get_location(), e.get_message());
+            self.preprocessor_error = true;
         }
+        self.result_list = Some(self.context.get_result_list().to_vec());
+        self.preprocessing_artifact = Some(self.context.get_preprocessing_artifact().clone());
     }
 
     /// Returns the preprocessed result list.

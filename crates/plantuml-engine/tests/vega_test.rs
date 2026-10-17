@@ -19,8 +19,8 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use plantuml_core::{FileFormat, FileFormatOption};
-use plantuml_preproc::preproc::Defines;
 use plantuml_engine::SourceStringReader;
+use plantuml_preproc::preproc::Defines;
 
 use yaml_parser::VegaYaml;
 
@@ -97,34 +97,31 @@ fn run_preproc_test(puml_path: &Path) {
 
     // Render via Rust pipeline.
     let current_dir = puml_path.parent().map(std::path::Path::to_path_buf);
-    let ssr = SourceStringReader::with_defines_and_dir(&source, &Defines::new(), current_dir);
+    let ssr = SourceStringReader::with_defines_and_dir(&source, &Defines::new(), current_dir.clone());
     let file_format_option = FileFormatOption::new(FileFormat::Preproc);
     let mut output = Vec::new();
     let description = ssr.output_image(&mut Cursor::new(&mut output), 0, &file_format_option);
 
-    assert!(
-        description.is_some(),
-        "No output generated for {}",
-        puml_path.display()
-    );
+    assert!(description.is_some(), "No output generated for {}", puml_path.display());
 
     let actual_output = normalize_line_endings(&String::from_utf8_lossy(&output));
 
     // Obtain expected output from Java JAR at runtime.
-    let expected_output = match java_plantuml::render(&source, "preproc") {
+    let expected_output = match java_plantuml::render_in_dir(&source, "preproc", current_dir) {
         Some(o) => normalize_line_endings(&o),
         None => panic!("Java PlantUML failed to render {}", puml_path.display()),
     };
 
     assert_eq!(
-        expected_output, actual_output,
+        expected_output,
+        actual_output,
         "PREPROC output mismatch for {}",
         puml_path.display()
     );
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_all_preproc_vega_files() {
     let vega_dir = vega_resources();
     let mut preproc_files = Vec::new();
@@ -162,14 +159,14 @@ fn walk_puml_files(dir: &Path, preproc_files: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_preproc_eval() {
     let path = vega_resources().join("preproc").join("eval.puml");
     run_preproc_test(&path);
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_preproc_upper() {
     let path = vega_resources().join("preproc").join("upper.puml");
     run_preproc_test(&path);
@@ -201,7 +198,7 @@ fn test_sequence_title() {
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_sequence_title_title() {
     run_sequence_svg_test("svg/option/sequence_title_title");
 }
@@ -217,31 +214,31 @@ fn test_hello_001() {
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_self_001() {
     run_sequence_svg_test("asciiverse/self_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_hello_002() {
     run_sequence_svg_test("asciiverse/hello_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_multiline_001() {
     run_sequence_svg_test("asciiverse/multiline_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_selfnote_003() {
     run_sequence_svg_test("asciiverse/selfnote_003");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_group_001() {
     run_sequence_svg_test("asciiverse/group_001");
 }
@@ -252,155 +249,154 @@ fn test_mvp_hello_both() {
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_001() {
     run_sequence_svg_test("asciiverse/altpar_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_002() {
     run_sequence_svg_test("asciiverse/altpar_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_003() {
     run_sequence_svg_test("asciiverse/altpar_003");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_004() {
     run_sequence_svg_test("asciiverse/altpar_004");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_005() {
     run_sequence_svg_test("asciiverse/altpar_005");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_006() {
     run_sequence_svg_test("asciiverse/altpar_006");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_007() {
     run_sequence_svg_test("asciiverse/altpar_007");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_altpar_008() {
     run_sequence_svg_test("asciiverse/altpar_008");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_basic_002() {
     run_sequence_svg_test("asciiverse/basic_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_basic_003() {
     run_sequence_svg_test("asciiverse/basic_003");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_layout_001() {
     run_sequence_svg_test("asciiverse/layout_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_layout_002() {
     run_sequence_svg_test("asciiverse/layout_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_layout_002b() {
     run_sequence_svg_test("asciiverse/layout_002b");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_layout_003() {
     run_sequence_svg_test("asciiverse/layout_003");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_leftmsg_001() {
     run_sequence_svg_test("asciiverse/leftmsg_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_leftmsg_002() {
     run_sequence_svg_test("asciiverse/leftmsg_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_leftmsg_003() {
     run_sequence_svg_test("asciiverse/leftmsg_003");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_nested_001() {
     run_sequence_svg_test("asciiverse/nested_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_partition_001() {
     run_sequence_svg_test("asciiverse/partition_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_selfnote_001() {
     run_sequence_svg_test("asciiverse/selfnote_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_selfnote_001b() {
     run_sequence_svg_test("asciiverse/selfnote_001b");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_selfnote_001c() {
     run_sequence_svg_test("asciiverse/selfnote_001c");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_selfnote_002() {
     run_sequence_svg_test("asciiverse/selfnote_002");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_timeline_001() {
     run_sequence_svg_test("asciiverse/timeline_001");
 }
 
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_timeline_002() {
     run_sequence_svg_test("asciiverse/timeline_002");
 }
-
 
 /// Runs a sequence diagram SVG test: parses the .puml, renders SVG via Rust,
 /// obtains the expected SVG from the Java JAR at runtime, and compares after
@@ -408,8 +404,8 @@ fn test_timeline_002() {
 fn run_sequence_svg_test(name: &str) {
     let puml_path = vega_resources().join(format!("{name}.puml"));
 
-    let puml_content = fs::read_to_string(&puml_path)
-        .unwrap_or_else(|_| panic!("Failed to read {}", puml_path.display()));
+    let puml_content =
+        fs::read_to_string(&puml_path).unwrap_or_else(|_| panic!("Failed to read {}", puml_path.display()));
 
     // Render via Rust.
     let parsed = plantuml_engine::sequence_renderer::parse_simple_sequence(&puml_content)
@@ -432,6 +428,7 @@ fn run_sequence_svg_test(name: &str) {
         &parsed.msg_exo,
         &parsed.msg_hidden,
         parsed.skin_rose,
+        parsed.teoz,
         parsed.arrow_color.as_deref(),
         parsed.header_text.as_deref(),
         parsed.header_line,
@@ -443,6 +440,7 @@ fn run_sequence_svg_test(name: &str) {
         &parsed.style_rules,
         &parsed.participant_source_lines,
         &parsed.msg_source_lines,
+        &parsed.teoz_toks,
     );
     let cleaned_actual = svg_cleaner::clean(&actual_svg);
 

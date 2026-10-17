@@ -49,7 +49,7 @@ pub fn is_available() -> bool {
 fn cli_flag(format: &str) -> Option<&'static str> {
     match format {
         "svg" => Some("-tsvg"),
-        "preproc" => Some("-tpreproc"),
+        "preproc" => Some("--preproc"),
         "txt" | "atxt" => Some("-ttxt"),
         "utxt" => Some("-tutxt"),
         "xmi" | "xmi_star" | "xmi:star" => Some("-txmi:star"),
@@ -66,27 +66,45 @@ fn cli_flag(format: &str) -> Option<&'static str> {
 /// Renders `source` (PlantUML text) to the requested output format via Java
 /// PlantUML.
 ///
-/// Spawns `java -jar <jar> -t<format> -pipe` with `source` piped to stdin.
-///
 /// Returns `Some(output_string)` on success, or `None` if Java/jar is
-/// unavailable or the command fails.
+/// unavailable or the command fails. For `preproc` the expanded source is
+/// still written to stdout when the diagram itself errors (the error block
+/// goes to stderr with a nonzero exit), mirroring the in-process Java vega
+/// harness which compares the expansion regardless of diagram status.
 pub fn render(source: &str, format: &str) -> Option<String> {
+    render_in_dir(source, format, None)
+}
+
+/// Renders via Java PlantUML with the JAR process spawned in `current_dir`.
+///
+/// File-relative preprocessor directives such as `!includesub file.puml!SUB`
+/// resolve against the process working directory, so preproc parity tests
+/// must run the JAR with the fixture's parent directory as CWD.
+pub fn render_in_dir(
+    source: &str,
+    format: &str,
+    current_dir: Option<std::path::PathBuf>,
+) -> Option<String> {
     let flag = cli_flag(format)?;
     let jar = jar_path();
     if !jar.exists() {
         return None;
     }
 
-    let mut child = Command::new("java")
+    let mut command = Command::new("java");
+    command
         .arg("-jar")
         .arg(&jar)
         .arg(flag)
         .arg("-pipe")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::piped());
+    if let Some(dir) = current_dir {
+        command.current_dir(dir);
+    }
+
+    let mut child = command.spawn().ok()?;
 
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(source.as_bytes());
@@ -94,7 +112,7 @@ pub fn render(source: &str, format: &str) -> Option<String> {
 
     let output = child.wait_with_output().ok()?;
 
-    if !output.status.success() {
+    if !output.status.success() && format != "preproc" {
         return None;
     }
 

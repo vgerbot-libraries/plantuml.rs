@@ -3,6 +3,7 @@
 use std::sync::LazyLock;
 
 use crate::tim::expression::TValue;
+use crate::tim::string_eater::StringEater;
 use crate::tim::t_function_signature::TFunctionSignature;
 
 use super::SimpleReturnFunction;
@@ -10,10 +11,12 @@ use super::SimpleReturnFunction;
 static SIGNATURE: LazyLock<TFunctionSignature> =
     LazyLock::new(|| TFunctionSignature::new("%eval", 1));
 
-/// `%eval(expr)` — evaluates a numeric expression.
+/// `%eval(expr)` — evaluates an expression and returns its integer value.
 ///
-/// In Java this delegates to `StringEater.eatExpression`. The Rust port
-/// requires the `StringEater` type from `PortTimCore`.
+/// Ported from `net.sourceforge.plantuml.tim.builtin.Eval`: the argument is
+/// fed through [`StringEater`]'s expression pipeline, matching
+/// `new StringEater(exp).eatExpression(context, memory)`, and the result is
+/// converted with `TValue.fromInt(value.toInt())`.
 pub struct Eval;
 
 impl SimpleReturnFunction for Eval {}
@@ -22,10 +25,10 @@ crate::impl_simple_return_function!(
     Eval,
     &*SIGNATURE,
     can_cover = |nb_arg, _named| nb_arg == 1,
-    execute = |_self, _context, _memory, _location, values, _named| {
-        // TODO: implement with StringEater.eatExpression once PortTimCore
-        // provides the StringEater type. For now, try a simple integer parse.
+    execute = |_self, context, memory, _location, values, _named| {
         let exp = values[0].to_string();
-        exp.trim().parse::<i32>().map_or_else(|_| Ok(TValue::from_int(0)), |n| Ok(TValue::from_int(n)))
+        let mut eater = StringEater::new(exp);
+        let value = eater.get_eater_mut().eat_expression(context, memory)?;
+        Ok(TValue::from_int(value.to_int()))
     },
 );

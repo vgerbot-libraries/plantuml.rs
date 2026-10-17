@@ -226,6 +226,21 @@ pub fn is_singleton_rank_chain(
     }
     let max_rank = rank.values().copied().max().unwrap_or(0);
     if max_rank < 2 {
+        // A two-node labeled cycle is bit-exact on the doubled solver even
+        // though the kept DAG only spans one rank: the feedback edge is
+        // dropped here, so `max_rank == 1`. Require exactly two nodes, one
+        // kept rank-spanning edge, and an edge pointing back opposite it (the
+        // dropped feedback edge). A one-way two-node link such as
+        // `object_links` has no back edge and stays on the flat solver.
+        if names.len() == 2 && kept.len() == 1 && kept_minlen[0] >= 1 {
+            let (ka, kb) = kept[0];
+            let has_back_edge = real
+                .iter()
+                .any(|(a, b, _)| a.as_str() == kb.as_str() && b.as_str() == ka.as_str());
+            if has_back_edge {
+                return true;
+            }
+        }
         return false;
     }
     let mut counts = vec![0usize; max_rank + 1];

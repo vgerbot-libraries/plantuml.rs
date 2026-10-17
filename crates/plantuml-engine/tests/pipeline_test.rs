@@ -15,6 +15,19 @@ use plantuml_engine::render_svg;
 /// A simple sequence diagram that the bypass pipeline can parse.
 const SIMPLE_SEQUENCE: &str = "@startuml\nAlice -> Bob: hello\n@enduml";
 
+/// Forces the pure-Rust layout solver (`PLANTUML_NO_DOT=1`) — the exact path
+/// the site's WASM build uses — then renders. Parity comparisons must not let
+/// a native Graphviz binary mask layout differences. The variable is process
+/// global and only ever set to the same value here, so parallel tests race
+/// harmlessly; the JAR is spawned in a separate process and is unaffected.
+fn render_svg_native(source: &str) -> Result<String, plantuml_engine::RenderError> {
+    // SAFETY: single-threaded test use; all writers set the identical value.
+    unsafe {
+        std::env::set_var("PLANTUML_NO_DOT", "1");
+    }
+    render_svg(source)
+}
+
 /// Asserts that the Rust-rendered SVG matches Java PlantUML's output after
 /// normalization via `svg_cleaner`. Skips gracefully if Java is not available.
 fn assert_java_parity(source: &str, rust_svg: &str, label: &str) {
@@ -29,7 +42,7 @@ fn assert_java_parity(source: &str, rust_svg: &str, label: &str) {
 /// falls back to bypass) and verifies it produces valid SVG.
 #[test]
 fn test_pipeline_renders_sequence_svg() {
-    let svg = render_svg(SIMPLE_SEQUENCE).expect("render_svg should succeed");
+    let svg = render_svg_native(SIMPLE_SEQUENCE).expect("render_svg should succeed");
 
     // Must be valid SVG.
     assert!(svg.contains("<svg"), "output must contain <svg: {svg}");
@@ -42,7 +55,7 @@ fn test_pipeline_renders_sequence_svg() {
 #[test]
 fn test_pipeline_matches_bypass() {
     // Render via the unified API (uses PSystemBuilder pipeline first).
-    let pipeline_svg = render_svg(SIMPLE_SEQUENCE).expect("pipeline render should succeed");
+    let pipeline_svg = render_svg_native(SIMPLE_SEQUENCE).expect("pipeline render should succeed");
 
     // Render via the bypass directly.
     let parsed = plantuml_engine::sequence_renderer::parse_simple_sequence(SIMPLE_SEQUENCE)
@@ -66,10 +79,10 @@ fn test_render_dispatches_svg() {
 
 /// Verifies that JSON diagrams are now supported via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_json_renders_svg() {
     let source = "@startjson\n{\"key\": \"value\"}\n@endjson";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "JSON should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "JSON must produce SVG");
@@ -79,10 +92,10 @@ fn test_json_renders_svg() {
 
 /// Verifies that YAML diagrams are now supported via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_yaml_renders_svg() {
     let source = "@startyaml\nkey: value\n@endyaml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "YAML should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "YAML must produce SVG");
@@ -91,10 +104,10 @@ fn test_yaml_renders_svg() {
 
 /// Verifies that mindmap diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_mindmap_renders_svg() {
     let source = "@startmindmap\n* root\n** a\n*** a1\n** b\n@endmindmap";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Mindmap should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Mindmap must produce SVG");
@@ -104,10 +117,10 @@ fn test_mindmap_renders_svg() {
 
 /// Verifies that WBS diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_wbs_renders_svg() {
     let source = "@startwbs\n* Project\n** Planning\n*** Define scope\n** Implementation\n@endwbs";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "WBS should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "WBS must produce SVG");
@@ -117,10 +130,10 @@ fn test_wbs_renders_svg() {
 
 /// Verifies that class diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_class_renders_svg() {
     let source = "@startuml\nclass Alice\nclass Bob\nAlice --> Bob : knows\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Class diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Class diagram must produce SVG");
@@ -131,10 +144,10 @@ fn test_class_renders_svg() {
 
 /// Verifies that object diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_object_renders_svg() {
     let source = "@startuml\nobject alice\nobject bob\nalice --> bob : link\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Object diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Object diagram must produce SVG");
@@ -144,10 +157,10 @@ fn test_object_renders_svg() {
 
 /// Verifies that class diagrams with body content (fields/methods) render.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_class_with_body_renders_svg() {
     let source = "@startuml\nclass Foo {\n+ field: int\n+ method(): void\n}\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Class with body should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Class with body must produce SVG");
@@ -158,10 +171,10 @@ fn test_class_with_body_renders_svg() {
 
 /// Verifies that state diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_state_renders_svg() {
     let source = "@startuml\nstate Idle\nstate Active\nIdle --> Active : start\nActive --> Idle : stop\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "State diagram should render via pipeline: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "State diagram must produce SVG");
@@ -172,10 +185,11 @@ fn test_state_renders_svg() {
 
 /// Verifies that component diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_component_renders_svg() {
-    let source = "@startuml\ncomponent [Web Server]\ncomponent [Database]\n[Web Server] --> [Database] : queries\n@enduml";
-    let result = render_svg(source);
+    let source =
+        "@startuml\ncomponent [Web Server]\ncomponent [Database]\n[Web Server] --> [Database] : queries\n@enduml";
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Component diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Component diagram must produce SVG");
@@ -186,7 +200,7 @@ fn test_component_renders_svg() {
 #[test]
 fn test_usecase_renders_svg() {
     let source = "@startuml\nactor User\nusecase (Login)\nusecase (Logout)\nUser --> (Login)\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "UseCase diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "UseCase diagram must produce SVG");
@@ -196,10 +210,10 @@ fn test_usecase_renders_svg() {
 
 /// Verifies that deployment diagrams render via the pipeline.
 #[test]
-#[ignore = "Rust output does not match Java reference"]
+
 fn test_deployment_renders_svg() {
     let source = "@startuml\nnode \"Server\" {\n  database \"DB\"\n}\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Deployment diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Deployment diagram must produce SVG");
@@ -210,7 +224,7 @@ fn test_deployment_renders_svg() {
 #[test]
 fn test_timing_renders_svg() {
     let source = "@starttiming\nbinary A\nbinary B\nA = 0\nB = 0\nA = 1\nB = 1\n@endtiming";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Timing diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Timing diagram must produce SVG");
@@ -222,8 +236,9 @@ fn test_timing_renders_svg() {
 /// Verifies that gantt diagrams render via the pipeline.
 #[test]
 fn test_gantt_renders_svg() {
-    let source = "@startgantt\ntask [Task1] lasts 5 days\ntask [Task2] lasts 3 days\n[Task2] depends on [Task1]\n@endgantt";
-    let result = render_svg(source);
+    let source =
+        "@startgantt\ntask [Task1] lasts 5 days\ntask [Task2] lasts 3 days\n[Task2] depends on [Task1]\n@endgantt";
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Gantt diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Gantt diagram must produce SVG");
@@ -236,7 +251,7 @@ fn test_gantt_renders_svg() {
 #[test]
 fn test_activity_renders_svg() {
     let source = "@startuml\nstart\n:Do something;\nstop\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Activity diagram should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Activity diagram must produce SVG");
@@ -248,7 +263,7 @@ fn test_activity_renders_svg() {
 #[test]
 fn test_activity_if_else_renders_svg() {
     let source = "@startuml\nstart\nif (cond?) then (yes)\n:yes action;\nelse (no)\n:no action;\nendif\nstop\n@enduml";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     assert!(result.is_ok(), "Activity if/else should render: {result:?}");
     let svg = result.unwrap();
     assert!(svg.contains("<svg"), "Activity if/else must produce SVG");
@@ -272,7 +287,7 @@ fn test_activity_if_else_renders_svg() {
 #[test]
 fn test_unsupported_type_returns_parse_failed() {
     let source = "@startditaa\nsome ascii art\n@endditaa";
-    let result = render_svg(source);
+    let result = render_svg_native(source);
     // No factory handles ditaa, and bypass can't parse it either.
     assert!(result.is_err(), "ditaa should fail (no factory)");
 }
@@ -289,10 +304,7 @@ fn assert_svg_structure(svg: &str, expected_elements: &[&str]) {
     assert!(svg.contains("<svg"), "SVG must contain <svg root: {svg}");
     assert!(svg.contains("</svg>"), "SVG must contain closing </svg>: {svg}");
     for elem in expected_elements {
-        assert!(
-            svg.contains(elem),
-            "SVG must contain element '{elem}': {svg}"
-        );
+        assert!(svg.contains(elem), "SVG must contain element '{elem}': {svg}");
     }
 }
 
@@ -300,7 +312,7 @@ fn assert_svg_structure(svg: &str, expected_elements: &[&str]) {
 #[test]
 fn test_class_svg_structure() {
     let source = "@startuml\nclass Alice\nclass Bob\nAlice --> Bob : knows\n@enduml";
-    let svg = render_svg(source).expect("class render should succeed");
+    let svg = render_svg_native(source).expect("class render should succeed");
     // Class diagram should have rectangles for entity boxes and text for labels.
     assert_svg_structure(&svg, &["<rect", "<text"]);
     // Should contain arrow lines for relationships.
@@ -312,19 +324,31 @@ fn test_class_svg_structure() {
     assert!(svg.contains("knows"), "Class SVG must contain link label: {svg}");
     // Should have exactly 2 entity groups.
     let entity_count = svg.matches("class=\"entity\"").count();
-    assert_eq!(entity_count, 2, "Class SVG must have 2 entity groups, got {entity_count}: {svg}");
+    assert_eq!(
+        entity_count, 2,
+        "Class SVG must have 2 entity groups, got {entity_count}: {svg}"
+    );
     // data-diagram-type must be CLASS.
-    assert!(svg.contains("data-diagram-type=\"CLASS\""), "Class SVG must have CLASS type: {svg}");
+    assert!(
+        svg.contains("data-diagram-type=\"CLASS\""),
+        "Class SVG must have CLASS type: {svg}"
+    );
     // source_line must be 1-based starting from first body line (not counting @startuml).
-    assert!(svg.contains("data-source-line=\"1\""), "First entity must have source-line=1: {svg}");
-    assert!(svg.contains("data-source-line=\"2\""), "Second entity must have source-line=2: {svg}");
+    assert!(
+        svg.contains("data-source-line=\"1\""),
+        "First entity must have source-line=1: {svg}"
+    );
+    assert!(
+        svg.contains("data-source-line=\"2\""),
+        "Second entity must have source-line=2: {svg}"
+    );
 }
 
 /// Verifies that state diagram SVG contains rectangles and links.
 #[test]
 fn test_state_svg_structure() {
     let source = "@startuml\nstate Idle\nstate Active\nIdle --> Active : start\n@enduml";
-    let svg = render_svg(source).expect("state render should succeed");
+    let svg = render_svg_native(source).expect("state render should succeed");
     assert_svg_structure(&svg, &["<rect", "<text", "<line"]);
 }
 
@@ -332,7 +356,7 @@ fn test_state_svg_structure() {
 #[test]
 fn test_state_star_transition_svg_structure() {
     let source = "@startuml\nstate Idle\n[*] --> Idle\nIdle --> [*]\n@enduml";
-    let svg = render_svg(source).expect("state with [*] render should succeed");
+    let svg = render_svg_native(source).expect("state with [*] render should succeed");
     assert_svg_structure(&svg, &["<rect", "<text", "<line"]);
     // The [*] pseudo-entity should produce an ellipse (filled circle).
     assert!(svg.contains("<ellipse"), "State SVG must contain [*] ellipse: {svg}");
@@ -342,7 +366,7 @@ fn test_state_star_transition_svg_structure() {
 #[test]
 fn test_timing_svg_structure() {
     let source = "@starttiming\nbinary A\nA = 0\nA = 1\n@endtiming";
-    let svg = render_svg(source).expect("timing render should succeed");
+    let svg = render_svg_native(source).expect("timing render should succeed");
     assert_svg_structure(&svg, &["<text", "<line"]);
 }
 
@@ -350,7 +374,7 @@ fn test_timing_svg_structure() {
 #[test]
 fn test_gantt_svg_structure() {
     let source = "@startgantt\n[Task A] lasts 5 days\n[Task B] lasts 3 days\n@endgantt";
-    let svg = render_svg(source).expect("gantt render should succeed");
+    let svg = render_svg_native(source).expect("gantt render should succeed");
     assert_svg_structure(&svg, &["<rect", "<text"]);
 }
 
@@ -358,7 +382,7 @@ fn test_gantt_svg_structure() {
 #[test]
 fn test_activity_svg_structure() {
     let source = "@startuml\nstart\n:Do something;\nstop\n@enduml";
-    let svg = render_svg(source).expect("activity render should succeed");
+    let svg = render_svg_native(source).expect("activity render should succeed");
     assert_svg_structure(&svg, &["<rect", "<text"]);
 }
 
@@ -366,7 +390,7 @@ fn test_activity_svg_structure() {
 #[test]
 fn test_mindmap_svg_structure() {
     let source = "@startmindmap\n* root\n** a\n@endmindmap";
-    let svg = render_svg(source).expect("mindmap render should succeed");
+    let svg = render_svg_native(source).expect("mindmap render should succeed");
     assert_svg_structure(&svg, &["<text"]);
 }
 
@@ -374,7 +398,7 @@ fn test_mindmap_svg_structure() {
 #[test]
 fn test_json_svg_structure() {
     let source = "@startjson\n{\"key\": \"value\"}\n@endjson";
-    let svg = render_svg(source).expect("JSON render should succeed");
+    let svg = render_svg_native(source).expect("JSON render should succeed");
     assert_svg_structure(&svg, &["<text"]);
     assert!(svg.contains("key"), "JSON SVG must contain key text: {svg}");
     assert!(svg.contains("value"), "JSON SVG must contain value text: {svg}");
