@@ -1951,6 +1951,12 @@ pub fn render_sequence_svg(
 
     // ── Compute group frame dimensions ──────────────────────────────────
     let mut group_frames: Vec<(f64, f64, f64, f64)> = Vec::new(); // (x, y, w, h)
+    // Per group: a graphic tile (attached note or self-message arrow), rather
+    // than the leftmost participant head, sets the in-groupable list minimum.
+    let mut graphic_drives_left: Vec<bool> = Vec::new();
+    // Per group: a self-message arrow tile (not an attached note) sets the
+    // list minimum; its list-to-chrome inset is one pixel larger.
+    let mut self_drives_left: Vec<bool> = Vec::new();
     for (gi, group) in groups.iter().enumerate() {
         // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
         let last_mi = group.msg_end - 1;
@@ -1974,6 +1980,11 @@ pub fn render_sequence_svg(
         let body_height = arrow_ys[last_mi] - arrow_ys[group.msg_start] + last_h;
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
+        // Which kind of graphic tile drives this group's minimum X (a
+        // self-message arrow vs an attached note), so the chrome inset can
+        // match the JAR list-member inset.
+        let mut min_via_self = false;
+        let mut min_via_left_note = false;
         // Frame wraps the participant head rectangles (± 10px), verified
         // against the jar: frame left = leftmost head x - 10, frame right =
         // rightmost head (x+w) + 10.
@@ -2018,7 +2029,17 @@ pub fn render_sequence_svg(
                         let self_drawn_w = if is_self {
                             let label_w = pre_wrapped_widths[msg_iter_idx];
                             let max_act = *max_participant_levels.get(p1_idx).unwrap_or(&0) as f64;
-                            SELF_XRIGHT.max(MESSAGE_TEXT_X_OFFSET + label_w) + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act
+                            // JAR MessageSelfArrow.getPreferredWidth reserves the
+                            // arrow component width, which insets the wrapped
+                            // message text by MESSAGE_TEXT_X_OFFSET on BOTH the
+                            // left and right (label_w + 14), floored by the
+                            // self-loop's right extent (SELF_XRIGHT). The drawn
+                            // loop visual is shorter, but the in-groupable
+                            // reserve uses this full preferred width, which is
+                            // what drives the page origin for a reverse self.
+                            SELF_XRIGHT
+                                .max(2.0 * MESSAGE_TEXT_X_OFFSET + label_w)
+                                + ACTIVATION_BAR_EXPLICIT_OFFSET * max_act
                         } else {
                             0.0
                         };
@@ -2079,18 +2100,30 @@ pub fn render_sequence_svg(
                                     d_max = d_max.max(note_max);
                                 }
                                 NotePosition::Left => {
-                                    // LEFT on a non-self message: the in-groupable
-                                    // extent is the drawn polygon, whose right
-                                    // edge sits at posC - 5.
+                                    // JAR NoteBox.getStartingX (LEFT):
+                                    // (int)(segment.pos1 - getPreferredWidth);
+                                    // pos1 is the (possibly live-thickness)
+                                    // segment left edge, equal to posC here;
+                                    // getPreferredWidth is the full note
+                                    // component width (incl. shadow), and the
+                                    // result truncates toward zero.
                                     let note_p_idx = if is_reverse { p2_idx } else { p1_idx };
-                                    let polygon_w = (note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2).trunc();
-                                    let note_min = pos_c_vals[note_p_idx] - 5.0 - polygon_w;
+                                    let note_min = (pos_c_vals[note_p_idx] - note_comp_w).trunc();
                                     d_min = d_min.min(note_min);
                                 }
                             }
                         }
                     }
 
+                    // Record which tile kind drives the running group minimum.
+                    if d_min < min_x {
+                        min_via_self = is_self;
+                        min_via_left_note = !is_self
+                            && matches!(
+                                mi_note.map(|n| n.position),
+                                Some(NotePosition::Left)
+                            );
+                    }
                     min_x = min_x.min(d_min);
                     max_x = max_x.max(d_max);
                 }
@@ -2185,6 +2218,13 @@ pub fn render_sequence_svg(
         let eff_max = hd_max.max(max_x);
         let frame_x = eff_min - 10.0;
         let frame_width = eff_max - eff_min + 20.0;
+        // frame_x/frame_width are the GroupingGraphicalElement reservation
+        // (10px outside the in-groupable list on each side). The visible chrome
+        // rect inset at header time depends on whether a graphic tile or a
+        // participant head reaches the list minimum.
+        let graphic_left = min_x.is_finite() && min_x < hd_min;
+        graphic_drives_left.push(graphic_left);
+        self_drives_left.push(graphic_left && min_via_self && !min_via_left_note);
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
     }
 
@@ -2294,7 +2334,7 @@ pub fn render_sequence_svg(
             group_frames[pgi] = (new_min, pfy, new_max - new_min, new_height);
         }
     }
-    // Apply header width after nesting extension: frame_max >= frame_min + header_width + MARGIN_X
+    // Apply header width after nesting extension: frame_max >= frame_min + header_width + MARGIN_X.
     for (gi, group) in groups.iter().enumerate() {
         if group.group_type == "else" || group.group_type == "partition" {
             continue;
@@ -2432,7 +2472,6 @@ pub fn render_sequence_svg(
                 // parallel messages), subtract GROUP_HEADER_HEIGHT because the frame
                 // already includes the header offset in its Y position.
                 // When no Y offset was applied (group follows non-parallel group),
-                // use the normal margin.
                 if group_parallel_offset[i] {
                     frame_bottom + GROUP_MARGIN_Y_MAGIC + GROUP_MARGIN_Y - GROUP_HEADER_HEIGHT
                 } else {
@@ -2449,13 +2488,14 @@ pub fn render_sequence_svg(
                     .fold(0.0_f64, f64::max);
                 group_msg_ygauge_max + PAGE_MARGIN
             } else {
-                // Lifeline runs to the last message's Y-gauge bottom
-                // (arrowY + preferred height 25); the frame (which may
-                // contain else labels) provides a lower floor.
+                // Puma runs the lifeline 17px below the last (innermost)
+                // grouping tile's frame bottom; the frame itself already
+                // reserves the member tail. This floor dominates the last
+                // message's Y-gauge for a group that ends the diagram.
                 let group_msg_ygauge_max = arrow_ys.iter().enumerate()
                     .filter(|&(mi, _)| mi >= g.msg_start && mi < g.msg_end)
                     .map(|(_, &y)| y + java_preferred_height)
-                    .fold(frame_bottom + GROUP_MARGIN_Y, f64::max);
+                    .fold(frame_bottom + 17.0, f64::max);
                 group_msg_ygauge_max
             };
             val
@@ -2573,12 +2613,14 @@ pub fn render_sequence_svg(
             sm_msg_idx += 1;
         }
     }
-    // Also account for group frame left edges (frame_x - EXTERNAL_MARGINX1)
+    // Also account for group frame left edges. JAR prepareMissingSpace
+    // reserves delta1 = -GroupingGraphicalElement.getStartingX() where
+    // getStartingX = listMin - 10; frame_x already holds that reservation
+    // edge, so the page origin is driven directly by frame_x.
     let mut min_left = min_layout_left;
     for &(fx, _, _, _) in &group_frames {
-        let frame_left = fx - GROUP_EXTERNAL_MARGIN_X1;
-        if frame_left < min_left {
-            min_left = frame_left;
+        if fx < min_left {
+            min_left = fx;
         }
     }
     let x_offset = PAGE_MARGIN - min_left.min(0.0);
@@ -2947,11 +2989,30 @@ pub fn render_sequence_svg(
                 svg.set_stroke_width(1.0, None);
                 svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
             }
-            // Draw border rect on top
+            // The chrome border is the in-groupable list bounds, drawn here
+            // before the lifelines (JAR emits both frame rects first). A
+            // self-message-arrow-driven minimum insets 5px, a note-driven
+            // minimum 4px, a participant-driven minimum 0; the right edge is
+            // unchanged.
+            let chrome_dx = if self_drives_left.get(gi).copied().unwrap_or(false) {
+                5.0
+            } else if graphic_drives_left.get(gi).copied().unwrap_or(false) {
+                4.0
+            } else {
+                0.0
+            };
             svg.set_fill_color("none");
             svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
             svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
+            svg.svg_rectangle(
+                fx + x_offset + chrome_dx,
+                fy,
+                fw - chrome_dx,
+                fh,
+                0.0,
+                0.0,
+                0.0,
+            );
         }
     }
 
@@ -3303,6 +3364,20 @@ pub fn render_sequence_svg(
                         svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
                         svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
                     } else {
+                        // The visible chrome is the in-groupable list bounds.
+                        // A self-message arrow tile reaching the list minimum
+                        // inset is 5px inside the reservation left edge; an
+                        // attached-note tile is 4px; participant-driven frames
+                        // draw at the edge. The right edge is unchanged.
+                        let chrome_dx = if self_drives_left.get(gi).copied().unwrap_or(false) {
+                            5.0
+                        } else if graphic_drives_left.get(gi).copied().unwrap_or(false) {
+                            4.0
+                        } else {
+                            0.0
+                        };
+                        let cx0 = fx_off + chrome_dx;
+                        let cw = fw - chrome_dx;
                         // Determine tab label: for "group" use comment (or "group"),
                         // for other types use the keyword itself
                         let tab_label = if group.group_type == "group" {
@@ -3324,10 +3399,10 @@ pub fn render_sequence_svg(
                         svg.set_fill_color(COLOR_GROUP_HEADER);
                         svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
                         svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-                        let tab_right = fx_off + tab_w;
+                        let tab_right = cx0 + tab_w;
                         let path = format!(
                             "M{x},{y} L{x2},{y} L{x2},{y2} L{x3},{y3} L{x},{y3} L{x},{y}",
-                            x = format_number_path(fx_off),
+                            x = format_number_path(cx0),
                             y = format_number_path(fy),
                             x2 = format_number_path(tab_right),
                             y2 = format_number_path(fy + GROUP_TAB_HEIGHT - GROUP_TAB_CORNER),
@@ -3336,11 +3411,13 @@ pub fn render_sequence_svg(
                         );
                         svg.svg_path(&path, 0.0);
 
-                        // Frame rect (foreground, same as background)
+                        // Frame chrome rect: JAR draws it both in the
+                        // background layer (before lifelines) and here on top
+                        // of the tab; emit a second copy to match.
                         svg.set_fill_color("none");
                         svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
                         svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-                        svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
+                        svg.svg_rectangle(cx0, fy, cw, fh, 0.0, 0.0, 0.0);
 
                         // Tab label text (13px bold)
                         svg.set_fill_color(COLOR_TEXT);
@@ -3348,7 +3425,7 @@ pub fn render_sequence_svg(
                         svg.set_stroke_width(0.0, None);
                         svg.text(
                             &tab_label,
-                            fx_off + GROUP_TEXT_PADDING,
+                            cx0 + GROUP_TEXT_PADDING,
                             fy + GROUP_TAB_TITLE_BASELINE,
                             None,
                             FONT_SIZE_MESSAGE,
@@ -3370,7 +3447,7 @@ pub fn render_sequence_svg(
                             svg.set_stroke_width(0.0, None);
                             svg.text(
                                 &cond_label,
-                                fx_off + tab_w + GROUP_TEXT_PADDING,
+                                cx0 + tab_w + GROUP_TEXT_PADDING,
                                 fy + 13.759,
                                 None,
                                 11,
