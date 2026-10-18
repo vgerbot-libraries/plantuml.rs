@@ -2492,10 +2492,15 @@ pub fn render_sequence_svg(
                 // grouping tile's frame bottom; the frame itself already
                 // reserves the member tail. This floor dominates the last
                 // message's Y-gauge for a group that ends the diagram.
+                let floor_inset = if g.group_type == "partition" {
+                    GROUP_MARGIN_Y
+                } else {
+                    17.0
+                };
                 let group_msg_ygauge_max = arrow_ys.iter().enumerate()
                     .filter(|&(mi, _)| mi >= g.msg_start && mi < g.msg_end)
                     .map(|(_, &y)| y + java_preferred_height)
-                    .fold(frame_bottom + 17.0, f64::max);
+                    .fold(frame_bottom + floor_inset, f64::max);
                 group_msg_ygauge_max
             };
             val
