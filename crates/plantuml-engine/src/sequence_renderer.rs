@@ -909,6 +909,18 @@ pub fn render_sequence_svg(
             plantuml_real::ensure_bigger_than(&pos_c[p], &constraint);
         }
     }
+    // Java ConstraintSet dist=1 pair (firstBorder, p0): the first participant's
+    // center is pushed right by its reverse self-message constraint
+    // (getConstraintBefore). firstBorder sits at xOrigin and the participant
+    // center is outMargin(5) + headW/2 past its startingX, so in posC
+    // coordinates (startingX + headW/2) the bound is compWidth - 5.
+    if !participants.is_empty() {
+        let comp_width = max_reverse_comp_width[0];
+        if comp_width > 0.0 {
+            let constraint = plantuml_real::add_fixed(&xorigin, comp_width - 5.0);
+            plantuml_real::ensure_bigger_than(&pos_c[0], &constraint);
+        }
+    }
     // Apply forward self-message constraints: posC[p+1] >= posC[p] + maxPos[p] + compWidth
     for p in 0..participants.len() {
         let comp_width = max_forward_comp_width[p];
@@ -1613,9 +1625,9 @@ pub fn render_sequence_svg(
                 && curr_group.is_some_and(|gi| msg_idx == groups[gi].msg_start);
             let is_else = curr_group
                 .is_some_and(|gi| groups[gi].group_type == "else");
-            let is_partition = curr_group
-                .is_some_and(|gi| groups[gi].group_type == "partition");
-            let header_extra = if is_partition { PARTITION_HEADER_EXTRA } else { 0.0 };
+            // JAR: partitions chain with exactly the group header offsets
+            // (no extra header height anywhere in the Y chain).
+            let header_extra = 0.0;
             let is_parallel = msg_parallel.get(msg_idx).copied().unwrap_or(false);
 
             let mut group_header_offset = 0.0;
@@ -1748,13 +1760,15 @@ pub fn render_sequence_svg(
                         .map_or(0, |g| g.nesting_level);
                     if is_first_in_group && is_else {
                         if curr_level < fb_level {
-                            let min_y = fb + GROUP_GAP + ARROW_Y_BASE + ELSE_TILE_HEIGHT + 1.0;
+                            // Java gap after a closed group frame:
+                            // GROUP_HEADER_OFFSET + ARROW_DELTA_Y (+ else tile).
+                            let min_y = fb + GROUP_HEADER_OFFSET + ARROW_DELTA_Y + ELSE_TILE_HEIGHT;
                             if current_y < min_y {
                                 current_y = min_y;
                             }
                         }
                     } else if !is_first_in_group {
-                        let min_y = fb + GROUP_GAP + ARROW_Y_BASE + 1.0;
+                        let min_y = fb + GROUP_HEADER_OFFSET + ARROW_DELTA_Y;
                         if current_y < min_y {
                             current_y = min_y;
                         }
@@ -1802,20 +1816,20 @@ pub fn render_sequence_svg(
                         last_msg_h
                     };
                     let body_height = arrow_ys[last_mi] - arrow_ys[group.msg_start] + body_height;
-                    let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
                     let (frame_y, frame_height) = if group.group_type == "else" {
                         let first_text_h = msg_text_heights[group.msg_start];
                         let fy = arrow_ys[group.msg_start] - ELSE_TILE_HEIGHT - 2.0 - first_text_h + GROUP_MARGIN_Y_MAGIC / 2.0;
                         let fh = body_height + GROUP_MARGIN_Y_MAGIC / 2.0;
                         (fy, fh)
                     } else {
-                        let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT - p_extra;
+                        let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT;
                         // Frame bottom = last contact + chain_tail - 4 (same
                         // live-JAR rule used for the drawn frame), so inter-group
                         // chaining starts from the correct edge.
-                        let fb = if last_is_self || group.group_type == "partition" {
-                            let fh = body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra;
-                            fy + fh
+                        let fb = if last_is_self {
+                            // Java: group endY = content bottom = startY + boxH
+                            // = (arrow_y - 23.706) + (textH+4+13+8) = arrow_y + 21.
+                            arrow_ys[last_mi] + SELF_ARROW_HEIGHT + 2.0 * MSG_PADDING_Y
                         } else {
                             arrow_ys[last_mi] + chain_tail[last_mi] - 4.0
                         };
@@ -1957,7 +1971,15 @@ pub fn render_sequence_svg(
     // Per group: a self-message arrow tile (not an attached note) sets the
     // list minimum; its list-to-chrome inset is one pixel larger.
     let mut self_drives_left: Vec<bool> = Vec::new();
-    for (gi, group) in groups.iter().enumerate() {
+    // Per group: a self-message arrow tile sets the list maximum; the chrome
+    // right edge insets 5px (JAR graphic member) vs a participant's 10.
+    let mut self_drives_right: Vec<bool> = Vec::new();
+    // Per group: when a LEFT note on a reverse self message drives the list
+    // minimum, Java re-truncates the note's starting X at draw time with
+    // post-push coordinates (NoteBox.getStartingX casts to int), carrying the
+    // push fraction into the frame's left edge. Holds (pos_c, notePrefW).
+    let mut group_left_carry: Vec<Option<(f64, f64)>> = Vec::new();
+    for group in groups.iter() {
         // Compute bodyHeight from actual arrow Y positions (accounts for sub-group spacing)
         let last_mi = group.msg_end - 1;
         let last_text_h = msg_text_heights[last_mi];
@@ -1985,6 +2007,12 @@ pub fn render_sequence_svg(
         // match the JAR list-member inset.
         let mut min_via_self = false;
         let mut min_via_left_note = false;
+        // Candidate list minimum from a LEFT note on a reverse self message:
+        // (value, pos_c, notePrefW), kept for the post-push trunc carry.
+        let mut min_self_note: Option<(f64, f64, f64)> = None;
+        // Same for the maximum X: a self-message arrow driving the right edge
+        // insets the chrome 5px (graphic member) vs a participant's 10.
+        let mut max_via_self = false;
         // Frame wraps the participant head rectangles (± 10px), verified
         // against the jar: frame left = leftmost head x - 10, frame right =
         // rightmost head (x+w) + 10.
@@ -2078,14 +2106,36 @@ pub fn render_sequence_svg(
                             // - LEFT on forward (-->): note is LEFT of posC (tile.getMinX = posC)
                             match note.position {
                                 NotePosition::Left if is_reverse => {
-                                    d_min = d_min.min((p1_c - self_drawn_w) - note_comp_w);
+                                    // Java ArrowAndNoteBox.getMinX for a LEFT
+                                    // note on a reverse self message:
+                                    // NoteBox.getStartingX = (int)(pos1 - notePrefW)
+                                    // - arrowPrefW (pos1 = lifeline center at
+                                    // level 0), NoteBox.getMinX = startingX - 5,
+                                    // and InGroupableList adds its own 5px
+                                    // margin. In posC (= center - 5) units:
+                                    let note_pref_w = note_text_w
+                                        + NOTE_OLD_PADDING_X1
+                                        + NOTE_OLD_PADDING_X2;
+                                    let comp_w = (pre_wrapped_widths[msg_iter_idx]
+                                        + 2.0 * MESSAGE_TEXT_X_OFFSET)
+                                        .max(50.0);
+                                    let note_dmin = (p1_c + 5.0 - note_pref_w).trunc()
+                                        - comp_w
+                                        - 5.0
+                                        - 10.0;
+                                    if note_dmin <= d_min {
+                                        min_self_note = Some((note_dmin, p1_c, note_pref_w));
+                                    }
+                                    d_min = d_min.min(note_dmin);
                                 }
                                 NotePosition::Right if !is_reverse => {
                                     d_max = d_max.max((p1_c + self_drawn_w) + note_comp_w);
                                 }
                                 NotePosition::Right => {
-                                    // RIGHT on reverse: note at posC, extends right
-                                    d_max = d_max.max(p1_c + note_comp_w);
+                                    // RIGHT on reverse: note at posC, extends right.
+                                    // Java ArrowAndNoteBox.getMaxX() adds the
+                                    // lifeline right shift (5) beyond the note.
+                                    d_max = d_max.max(p1_c + note_comp_w + 5.0);
                                 }
                                 NotePosition::Left => {
                                     // LEFT on forward: note at posC, extends left
@@ -2123,6 +2173,9 @@ pub fn render_sequence_svg(
                                 mi_note.map(|n| n.position),
                                 Some(NotePosition::Left)
                             );
+                    }
+                    if d_max > max_x {
+                        max_via_self = is_self;
                     }
                     min_x = min_x.min(d_min);
                     max_x = max_x.max(d_max);
@@ -2177,7 +2230,6 @@ pub fn render_sequence_svg(
         }
 
 
-        let p_extra = if group.group_type == "partition" { PARTITION_HEADER_EXTRA } else { 0.0 };
         let (frame_y, frame_height) = if group.group_type == "else" {
             // Else divider Y = arrow_y - ELSE_TILE_HEIGHT - 2 - text_h + MARGINY_MAGIC/2
             // (extra -1 accounts for text_h being 26 vs Java's preferredHeight 25)
@@ -2197,10 +2249,14 @@ pub fn render_sequence_svg(
             let innermost = *msg_start_innermost.get(&group.msg_start).unwrap_or(&group.nesting_level);
             let headers_to_subtract = (innermost + 1) - group.nesting_level;
             let first_text_h = msg_text_heights[group.msg_start];
-            let top_margin_term = if group_off_sibling[gi] { 0.0 } else { 3.0 };
-            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - first_text_h + top_margin_term - p_extra;
-            let fh = if is_self_flags[last_mi] || group.group_type == "partition" {
-                body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0 + p_extra
+            // Java: frame top = header startY = first_msg_startY - headerH, and
+            // arrow_y = first_msg_startY + note_push + 23.706, so
+            // fy = arrow_y - note_push - (headerH + 23.706). In our constants
+            // that is arrow_y - note_push - (GROUP_HEADER_OFFSET + first_text_h - 3).
+            let top_margin_term = 3.0 - note_arrow_push[group.msg_start];
+            let fy = arrow_ys[group.msg_start] - GROUP_HEADER_OFFSET * headers_to_subtract as f64 - first_text_h + top_margin_term;
+            let fh = if is_self_flags[last_mi] {
+                body_height + GROUP_HEADER_HEIGHT + GROUP_MARGIN_Y_MAGIC / 2.0
             } else {
                 // Frame bottom = last contact + chain_tail - 4 (live-JAR rule:
                 // the group closes 4px above the last tile's below-contact tail).
@@ -2225,6 +2281,15 @@ pub fn render_sequence_svg(
         let graphic_left = min_x.is_finite() && min_x < hd_min;
         graphic_drives_left.push(graphic_left);
         self_drives_left.push(graphic_left && min_via_self && !min_via_left_note);
+        let graphic_right = max_x.is_finite() && max_x > hd_max;
+        self_drives_right.push(graphic_right && max_via_self);
+        // The post-push trunc carry only applies when the self-message LEFT
+        // note is the tile that sets this group's list minimum.
+        let carry_params = match min_self_note {
+            Some((v, pc, npw)) if (v - eff_min).abs() < 1e-9 => Some((pc, npw)),
+            _ => None,
+        };
+        group_left_carry.push(carry_params);
         group_frames.push((frame_x, frame_y, frame_width, frame_height));
     }
 
@@ -2289,6 +2354,34 @@ pub fn render_sequence_svg(
         }
         let cs = groups[ci].msg_start;
         let ce = groups[ci].msg_end;
+        // Effective msg_end of a grouping: an alt/par with else sections is
+        // recorded as separate tiles (alt msgs stop at the first else), but in
+        // Java the else tiles belong to the grouping's InGroupableList, so the
+        // grouping spans through its else children.
+        let eff_end = |pj: usize| -> usize {
+            let mut end = groups[pj].msg_end;
+            for ej in 0..groups.len() {
+                if groups[ej].group_type != "else"
+                    || groups[ej].nesting_level != groups[pj].nesting_level
+                {
+                    continue;
+                }
+                // Else's parent = nearest previous non-else group at its level.
+                let mut ep: Option<usize> = None;
+                for k in (0..ej).rev() {
+                    if groups[k].nesting_level == groups[ej].nesting_level
+                        && groups[k].group_type != "else"
+                    {
+                        ep = Some(k);
+                        break;
+                    }
+                }
+                if ep == Some(pj) {
+                    end = end.max(groups[ej].msg_end);
+                }
+            }
+            end
+        };
         let mut parent_gi: Option<usize> = None;
         for pj in 0..groups.len() {
             if pj == ci {
@@ -2296,10 +2389,13 @@ pub fn render_sequence_svg(
             }
             if groups[pj].nesting_level == child_level - 1
                 && groups[pj].msg_start <= cs
-                && groups[pj].msg_end >= ce
+                && eff_end(pj) >= ce
+                // Java: else tiles have no InGroupableList of their own; a nested
+                // grouping belongs to the enclosing grouping (alt/group/loop).
+                && groups[pj].group_type != "else"
                 && (parent_gi.is_none()
-                    || (groups[pj].msg_end - groups[pj].msg_start)
-                        < (groups[parent_gi.unwrap()].msg_end - groups[parent_gi.unwrap()].msg_start))
+                    || (eff_end(pj) - groups[pj].msg_start)
+                        < (eff_end(parent_gi.unwrap()) - groups[parent_gi.unwrap()].msg_start))
                 {
                     parent_gi = Some(pj);
                 }
@@ -2309,13 +2405,13 @@ pub fn render_sequence_svg(
             let cframe_min = cfx;
             let cframe_max = cfx + cfw;
             let header_max = cfx + header_widths[ci] + GROUP_MARGIN_X;
-            let cdrawn_min = cframe_min - GROUP_EXTERNAL_MARGIN_X1;
-            let cdrawn_max = cframe_max.max(header_max) + GROUP_EXTERNAL_MARGIN_X2;
+            // Java InGroupableList nesting: the child's list is a member of the
+            // parent's list, contributing exactly MARGIN10 on each side.
             let (pfx, pfy, pfw, pfh) = group_frames[pgi];
             let pframe_min = pfx;
             let pframe_max = pfx + pfw;
-            let new_min = pframe_min.min(cdrawn_min - GROUP_MARGIN_X);
-            let new_max = pframe_max.max(cdrawn_max + GROUP_MARGIN_X);
+            let new_min = pframe_min.min(cframe_min - 10.0);
+            let new_max = pframe_max.max(cframe_max.max(header_max) + 10.0);
             // Extend parent height to cover child frame bottom.
             // Parent frame bottom = child frame bottom + (GROUP_HEADER_OFFSET - GROUP_HEADER_HEIGHT)
             // for each nesting level difference.
@@ -2492,11 +2588,7 @@ pub fn render_sequence_svg(
                 // grouping tile's frame bottom; the frame itself already
                 // reserves the member tail. This floor dominates the last
                 // message's Y-gauge for a group that ends the diagram.
-                let floor_inset = if g.group_type == "partition" {
-                    GROUP_MARGIN_Y
-                } else {
-                    17.0
-                };
+                let floor_inset = 17.0;
                 let group_msg_ygauge_max = arrow_ys.iter().enumerate()
                     .filter(|&(mi, _)| mi >= g.msg_start && mi < g.msg_end)
                     .map(|(_, &y)| y + java_preferred_height)
@@ -2578,14 +2670,18 @@ pub fn render_sequence_svg(
         let p_center_solver = pos_c_vals.get(p_idx).copied().unwrap_or(0.0);
         let note_text_w = max_line_width(&bounder, &font_m, &note.text);
         let layout_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2 + 2.0 * NOTE_PADDING_X + delta_shadow_note;
-        let layout_left = if is_self_msg && is_reverse {
-            // LEFT note on reverse self-message: CommunicationTileSelfNoteLeft.getMinX()
-            // = tile.getMinX() - note_width = (posC - comp_width - liveDeltaAdj) - layout_w
+        let layout_left = if is_self_msg {
+            // Legacy ArrowAndNoteBox.getStartingX for a self message with a
+            // LEFT note: (int)(c - 5 - notePrefW) + delta, where delta =
+            // -arrowPrefW for <-- (Step1Message push), 0 for -->. The note
+            // edge always extends further left than the arrow stub.
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
             let level = msg_p1_levels.get(msg_idx).copied().unwrap_or(0);
             let live_delta_adj = if level > 0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
-            p_center_solver - comp_width - live_delta_adj - layout_w
+            let note_pref_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2;
+            let delta = if is_reverse { -comp_width } else { 0.0 };
+            (p_center_solver - live_delta_adj - NOTE_PADDING_X - note_pref_w).trunc() + delta
         } else {
             p_center_solver - layout_w
         };
@@ -2623,12 +2719,37 @@ pub fn render_sequence_svg(
     // getStartingX = listMin - 10; frame_x already holds that reservation
     // edge, so the page origin is driven directly by frame_x.
     let mut min_left = min_layout_left;
-    for &(fx, _, _, _) in &group_frames {
-        if fx < min_left {
-            min_left = fx;
+    for (gi, &(fx, _, _, _)) in group_frames.iter().enumerate() {
+        // Participant-driven groups: Java's push is driven by the header's
+        // startX = listMin - 10, and our frame x = listMin - 5, so the page
+        // origin reservation is fx - 5. Graphic-driven (note/self) groups
+        // already store the reservation edge in fx.
+        let left = if graphic_drives_left.get(gi).copied().unwrap_or(false) {
+            fx
+        } else {
+            fx - 5.0
+        };
+        if left < min_left {
+            min_left = left;
         }
     }
     let x_offset = PAGE_MARGIN - min_left.min(0.0);
+    // Post-push trunc carry: Java computes the group frame's left edge at
+    // draw time from the note's re-truncated post-push starting X, so the
+    // fractional part of the push shifts the frame left edge right (the
+    // right edge is unaffected, fx + fw is invariant).
+    for (gi, params) in group_left_carry.iter().enumerate() {
+        if let Some((pc, note_pref_w)) = params {
+            let carry = (pc + x_offset - 5.0 - note_pref_w).trunc()
+                - (pc + 5.0 - note_pref_w).trunc()
+                + 10.0
+                - x_offset;
+            if carry != 0.0 {
+                let (fx, fy, fw, fh) = group_frames[gi];
+                group_frames[gi] = (fx + carry, fy, fw - carry, fh);
+            }
+        }
+    }
     let rightmost_x = pos_d_vals.last().copied().unwrap_or(0.0) + x_offset;
     let title_rightmost = if title_width > 0.0 {
         PAGE_MARGIN + title_width + PAGE_MARGIN + x_offset
@@ -2680,11 +2801,15 @@ pub fn render_sequence_svg(
         // getMaxX = getNotePosition + getPreferredWidth = posC + level*5 + layout_w
         let note_level = if is_reverse { note_p1_levels.get(msg_idx).copied().unwrap_or(0) } else { note_p2_levels.get(msg_idx).copied().unwrap_or(0) };
         let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
-        let layout_right = if is_self_msg && !is_reverse {
-            // RIGHT note on --> self-message: layout_right = posC + comp_width + level_dx + layout_w
+        let layout_right = if is_self_msg {
+            // Legacy ArrowAndNoteBox right edge: noteStartX + notePrefW +
+            // rightShift(5), where noteStartX = (int)(c + 5 + level_dx) +
+            // delta and delta = +arrowPrefW for --> (Step1Message push).
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-            p_center + comp_width + level_dx + layout_w
+            let delta = if is_reverse { 0.0 } else { comp_width };
+            let note_pref_w = note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2;
+            (p_center + level_dx + NOTE_PADDING_X).trunc() + delta + NOTE_PADDING_X + note_pref_w
         } else if note_level > 0 {
             // Activated RIGHT note: the polygon already starts on the shifted
             // live segment (segment.pos2 = center + level*5 + 5), so the
@@ -2704,10 +2829,12 @@ pub fn render_sequence_svg(
         // path_right = noteX + x2 where noteX = posC + level_dx + NOTE_PADDING_X
         // and x2 = (int)(pureTextWidth + oldPaddingX1 + oldPaddingX2)
         let x2 = (note_text_w + NOTE_OLD_PADDING_X1 + NOTE_OLD_PADDING_X2).trunc();
-        let note_x = if is_self_msg && !is_reverse {
+        let note_x = if is_self_msg {
+            // Same anchor as draw_note: (int)(c + 5 + level_dx) + delta.
             let label_w = pre_wrapped_widths.get(msg_idx).copied().unwrap_or_else(|| max_line_width(&bounder, &font_m, &msg_label));
             let comp_width = (label_w + 2.0 * MESSAGE_TEXT_X_OFFSET).max(50.0);
-            p_center + comp_width + level_dx + NOTE_PADDING_X
+            let delta = if is_reverse { 0.0 } else { comp_width };
+            (p_center + level_dx + NOTE_PADDING_X).trunc() + delta
         } else {
             p_center + level_dx + NOTE_PADDING_X
         };
@@ -2731,9 +2858,21 @@ pub fn render_sequence_svg(
         let polygon_x = (pos_c_vals[p_idx] + x_offset + NOTE_PADDING_X).round();
         max_standalone_right = max_standalone_right.max(polygon_x + polygon_w + 1.0);
     }
+    // Java: the group's contribution to freeX is the *drawn chrome* right
+    // edge (listMax), not the layout reservation right. For self-message-
+    // driven right edges the chrome is inset by 5 from the reservation, so
+    // subtract the same chrome_dx_right used when drawing the frame.
     let max_frame_right: f64 = group_frames
         .iter()
-        .map(|&(fx, _, fw, _)| fx + fw + PAGE_MARGIN + x_offset)
+        .enumerate()
+        .map(|(gi, &(fx, _, fw, _))| {
+            let chrome_dx_right = if self_drives_right.get(gi).copied().unwrap_or(false) {
+                5.0
+            } else {
+                0.0
+            };
+            fx + fw - chrome_dx_right + PAGE_MARGIN + x_offset
+        })
         .fold(0.0_f64, f64::max);
 
     let footbox_bottom = if hide_footbox {
@@ -2773,16 +2912,6 @@ pub fn render_sequence_svg(
     } else {
         content_right + 2.0 * PAGE_MARGIN
     };
-    // Override partition frame dimensions to span the full diagram width
-    let full_right = rightmost_x.max(max_note_right).max(max_frame_right);
-    for (gi, group) in groups.iter().enumerate() {
-        if group.group_type == "partition" {
-            let (_, fy, _, fh) = group_frames[gi];
-            let frame_x = PAGE_MARGIN - x_offset;
-            let frame_width = full_right - PAGE_MARGIN;
-            group_frames[gi] = (frame_x, fy, frame_width, fh);
-        }
-    }
     // HEIGHT_EXTRA (1px) is only needed for show_footbox: the +1 from ensure_visible
     // already provides the extra pixel for hide_footbox.
     let height_extra = if hide_footbox { 0.0 } else if has_actor { 0.0 } else { HEIGHT_EXTRA };
@@ -2952,41 +3081,10 @@ pub fn render_sequence_svg(
         }
         let (fx, fy, fw, fh) = group_frames[gi];
         svg.set_fill_color("none");
-        if groups[gi].group_type == "partition" {
-            // Partition: background rect (stroke:none) + label + border, all in background pass
-            svg.set_stroke_color(None);
-            svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
-
-            let tab_label = if groups[gi].comment.is_empty() {
-                "partition".to_string()
-            } else {
-                groups[gi].comment.clone()
-            };
-            let label_w = max_line_width(&bounder, &font_m, &tab_label);
-            svg.set_fill_color(COLOR_TEXT);
-            svg.set_stroke_color(None);
-            svg.set_stroke_width(0.0, None);
-            let label_x = fx + x_offset + (fw - label_w) / 2.0;
-            svg.text(
-                &tab_label,
-                label_x,
-                fy + GROUP_TEXT_Y_OFFSET + 3.0,
-                None,
-                FONT_SIZE_MESSAGE,
-                Some("700"),
-                None,
-                None,
-                label_w,
-                &indexmap::IndexMap::new(),
-                None,
-            );
-
-            svg.set_fill_color("none");
-            svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-            svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-            svg.svg_rectangle(fx + x_offset, fy, fw, fh, 0.0, 0.0, 0.0);
-        } else {
+        // Partitions draw with the standard grouping chrome (JAR: tab header
+        // labeled "partition" + bracketed name, rect spanning the involved
+        // participants only).
+        {
             // Draw background fill rect first (if group has a backcolor)
             if let Some(ref backcolor) = groups[gi].backcolor {
                 svg.set_fill_color(backcolor);
@@ -3006,13 +3104,18 @@ pub fn render_sequence_svg(
             } else {
                 0.0
             };
+            let chrome_dx_right = if self_drives_right.get(gi).copied().unwrap_or(false) {
+                5.0
+            } else {
+                0.0
+            };
             svg.set_fill_color("none");
             svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
             svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
             svg.svg_rectangle(
                 fx + x_offset + chrome_dx,
                 fy,
-                fw - chrome_dx,
+                fw - chrome_dx - chrome_dx_right,
                 fh,
                 0.0,
                 0.0,
@@ -3334,41 +3437,8 @@ pub fn render_sequence_svg(
                 let fx_off = fx + x_offset;
                 let group = &groups[gi];
 
-                // For non-else, non-partition groups: draw header tab + label + condition
-                if group.group_type == "partition" {
-                        // Partition: centered label + separate border rect
-                        let tab_label = if group.comment.is_empty() {
-                            "partition".to_string()
-                        } else {
-                            group.comment.clone()
-                        };
-                        let label_w = max_line_width(&bounder, &font_m, &tab_label);
-
-                        // Label text (13px bold, centered in frame)
-                        svg.set_fill_color(COLOR_TEXT);
-                        svg.set_stroke_color(None);
-                        svg.set_stroke_width(0.0, None);
-                        let label_x = fx_off + (fw - label_w) / 2.0;
-                        svg.text(
-                            &tab_label,
-                            label_x,
-                            fy + GROUP_TEXT_Y_OFFSET + 3.0,
-                            None,
-                            FONT_SIZE_MESSAGE,
-                            Some("700"),
-                            None,
-                            None,
-                            label_w,
-                            &indexmap::IndexMap::new(),
-                            None,
-                        );
-
-                        // Border rect (drawn after label, with stroke)
-                        svg.set_fill_color("none");
-                        svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
-                        svg.set_stroke_width(GROUP_STROKE_WIDTH, None);
-                        svg.svg_rectangle(fx_off, fy, fw, fh, 0.0, 0.0, 0.0);
-                    } else {
+                // Partitions take the standard grouping chrome as well.
+                {
                         // The visible chrome is the in-groupable list bounds.
                         // A self-message arrow tile reaching the list minimum
                         // inset is 5px inside the reservation left edge; an
@@ -3381,8 +3451,13 @@ pub fn render_sequence_svg(
                         } else {
                             0.0
                         };
+                        let chrome_dx_right = if self_drives_right.get(gi).copied().unwrap_or(false) {
+                            5.0
+                        } else {
+                            0.0
+                        };
                         let cx0 = fx_off + chrome_dx;
-                        let cw = fw - chrome_dx;
+                        let cw = fw - chrome_dx - chrome_dx_right;
                         // Determine tab label: for "group" use comment (or "group"),
                         // for other types use the keyword itself
                         let tab_label = if group.group_type == "group" {
@@ -3474,7 +3549,19 @@ pub fn render_sequence_svg(
                 let (fx, _fy, fw, _fh) = group_frames[gi];
                 let fx_off = fx + x_offset;
                 let group = &groups[gi];
-                let divider_y = arrow_ys[msg_idx.saturating_sub(1)] + 9.0;
+                let mut divider_y = arrow_ys[msg_idx.saturating_sub(1)] + 9.0;
+                // Java: the else tile stacks below any deeper nested grouping
+                // whose frame closes exactly at this boundary (frame bottom + 8).
+                for gj in 0..groups.len() {
+                    if groups[gj].group_type == "else"
+                        || groups[gj].msg_end != msg_idx
+                        || groups[gj].nesting_level <= group.nesting_level
+                    {
+                        continue;
+                    }
+                    let (_, gfy, _, gfh) = group_frames[gj];
+                    divider_y = divider_y.max(gfy + gfh + 8.0);
+                }
                 // Dashed divider line across the parent frame
                 svg.set_fill_color("none");
                 svg.set_stroke_color(Some(COLOR_GROUP_STROKE));
@@ -7998,9 +8085,20 @@ fn draw_note(
     // noteH), each vertically centered. Polygon top is component-top (+5
     // oldPaddingY after the NoteBox translate); polygon height truncates the
     // note text height; the note X is an integer (segment pos cast to int).
-    // Self-message notes use MessageSelfArrow/ArrowAndNoteBox with different
-    // geometry and keep the legacy anchor below.
-    let (poly_y_top, poly_height) = if teoz_tile_origin.is_none() && !is_self_msg {
+    let (poly_y_top, poly_height) = if teoz_tile_origin.is_none() && is_self_msg {
+        // Self message: MessageSelfArrow + ArrowAndNoteBox share the tile
+        // sized boxH = max(arrowH, noteH); the note box is centered there.
+        // Tile top = arrow line y - textHeight; polygon top = tile top +
+        // push_n + oldPaddingY(5); polygon height = (int)notePrefH - 2*5.
+        let k = lines.len() as f64;
+        let note_pref_h = k * MSG_LINE_HEIGHT + 10.0 + 2.0 * NOTE_MARGIN_Y;
+        let text_h = (msg_line_count as f64) * MSG_LINE_HEIGHT + 6.0;
+        let arrow_h = text_h + 13.0 + 2.0 * MSG_PADDING_Y;
+        let box_h = arrow_h.max(note_pref_h);
+        let push_n = (box_h - note_pref_h) / 2.0;
+        let tile_top = y - text_h;
+        (tile_top + push_n + NOTE_MARGIN_Y, note_pref_h.trunc() - 2.0 * NOTE_MARGIN_Y)
+    } else if teoz_tile_origin.is_none() {
         let k = lines.len() as f64;
         let note_text_h = 10.0 + k * MSG_LINE_HEIGHT;
         let note_h = note_text_h + 2.0 * NOTE_MARGIN_Y;
@@ -8045,8 +8143,14 @@ fn draw_note(
     let level_dx = (note_level as f64) * ACTIVATION_BAR_EXPLICIT_OFFSET;
     let note_x = match note.position {
         NotePosition::Right => {
-            if is_self_msg && !is_reverse {
-                // RIGHT on --> : polygon at posC + comp_width + level_dx + paddingX
+            if is_self_msg && teoz_tile_origin.is_none() {
+                // Legacy NoteBox on a self message: the anchor segment is
+                // [c-5, c+5]; getStartingX = (int)pos2 + delta, where delta
+                // = +arrowPrefW for --> (Step1Message push), 0 for <--.
+                let delta = if is_reverse { 0.0 } else { comp_width };
+                (p_center + level_dx + NOTE_PADDING_X).trunc() + delta
+            } else if is_self_msg && !is_reverse {
+                // Teoz RIGHT on --> : polygon at posC + comp_width + level_dx + paddingX
                 p_center + comp_width + level_dx + NOTE_PADDING_X
             } else {
                 // RIGHT on <-- or normal: polygon at posC + level_dx + paddingX
@@ -8054,8 +8158,14 @@ fn draw_note(
             }
         }
         NotePosition::Left => {
-            if is_self_msg && is_reverse {
-                // LEFT on <-- : polygon at posC - comp_width - liveDeltaAdj - layout_w + paddingX
+            if is_self_msg && teoz_tile_origin.is_none() {
+                // getStartingX = (int)(pos1 - notePrefW) + delta, where delta
+                // = -arrowPrefW for <-- (Step1Message push), 0 for -->.
+                let live_delta_adj = if msg_p1_level > 0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
+                let delta = if is_reverse { -comp_width } else { 0.0 };
+                (p_center - live_delta_adj - NOTE_PADDING_X - text_width_total).trunc() + delta
+            } else if is_self_msg && is_reverse {
+                // Teoz LEFT on <-- : polygon at posC - comp_width - liveDeltaAdj - layout_w + paddingX
                 // Rose skin uses 2*paddingX (matching older PlantUML with deltaShadow).
                 let live_delta_adj = if msg_p1_level > 0 { ACTIVATION_BAR_EXPLICIT_OFFSET } else { 0.0 };
                 let padding = if skin.skin_rose { 2.0 * NOTE_PADDING_X } else { NOTE_PADDING_X };
@@ -8067,6 +8177,7 @@ fn draw_note(
         }
     };
     // Legacy Puma casts the note segment X to int (NoteBox.getStartingX).
+    // The self-message branches above already apply the cast internally.
     let note_x = if teoz_tile_origin.is_none() && !is_self_msg {
         note_x.trunc()
     } else {
@@ -8100,15 +8211,9 @@ fn draw_note(
     for (line_idx, line) in lines.iter().enumerate() {
         let text_w = bounder.calculate_dimension(font_m, line).width();
         let text_x = note_x + NOTE_OLD_PADDING_X1;
-        let text_y = if teoz_tile_origin.is_some() {
-            note_y_top + NOTE_MARGIN_Y + ASCENT_13 + (line_idx as f64) * MSG_LINE_HEIGHT
-        } else if is_self_msg {
-            note_y_top + 15.111 + (line_idx as f64) * 13.0
-        } else {
-            // ComponentRoseNote: text translated to oldPaddingY(5), first
-            // baseline = +5 + ascent(13.897), line pitch 17.706.
-            note_y_top + NOTE_MARGIN_Y + ASCENT_13 + (line_idx as f64) * MSG_LINE_HEIGHT
-        };
+        // ComponentRoseNote: text translated to oldPaddingY(5), first
+        // baseline = +5 + ascent(13.897), line pitch 17.706.
+        let text_y = note_y_top + NOTE_MARGIN_Y + ASCENT_13 + (line_idx as f64) * MSG_LINE_HEIGHT;
         svg.text(
             line,
             text_x,
